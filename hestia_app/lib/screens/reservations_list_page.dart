@@ -658,6 +658,21 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
   }
 
   Future<void> _openFolio(Map<String, dynamic> reservation) async {
+    final isAdmin = _isAdmin;
+    final isCheckedIn = (reservation['status'] ?? '').toString() == 'arrive';
+    if (!isAdmin && !isCheckedIn) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Le folio est accessible uniquement après check-in, sauf pour les administrateurs.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
     final selection = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (context) {
@@ -724,6 +739,7 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
         builder: (_) => FolioPage(
           reservation: reservation,
           userName: widget.userName,
+          role: widget.role,
           pricingMode: selection['pricing_mode']?.toString() ?? 'fixed',
         ),
       ),
@@ -915,14 +931,17 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                                       icon: const Icon(Icons.edit_outlined),
                                       color: _primaryDark,
                                     ),
-                                  IconButton(
-                                    tooltip: 'Folio',
-                                    onPressed: () => _openFolio(res),
-                                    icon: const Icon(
-                                      Icons.receipt_long_outlined,
+                                  if (_isAdmin ||
+                                      (res['status'] ?? '').toString() ==
+                                          'arrive')
+                                    IconButton(
+                                      tooltip: 'Folio',
+                                      onPressed: () => _openFolio(res),
+                                      icon: const Icon(
+                                        Icons.receipt_long_outlined,
+                                      ),
+                                      color: _primaryDark,
                                     ),
-                                    color: _primaryDark,
-                                  ),
                                   _StatusChip(status: res['status']),
                                 ],
                               ),
@@ -1072,7 +1091,7 @@ class _StatusChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final value = status?.toString() ?? '';
     final label = switch (value) {
-      'arrive' => 'Arrivé',
+      'arrive' => 'Check-in',
       'annule' => 'Annulé',
       _ => 'En attente',
     };
@@ -1129,7 +1148,7 @@ class _ReservationStatusPills extends StatelessWidget {
           onSelected: () => onChanged('en_attente'),
         ),
         _StatusChoiceChip(
-          label: 'Arrivé',
+          label: 'Check-in',
           selected: normalized == 'arrive',
           onSelected: () => onChanged('arrive'),
         ),

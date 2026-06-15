@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\HotelManagementController;
+use App\Http\Controllers\ClientController;
 use App\Http\Controllers\PMSController;
 use Illuminate\Support\Facades\Route;
 
@@ -17,6 +18,7 @@ Route::patch('/reservations/{id}', [HotelManagementController::class, 'updateRes
 Route::get('/active-reservations', [HotelManagementController::class, 'getActiveReservations']);
 
 // PMS Endpoints
+Route::get('/clients/search', [ClientController::class, 'search']);
 Route::post('/reservations/{id}/checkin', [PMSController::class, 'checkIn']);
 Route::get('/reservations/{id}/folio', [PMSController::class, 'getFolio']);
 Route::post('/invoices/{id}/items', [PMSController::class, 'addInvoiceItem']);

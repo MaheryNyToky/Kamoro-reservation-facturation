@@ -456,24 +456,34 @@ Ces endpoints gèrent le check-in, la facturation et les paiements.
 
 | Méthode | Route | Description |
 | --- | --- | --- |
-| `POST` | `/reservations/{id}/checkin` | Enregistre un client (guest) pour une réservation, met à jour le statut à `arrive` et génère ou synchronise le folio. |
+| `GET` | `/clients/search` | Recherche un profil client par nom, prénom, téléphone ou pièce d'identité (auto-complétion). |
+| `POST` | `/reservations/{id}/checkin` | Enregistre un client (guest) pour une réservation, incrémente sa fidélité, met à jour le statut à `arrive` et génère le folio. |
 | `GET` | `/reservations/{id}/folio` | Récupère la facture (folio) associée à une réservation, avec le détail des lignes et des paiements. |
-| `POST` | `/invoices/{id}/items` | Ajoute un élément à la facture (type: `room`, `tax`, `extra`, `deposit`). |
+| `POST` | `/invoices/{id}/items` | Ajoute un élément à la facture (type: `room`, `extra`, `deposit`). |
 | `POST` | `/invoices/{id}/payments` | Enregistre un paiement (méthodes: `Espèces`, `Carte Bancaire`, `Mobile Money`, etc.). |
 | `POST` | `/invoices/{id}/generate-pdf` | Calcule les remises, génère le numéro de facture et produit le fichier PDF. |
 | `GET` | `/invoices/{id}/pdf` | Télécharge le PDF de la facture. |
 | `POST` | `/invoices/{id}/send-email` | Envoie la facture par email au client. |
+
+#### `GET /clients/search`
+
+Recherche un client pour l'auto-complétion. Query param : `query` (chaîne de recherche).
 
 #### `POST /reservations/{id}/checkin`
 
 Payload :
 ```json
 {
+  "first_name": "Jean",
+  "last_name": "Rakoto",
   "full_name": "Jean Rakoto",
   "customer_phone": "0340000000",
+  "phone_number": "0340000000",
   "date_of_birth": "1985-05-20",
   "id_type": "CIN",
   "id_number": "123456789012",
+  "id_document_number": "123456789012",
+  "loyalty_count": 5,
   "id_photo": "(file binary)"
 }
 ```

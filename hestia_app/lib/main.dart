@@ -8,11 +8,13 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'core/app_config.dart';
 import 'core/formatters.dart';
+import 'models/client_profile.dart';
 import 'models/app_user.dart';
 import 'screens/admin_users_page.dart';
 import 'screens/reservations_list_page.dart';
 import 'services/session_service.dart';
 import 'widgets/availability_card.dart';
+import 'widgets/client_autocomplete_field.dart';
 
 const String baseUrl = AppConfig.apiBaseUrl;
 const Color _primary = Color(0xFF0F766E);
@@ -954,7 +956,7 @@ class _ReceptionDashboardContent extends StatelessWidget {
               ),
               _KpiChip(
                 icon: Icons.how_to_reg_outlined,
-                label: 'Arrivé',
+                label: 'Check-in',
                 value: arrivedGuestsCount.toString(),
               ),
             ],
@@ -1233,11 +1235,32 @@ class _NewBookingPageState extends State<NewBookingPage> {
   int _extraMattresses = 0;
   bool _loadingRooms = false;
   bool _isBookingCom = false;
+  ClientProfile? _selectedClient;
 
   @override
   void initState() {
     super.initState();
     _fetchData();
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _phoneController.dispose();
+    _emailController.dispose();
+    super.dispose();
+  }
+
+  String _clientName() {
+    return _nameController.text.trim();
+  }
+
+  void _applyClient(ClientProfile client) {
+    setState(() {
+      _selectedClient = client;
+      _nameController.text = client.displayName;
+      _phoneController.text = client.phoneNumber?.trim() ?? '';
+    });
   }
 
   Future<void> _fetchData() async {
@@ -1280,7 +1303,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
   }
 
   Future<void> _saveBooking() async {
-    if (_nameController.text.isEmpty || _selectedRooms.isEmpty) {
+    if (_clientName().isEmpty || _selectedRooms.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -1310,9 +1333,10 @@ class _NewBookingPageState extends State<NewBookingPage> {
         Uri.parse('$baseUrl/api/bookings'),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({
-          'client_name': _nameController.text,
-          'customer_phone': _phoneController.text,
-          'customer_email': _emailController.text,
+          'client_name': _clientName(),
+          'customer_phone': _phoneController.text.trim(),
+          'customer_email': _emailController.text.trim(),
+          'phone_number': _phoneController.text.trim(),
           'check_in': _checkIn.toIso8601String().substring(0, 10),
           'check_out': _checkOut.toIso8601String().substring(0, 10),
           'room_ids': _selectedRooms.map((r) => r['id']).toList(),
@@ -1441,23 +1465,24 @@ class _NewBookingPageState extends State<NewBookingPage> {
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 children: [
-                  TextField(
+                  ClientAutocompleteField(
                     controller: _nameController,
-                    decoration: const InputDecoration(
-                      labelText: 'Nom du client (Requis)',
-                      prefixIcon: Icon(Icons.person),
-                      border: OutlineInputBorder(),
-                    ),
+                    labelText: 'Nom du client',
+                    prefixIcon: Icons.person_outline,
+                    keyboardType: TextInputType.name,
+                    textInputAction: TextInputAction.next,
+                    valueBuilder: (client) => client.displayName,
+                    onSelected: _applyClient,
                   ),
                   const SizedBox(height: 12),
-                  TextField(
+                  ClientAutocompleteField(
                     controller: _phoneController,
-                    keyboardType: TextInputType.text, // Format libre
-                    decoration: const InputDecoration(
-                      labelText: 'Téléphone (Requis si pas d\'email)',
-                      prefixIcon: Icon(Icons.phone),
-                      border: OutlineInputBorder(),
-                    ),
+                    labelText: 'Téléphone',
+                    prefixIcon: Icons.phone,
+                    keyboardType: TextInputType.phone,
+                    textInputAction: TextInputAction.next,
+                    valueBuilder: (client) => client.phoneNumber?.trim() ?? '',
+                    onSelected: _applyClient,
                   ),
                   const SizedBox(height: 12),
                   TextField(
@@ -1470,6 +1495,24 @@ class _NewBookingPageState extends State<NewBookingPage> {
                     ),
                   ),
                   const SizedBox(height: 12),
+                  if (_selectedClient != null)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE6FFFB),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: _primary),
+                      ),
+                      child: Text(
+                        'Client régulier : ${_selectedClient!.loyaltyCount} visite${_selectedClient!.loyaltyCount > 1 ? 's' : ''}',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: _primaryDark,
+                        ),
+                      ),
+                    ),
+                  if (_selectedClient != null) const SizedBox(height: 12),
                   SwitchListTile(
                     activeThumbColor: _primary,
                     title: const Text(

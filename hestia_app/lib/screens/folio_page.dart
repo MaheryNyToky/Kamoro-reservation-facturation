@@ -22,11 +22,13 @@ class FolioPage extends StatefulWidget {
     super.key,
     required this.reservation,
     required this.userName,
+    required this.role,
     this.pricingMode = 'fixed',
   });
 
   final Map<String, dynamic> reservation;
   final String userName;
+  final String role;
   final String pricingMode;
 
   @override
@@ -42,6 +44,9 @@ class _FolioPageState extends State<FolioPage> {
   int get _invoiceId => _asInt(_folio?['id']);
   bool get _isFinalized => _folio?['status'] == 'finalized';
   bool get _hasPdf => (_folio?['pdf_url'] ?? '').toString().isNotEmpty;
+  bool get _canAccess =>
+      widget.role == 'admin' ||
+      widget.reservation['status']?.toString() == 'arrive';
 
   @override
   void initState() {
@@ -50,6 +55,13 @@ class _FolioPageState extends State<FolioPage> {
   }
 
   Future<void> _fetchFolio() async {
+    if (!_canAccess) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+      return;
+    }
+
     setState(() => _isLoading = true);
     try {
       final response = await http.get(
@@ -431,7 +443,37 @@ class _FolioPageState extends State<FolioPage> {
 
   @override
   Widget build(BuildContext context) {
-    final items = (_folio?['items'] as List<dynamic>? ?? []);
+    if (!_canAccess) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Folio et facturation')),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.lock_outline, size: 48, color: _muted),
+                const SizedBox(height: 12),
+                const Text(
+                  'Le folio n’est accessible qu’après le check-in, sauf pour les administrateurs.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Retour'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    final items = (_folio?['items'] as List<dynamic>? ?? [])
+        .where((item) => (item as Map)['type']?.toString() != 'tax')
+        .toList();
     final payments = (_folio?['payments'] as List<dynamic>? ?? []);
 
     return Scaffold(
@@ -655,6 +697,12 @@ class _SummaryPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final status = folio['status']?.toString() ?? 'open';
+    final guest = folio['guest'];
+    final loyaltyCount = guest is Map ? _asInt(guest['loyalty_count']) : 0;
+    final guestName = guest is Map
+        ? (guest['full_name'] ?? guest['first_name'] ?? '').toString().trim()
+        : '';
+    final hasLoyaltyInfo = guest is Map;
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -681,6 +729,27 @@ class _SummaryPanel extends StatelessWidget {
               _StatusChip(status: status),
             ],
           ),
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: hasLoyaltyInfo
+                  ? const Color(0xFFE6FFFB)
+                  : const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: hasLoyaltyInfo ? _primary : _border),
+            ),
+            child: Text(
+              hasLoyaltyInfo
+                  ? 'Client régulier : $loyaltyCount visite${loyaltyCount > 1 ? 's' : ''}${guestName.isNotEmpty ? ' - $guestName' : ''}'
+                  : 'Fidélité client : information indisponible',
+              style: const TextStyle(
+                fontWeight: FontWeight.w800,
+                color: _primaryDark,
+              ),
+            ),
+          ),
           const SizedBox(height: 12),
           Wrap(
             spacing: 16,
@@ -689,10 +758,6 @@ class _SummaryPanel extends StatelessWidget {
               _AmountMetric(
                 label: 'Total',
                 value: _asPrice(folio['total_amount_ariary']),
-              ),
-              _AmountMetric(
-                label: 'Taxes',
-                value: _asPrice(folio['tax_amount_ariary']),
               ),
               _AmountMetric(
                 label: 'Payé',
@@ -784,11 +849,7 @@ class _InvoiceItemTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       child: ListTile(
-        leading: Icon(switch (item['type']) {
-          'room' => Icons.bed_outlined,
-          'tax' => Icons.receipt_long_outlined,
-          _ => Icons.room_service_outlined,
-        }, color: _primary),
+        leading: const Icon(Icons.bed_outlined, color: _primary),
         title: Text(
           item['description']?.toString() ?? '',
           style: const TextStyle(fontWeight: FontWeight.w800),

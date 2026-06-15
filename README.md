@@ -15,8 +15,9 @@ L'application est composée de trois parties :
 - Authentification du personnel avec gestion des rôles (`admin`, `receptionist`).
 - Tableau de bord réception avec simulation IA des gains de revenus (`ai-revenue-summary`).
 - **Module PMS intégré** : 
-    - **Check-in client** : Prise de photo d'identité (via `image_picker`), enregistrement des informations légales et passage automatique du statut à `arrive`.
-    - **Gestion des Folios** : Facturation détaillée par réservation avec ajout d'extras (lits, matelas, consommations) et de remises.
+    - **Auto-complétion et Fidélité client** : Recherche intelligente de clients existants (nom, téléphone, pièce d'identité) avec pré-remplissage automatique des formulaires de réservation et de check-in, et suivi du nombre de visites (compteur de fidélité incrémenté à chaque paiement).
+    - **Check-in client** : Prise de photo d'identité (via `image_picker`), enregistrement des informations légales, auto-complétion des données des clients réguliers, et passage automatique du statut à `arrive`. Auparavant appelé "Arrivé", le bouton et le processus ont été renommés "Check-in" pour plus de clarté.
+    - **Gestion des Folios** : Facturation détaillée par réservation avec ajout d'extras (lits, matelas, consommations) et de remises. Auparavant, la taxe de séjour s'affichait comme un item standard, elle est désormais extraite de la liste principale. L'accès au folio a également été sécurisé : il n'est plus accessible qu'après le check-in, sauf pour les administrateurs.
     - **Suivi des paiements** : Multi-modes (espèces, carte, mobile money) avec gestion des paiements partiels et soldes.
     - **Documents PDF** : Génération de factures professionnelles au format PDF (via `dompdf`) avec possibilité de partage, impression ou envoi par email directement depuis l'application Flutter.
 - Gestion des extras (lits supplémentaires, matelas).

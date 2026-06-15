@@ -12,6 +12,11 @@ class Guest extends Model
 
     protected $fillable = [
         'reservation_id',
+        'first_name',
+        'last_name',
+        'phone_number',
+        'id_document_number',
+        'loyalty_count',
         'full_name',
         'date_of_birth',
         'id_type',
@@ -21,6 +26,7 @@ class Guest extends Model
 
     protected $casts = [
         'date_of_birth' => 'date:Y-m-d',
+        'loyalty_count' => 'integer',
     ];
 
     public function reservation(): BelongsTo

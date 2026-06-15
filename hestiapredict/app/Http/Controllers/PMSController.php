@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class PMSController extends Controller
@@ -28,9 +29,14 @@ class PMSController extends Controller
         $validated = $request->validate([
             'full_name' => 'required|string|max:255',
             'customer_phone' => 'nullable|string|max:50',
+            'phone_number' => 'nullable|string|max:50',
             'date_of_birth' => 'required|date',
             'id_type' => 'required|in:CIN,Passeport,Permis',
             'id_number' => 'required|string|max:100',
+            'id_document_number' => 'nullable|string|max:100',
+            'loyalty_count' => 'nullable|integer|min:0',
+            'first_name' => 'nullable|string|max:120',
+            'last_name' => 'nullable|string|max:120',
             'id_photo' => 'nullable|image|max:5120',
         ]);
 
@@ -55,6 +61,14 @@ class PMSController extends Controller
             $guest = Guest::updateOrCreate(
                 ['reservation_id' => $reservation->id],
                 [
+                    'first_name' => $validated['first_name'] ?? null,
+                    'last_name' => $validated['last_name'] ?? null,
+                    'phone_number' => $validated['phone_number']
+                        ?? $validated['customer_phone']
+                        ?? $reservation->customer_phone
+                        ?? $reservation->client_phone,
+                    'id_document_number' => $validated['id_document_number'] ?? $validated['id_number'],
+                    'loyalty_count' => (int) ($validated['loyalty_count'] ?? $reservation->guest?->loyalty_count ?? 0),
                     'full_name' => $validated['full_name'],
                     'date_of_birth' => $validated['date_of_birth'],
                     'id_type' => $validated['id_type'],
@@ -87,7 +101,7 @@ class PMSController extends Controller
     {
         $validated = $request->validate([
             'description' => 'required|string|max:255',
-            'type' => 'required|in:room,tax,extra,deposit',
+            'type' => 'required|in:room,extra,deposit',
             'amount_ariary' => 'required|integer|min:0',
             'quantity' => 'required|integer|min:1',
         ]);
@@ -122,36 +136,52 @@ class PMSController extends Controller
             'processed_by_name' => 'nullable|string|max:120',
         ]);
 
-        $invoice = Invoice::with('payments')->findOrFail($id);
-        if ($invoice->status === 'finalized') {
-            return response()->json(['message' => 'Facture finalisée, paiement impossible.'], 400);
-        }
+        $result = DB::transaction(function () use ($validated, $id) {
+            $invoice = Invoice::with(['payments', 'reservation.guest'])->lockForUpdate()->findOrFail($id);
 
-        $remainingAmount = max(0, (int) $invoice->balance_amount_ariary);
-        if ($remainingAmount <= 0) {
-            return response()->json(['message' => 'Cette facture est déjà soldée.'], 422);
-        }
+            if ($invoice->status === 'finalized') {
+                throw ValidationException::withMessages([
+                    'invoice' => 'Facture finalisée, paiement impossible.',
+                ]);
+            }
 
-        if ((int) $validated['amount_ariary'] > $remainingAmount) {
-            return response()->json([
-                'message' => 'Le paiement dépasse le reste à payer.',
-            ], 422);
-        }
+            $remainingAmount = max(0, (int) $invoice->balance_amount_ariary);
+            if ($remainingAmount <= 0) {
+                throw ValidationException::withMessages([
+                    'amount_ariary' => 'Cette facture est déjà soldée.',
+                ]);
+            }
 
-        $payment = Payment::create([
-            'invoice_id' => $invoice->id,
-            'amount_ariary' => $validated['amount_ariary'],
-            'payment_method' => $validated['payment_method'],
-            'reference' => $validated['reference'] ?? null,
-            'processed_by_name' => $validated['processed_by_name'] ?? null,
-        ]);
+            if ((int) $validated['amount_ariary'] > $remainingAmount) {
+                throw ValidationException::withMessages([
+                    'amount_ariary' => 'Le paiement dépasse le reste à payer.',
+                ]);
+            }
 
-        $this->updatePaymentStatus($invoice->refresh());
+            $payment = Payment::create([
+                'invoice_id' => $invoice->id,
+                'amount_ariary' => $validated['amount_ariary'],
+                'payment_method' => $validated['payment_method'],
+                'reference' => $validated['reference'] ?? null,
+                'processed_by_name' => $validated['processed_by_name'] ?? null,
+            ]);
+
+            $guest = $invoice->reservation?->guest;
+            if ($guest) {
+                $guest->increment('loyalty_count');
+            }
+
+            $this->updatePaymentStatus($invoice->refresh());
+
+            return [
+                'payment' => $payment,
+                'invoice' => $this->folioPayload($invoice->refresh()),
+            ];
+        });
 
         return response()->json([
             'message' => 'Paiement enregistré',
-            'payment' => $payment,
-            'invoice' => $this->folioPayload($invoice->refresh()),
+            ...$result,
         ]);
     }
 
@@ -234,8 +264,8 @@ class PMSController extends Controller
             ['status' => 'open'],
         );
 
-        if ($invoice->items()->whereIn('type', ['room', 'tax'])->doesntExist()) {
-            $this->seedRoomAndTaxItems($invoice, $reservation);
+        if ($invoice->items()->where('type', 'room')->doesntExist()) {
+            $this->seedRoomItems($invoice, $reservation);
         }
 
         if ($invoice->status !== 'finalized') {
@@ -247,7 +277,7 @@ class PMSController extends Controller
         return $invoice->refresh()->load(['items', 'payments', 'reservation.guest']);
     }
 
-    private function seedRoomAndTaxItems(Invoice $invoice, Reservation $reservation): void
+    private function seedRoomItems(Invoice $invoice, Reservation $reservation): void
     {
         $checkIn = Carbon::parse($reservation->check_in_date);
         $checkOut = Carbon::parse($reservation->check_out_date);
@@ -261,14 +291,6 @@ class PMSController extends Controller
                 'description' => "Chambre {$room->room_number} ({$room->type}) - {$nights} nuit(s)",
                 'type' => 'room',
                 'amount_ariary' => $pricePerNight,
-                'quantity' => $nights,
-            ]);
-
-            InvoiceItem::create([
-                'invoice_id' => $invoice->id,
-                'description' => "Taxe de séjour - Chambre {$room->room_number}",
-                'type' => 'tax',
-                'amount_ariary' => self::TOURIST_TAX_PER_ROOM_NIGHT,
                 'quantity' => $nights,
             ]);
         }
@@ -304,15 +326,12 @@ class PMSController extends Controller
     private function recalculateInvoice(Invoice $invoice): void
     {
         $items = $invoice->items()->get();
-        $taxAmount = (int) $items
-            ->where('type', 'tax')
-            ->sum(fn (InvoiceItem $item) => $item->amount_ariary * $item->quantity);
-        $subtotal = (int) $items->whereNotIn('type', ['tax'])->sum(fn (InvoiceItem $item) => $item->amount_ariary * $item->quantity);
+        $subtotal = (int) $items->sum(fn (InvoiceItem $item) => $item->amount_ariary * $item->quantity);
         $discountAmount = (int) $invoice->discount_amount_ariary;
         $total = max(0, $subtotal - $discountAmount);
 
         $invoice->update([
-            'tax_amount_ariary' => $taxAmount,
+            'tax_amount_ariary' => 0,
             'total_amount_ariary' => $total,
         ]);
 
@@ -357,7 +376,6 @@ class PMSController extends Controller
             'invoice_number' => $invoice->invoice_number,
             'status' => $invoice->status,
             'total_amount_ariary' => (int) $invoice->total_amount_ariary,
-            'tax_amount_ariary' => (int) $invoice->tax_amount_ariary,
             'discount_mode' => $invoice->discount_mode,
             'discount_value' => $invoice->discount_value,
             'discount_amount_ariary' => (int) $invoice->discount_amount_ariary,
@@ -366,7 +384,9 @@ class PMSController extends Controller
             'pdf_url' => $invoice->pdf_path ? url("/api/invoices/{$invoice->id}/pdf") : null,
             'finalized_at' => optional($invoice->finalized_at)->toDateTimeString(),
             'guest' => $invoice->reservation?->guest,
-            'items' => $invoice->items->map(fn (InvoiceItem $item) => [
+            'items' => $invoice->items
+                ->where('type', '!=', 'tax')
+                ->map(fn (InvoiceItem $item) => [
                 'id' => $item->id,
                 'description' => $item->description,
                 'type' => $item->type,
@@ -393,7 +413,8 @@ class PMSController extends Controller
         $checkOut = $invoice->reservation->check_out_date->format('d/m/Y');
         $paidAmount = (int) $invoice->paid_amount_ariary;
         $balanceAmount = (int) $invoice->balance_amount_ariary;
-        $subtotal = (int) $invoice->items->whereNotIn('type', ['tax'])->sum(fn (InvoiceItem $item) => $item->amount_ariary * $item->quantity);
+        $visibleItems = $invoice->items->where('type', '!=', 'tax');
+        $subtotal = (int) $visibleItems->sum(fn (InvoiceItem $item) => $item->amount_ariary * $item->quantity);
         $discountAmount = (int) $invoice->discount_amount_ariary;
         $paymentStatus = $balanceAmount > 0 ? 'Non soldée' : 'Payée';
         $paymentNotice = $balanceAmount > 0
@@ -402,7 +423,7 @@ class PMSController extends Controller
         $rows = '';
         $paymentRows = '';
 
-        foreach ($invoice->items->whereNotIn('type', ['tax']) as $item) {
+        foreach ($visibleItems as $item) {
             $lineTotal = $item->quantity * $item->amount_ariary;
             $rows .= '<tr>'
                 . '<td>' . e($item->description) . '</td>'
