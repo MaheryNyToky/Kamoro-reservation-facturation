@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -32,7 +32,8 @@ class _CheckInPageState extends State<CheckInPage> {
 
   DateTime? _dateOfBirth;
   String _idType = 'CIN';
-  File? _idPhoto;
+  Uint8List? _idPhotoBytes;
+  String? _idPhotoName;
   bool _isLoading = false;
   ClientProfile? _selectedClient;
 
@@ -108,8 +109,12 @@ class _CheckInPageState extends State<CheckInPage> {
   Future<void> _pickImage(ImageSource source) async {
     final XFile? pickedFile = await _picker.pickImage(source: source);
     if (pickedFile != null) {
+      final bytes = await pickedFile.readAsBytes();
       setState(() {
-        _idPhoto = File(pickedFile.path);
+        _idPhotoBytes = bytes;
+        _idPhotoName = pickedFile.name.isNotEmpty
+            ? pickedFile.name
+            : 'id_photo.jpg';
       });
     }
   }
@@ -181,11 +186,12 @@ class _CheckInPageState extends State<CheckInPage> {
       request.fields['id_number'] = _idNumberController.text.trim();
       request.fields['id_document_number'] = _idNumberController.text.trim();
 
-      if (_idPhoto != null) {
+      if (_idPhotoBytes != null) {
         request.files.add(
-          await http.MultipartFile.fromPath(
+          http.MultipartFile.fromBytes(
             'id_photo',
-            _idPhoto!.path,
+            _idPhotoBytes!,
+            filename: _idPhotoName ?? 'id_photo.jpg',
             contentType: MediaType('image', 'jpeg'),
           ),
         );
@@ -382,9 +388,9 @@ class _CheckInPageState extends State<CheckInPage> {
                   ),
                 ],
               ),
-              if (_idPhoto != null) ...[
+              if (_idPhotoBytes != null) ...[
                 const SizedBox(height: 8),
-                Image.file(_idPhoto!, height: 200, fit: BoxFit.cover),
+                Image.memory(_idPhotoBytes!, height: 200, fit: BoxFit.cover),
               ],
               const SizedBox(height: 32),
               ElevatedButton(
