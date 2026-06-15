@@ -18,6 +18,8 @@ tags:
     description: Creation et gestion des reservations.
   - name: Dashboard
     description: Predictions, yield et audit.
+  - name: PMS
+    description: Check-in, client et facturation.
   - name: Users
     description: Gestion du staff.
 paths:
@@ -152,6 +154,75 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "422":
           $ref: "#/components/responses/ValidationError"
+  /reservations/{id}:
+    put:
+      tags: [Bookings]
+      summary: Mettre a jour une reservation
+      operationId: updateReservation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateReservationRequest"
+      responses:
+        "200":
+          description: Reservation mise a jour.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: {type: string}
+                  reservation: {$ref: "#/components/schemas/Reservation"}
+        "404":
+          description: Reservation introuvable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    patch:
+      tags: [Bookings]
+      summary: Mettre a jour une reservation
+      operationId: patchReservation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateReservationRequest"
+      responses:
+        "200":
+          description: Reservation mise a jour.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: {type: string}
+                  reservation: {$ref: "#/components/schemas/Reservation"}
+        "404":
+          description: Reservation introuvable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ValidationError"
   /reservations/all:
     get:
       tags: [Bookings]
@@ -267,7 +338,7 @@ paths:
   /reservations/{id}/checkin:
     post:
       tags: [PMS]
-      summary: Enregistre un client et génère la facture
+      summary: Enregistre un client et met à jour la réservation
       operationId: checkInGuest
       parameters:
         - name: id
@@ -309,6 +380,33 @@ paths:
                   message: {type: string}
                   guest: {$ref: "#/components/schemas/Guest"}
                   reservation: {$ref: "#/components/schemas/Reservation"}
+  /clients/search:
+    get:
+      tags: [PMS]
+      summary: Rechercher un client pour l'auto-complétion
+      operationId: searchClients
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 100
+          example: Rakoto
+      responses:
+        "200":
+          description: Clients trouvés.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ClientSearchResult"
   /reservations/{id}/folio:
     get:
       tags: [PMS]
@@ -349,7 +447,7 @@ paths:
                 description: {type: string}
                 type:
                   type: string
-                  enum: [room, tax, extra, deposit]
+                  enum: [room, extra, deposit]
                 amount_ariary: {type: integer}
                 quantity: {type: integer}
       responses:
@@ -819,6 +917,41 @@ components:
         cancelled_by_name:
           type: string
           nullable: true
+    UpdateReservationRequest:
+      type: object
+      required: [client_name, check_in, check_out, room_ids]
+      properties:
+        client_name:
+          type: string
+          example: Jean Rakoto
+        customer_phone:
+          type: string
+          nullable: true
+          example: "0340000000"
+        customer_email:
+          type: string
+          nullable: true
+          example: jean@example.com
+        check_in:
+          type: string
+          format: date
+          example: "2026-07-01"
+        check_out:
+          type: string
+          format: date
+          example: "2026-07-03"
+        room_ids:
+          type: array
+          minItems: 1
+          items:
+            type: integer
+          example: [12, 13]
+        extra_beds:
+          type: integer
+          default: 0
+        extra_mattresses:
+          type: integer
+          default: 0
     Reservation:
       type: object
       properties:
@@ -996,6 +1129,47 @@ components:
         id_type: {type: string}
         id_number: {type: string}
         id_photo_path: {type: string, nullable: true}
+    ClientSearchResult:
+      type: object
+      properties:
+        id: {type: integer}
+        reservation_id: {type: integer, nullable: true}
+        full_name: {type: string}
+        first_name: {type: string, nullable: true}
+        last_name: {type: string, nullable: true}
+        phone_number: {type: string, nullable: true}
+        date_of_birth:
+          type: string
+          format: date
+          nullable: true
+        id_type: {type: string, nullable: true}
+        id_number: {type: string, nullable: true}
+        id_document_number: {type: string, nullable: true}
+        id_photo_path: {type: string, nullable: true}
+        loyalty_count: {type: integer}
+        created_at: {type: string, nullable: true}
+        updated_at: {type: string, nullable: true}
+        reservation:
+          type: object
+          nullable: true
+          properties:
+            id: {type: integer}
+            booking_reference: {type: string}
+            client_name: {type: string}
+            client_phone: {type: string, nullable: true}
+            customer_phone: {type: string, nullable: true}
+            customer_email: {type: string, nullable: true}
+            status: {type: string}
+            payment_status: {type: string}
+            check_in_date:
+              type: string
+              format: date
+              nullable: true
+            check_out_date:
+              type: string
+              format: date
+              nullable: true
+            source: {type: string, nullable: true}
     Invoice:
       type: object
       properties:
@@ -1021,7 +1195,7 @@ components:
       properties:
         id: {type: integer}
         description: {type: string}
-        type: {type: string, enum: [room, tax, extra, deposit]}
+        type: {type: string, enum: [room, extra, deposit]}
         amount_ariary: {type: integer}
         quantity: {type: integer}
         line_total_ariary: {type: integer}

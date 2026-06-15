@@ -69,6 +69,21 @@ paths:
                     - date: "2026-06-05"
                       room_type: Chambre Double - Superieure
                       rooms_booked: 5
+                    - date: "2026-06-06"
+                      room_type: Chambre Double - Superieure
+                      rooms_booked: 4
+                    - date: "2026-06-07"
+                      room_type: Chambre Double - Superieure
+                      rooms_booked: 6
+                    - date: "2026-06-08"
+                      room_type: Chambre Double - Superieure
+                      rooms_booked: 5
+                    - date: "2026-06-09"
+                      room_type: Chambre Double - Superieure
+                      rooms_booked: 4
+                    - date: "2026-06-10"
+                      room_type: Chambre Double - Superieure
+                      rooms_booked: 6
                   room_capacities:
                     Chambre Double - Superieure: 8
                   yield_strategy:
@@ -141,6 +156,9 @@ components:
     PredictionRequest:
       type: object
       required: [base_prices, history]
+      description: >
+        Le moteur attend au moins 10 lignes d'historique au total. Une
+        catégorie est ignorée si elle dispose de moins de 5 lignes.
       properties:
         base_prices:
           type: object
@@ -161,6 +179,7 @@ components:
           example: "2026-07-01"
         history:
           type: array
+          minItems: 10
           items:
             $ref: "#/components/schemas/HistoricData"
         room_capacities:

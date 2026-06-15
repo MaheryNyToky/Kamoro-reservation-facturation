@@ -1,34 +1,22 @@
 # HestiaPredict - Kamoro Hotel
 
-HestiaPredict est une application de gestion hôtelière conçue pour le Kamoro Hotel. Le projet centralise la disponibilité des chambres, la création des réservations, la gestion du personnel, le suivi des arrivées et un moteur de yield management basé sur des prévisions d'occupation.
+HestiaPredict est une application web de gestion hôtelière pour réception, réservations, check-in, folios, paiements et prévisions de prix.
 
-L'application est composée de trois parties :
+Le projet est composé de trois parties :
 
 | Partie | Technologie | Dossier | Rôle |
 | --- | --- | --- | --- |
-| Application staff | Flutter Web | `hestia_app` | Interface réception et gestion des réservations |
-| Backend métier | Laravel | `hestiapredict` | API principale, base de données, règles métier, fallback tarifaire |
-| Moteur IA | FastAPI + Prophet | `hestia-ai` | Prévisions d'occupation et suggestions de prix |
+| Interface staff | Flutter Web | `hestia_app` | Écran de réception et gestion des opérations |
+| Backend métier | Laravel | `hestiapredict` | API, base de données, règles métier |
+| Moteur IA | FastAPI + Prophet | `hestia-ai` | Prévisions d’occupation et suggestions de prix |
 
-## Fonctionnalités
+## Ce que fait l'application
 
-- Authentification du personnel avec gestion des rôles (`admin`, `receptionist`).
-- Tableau de bord réception avec simulation IA des gains de revenus (`ai-revenue-summary`).
-- **Module PMS intégré** : 
-    - **Auto-complétion et Fidélité client** : Recherche intelligente de clients existants (nom, téléphone, pièce d'identité) avec pré-remplissage automatique des formulaires de réservation et de check-in, et suivi du nombre de visites (compteur de fidélité incrémenté à chaque paiement).
-    - **Check-in client** : Prise de photo d'identité (via `image_picker`), enregistrement des informations légales, auto-complétion des données des clients réguliers, et passage automatique du statut à `arrive`. Auparavant appelé "Arrivé", le bouton et le processus ont été renommés "Check-in" pour plus de clarté.
-    - **Gestion des Folios** : Facturation détaillée par réservation avec ajout d'extras (lits, matelas, consommations) et de remises. Auparavant, la taxe de séjour s'affichait comme un item standard, elle est désormais extraite de la liste principale. L'accès au folio a également été sécurisé : il n'est plus accessible qu'après le check-in, sauf pour les administrateurs.
-    - **Suivi des paiements** : Multi-modes (espèces, carte, mobile money) avec gestion des paiements partiels et soldes.
-    - **Documents PDF** : Génération de factures professionnelles au format PDF (via `dompdf`) avec possibilité de partage, impression ou envoi par email directement depuis l'application Flutter.
-- Gestion des extras (lits supplémentaires, matelas).
-- Disponibilité en temps réel par catégorie de chambre avec **cache-busting** pour garantir la fraîcheur des données.
-- Recherche et filtrage avancé des réservations.
-- **Accès historique sécurisé** : Les administrateurs peuvent consulter l'historique complet, tandis que le staff est limité aux réservations futures et présentes.
-- Création de réservations multi-chambres avec capture du prix au moment de la vente (`price_snapshot`).
-- Gestion des statuts : `en_attente`, `arrive` (payé/partiel/non payé), `annule`.
-- Moteur IA basé sur **Facebook Prophet** pour les prévisions d'occupation et suggestions de prix dynamiques.
-- Documentation OpenAPI complète pour les deux backends.
-- Tests automatisés Laravel (Feature/Unit), FastAPI et Flutter.
+- gérer les réservations et les disponibilités des chambres ;
+- faire les check-in avec auto-complétion client et photo d'identité ;
+- gérer les folios, les extras et les paiements partiels ;
+- consulter l'historique des réservations selon le rôle ;
+- calculer des prix suggérés à partir de l'occupation passée.
 
 ## Architecture
 
@@ -44,9 +32,9 @@ Laravel API
 FastAPI AI Engine
 ```
 
-Le frontend Flutter appelle uniquement Laravel. Laravel reste la source de vérité pour les chambres, réservations, utilisateurs et règles métier. FastAPI est un service stateless appelé par Laravel pour produire des prédictions.
+Le frontend Flutter appelle Laravel. Laravel reste la source de vérité pour les chambres, réservations, utilisateurs et règles métier. FastAPI est un service stateless utilisé pour les prédictions.
 
-Si FastAPI ne répond pas, Laravel renvoie automatiquement des prix planchers via le mode fallback. Cela permet à l'application de rester utilisable même sans IA.
+Si FastAPI ne répond pas, Laravel bascule automatiquement sur des prix planchers. L'application reste donc utilisable sans le moteur IA.
 
 ## Structure Du Projet
 
@@ -57,14 +45,13 @@ Si FastAPI ne répond pas, Laravel renvoie automatiquement des prix planchers vi
 ├── hestia-ai/               # Moteur IA FastAPI
 ├── docs/                    # Documentation API et OpenAPI
 ├── dev.sh                   # Lancement complet en mode développement
+├── dev.ps1                  # Lancement Windows
 ├── start_project.sh         # Lancement simple avec build Flutter web existant
 ├── docker-compose.yml       # Base Docker expérimentale
 └── database.sqlite          # Base SQLite locale utilisée par Laravel
 ```
 
 ## Prérequis
-
-Installer les outils suivants :
 
 | Outil | Version recommandée |
 | --- | --- |
@@ -76,6 +63,17 @@ Installer les outils suivants :
 | Flutter | SDK compatible Dart `^3.12.1` |
 | SQLite | Inclus sur macOS/Linux dans la plupart des environnements |
 
+Liens officiels d'installation :
+
+| Outil | Lien |
+| --- | --- |
+| Git | https://git-scm.com/downloads |
+| PHP | https://www.php.net/downloads |
+| Composer | https://getcomposer.org/download/ |
+| Node.js | https://nodejs.org/en/download |
+| Python | https://www.python.org/downloads/ |
+| Flutter | https://docs.flutter.dev/get-started/install |
+
 Vérification rapide :
 
 ```bash
@@ -84,6 +82,18 @@ composer --version
 node -v
 npm -v
 python3 --version
+flutter --version
+```
+
+Sur Windows, installer ces outils puis redémarrer le terminal pour que tout soit disponible dans le `PATH`.
+Si une commande manque, vérifier dans un terminal :
+
+```powershell
+php -v
+composer --version
+node -v
+npm -v
+python --version
 flutter --version
 ```
 
@@ -150,12 +160,33 @@ cd ../hestia_app
 flutter pub get
 ```
 
+## Premier Démarrage
+
+1. Lancer le script adapté à votre système.
+2. Attendre que les trois services soient prêts.
+3. Ouvrir l'URL de l'application Flutter dans le navigateur.
+4. Se connecter avec un compte de démonstration.
+5. Tester une réservation, un check-in et le folio.
+
 ## Lancement Rapide
 
 Depuis la racine du projet :
 
 ```bash
 ./dev.sh
+```
+
+Sous Windows :
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\dev.ps1
+```
+
+Si une commande n'est pas reconnue sur Windows, vérifier que `php`, `flutter`, `python` et `powershell` sont bien installés et disponibles dans le `PATH`.
+Si `dev.ps1` est bloqué par la politique d'exécution, lancer PowerShell en administrateur puis exécuter :
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ```
 
 Le script lance :
@@ -173,39 +204,22 @@ Arrêter les services :
 pkill -f 'uvicorn main:app|php artisan serve|php -S 127.0.0.1:8080|php -S localhost:8080'
 ```
 
-## Lancement Manuel
+## Test Local
 
-### FastAPI
+Le parcours recommandé est l'application Flutter Web dans un navigateur.
 
-```bash
-cd hestia-ai
-./venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8001
-```
+- Sur macOS ou Linux, exécuter `./dev.sh` depuis la racine du projet.
+- Sur Windows, exécuter `powershell -ExecutionPolicy Bypass -File .\dev.ps1` depuis la racine du projet.
+- Les scripts créent automatiquement la base SQLite locale si elle est absente, puis lancent l'IA, Laravel et le frontend web.
+- Ouvrir ensuite `http://127.0.0.1:8080/index.html` et se connecter avec les comptes de démonstration.
 
-### Laravel
+À vérifier :
 
-```bash
-cd hestiapredict
-AI_ENGINE_URL=http://127.0.0.1:8001 php artisan serve --host=127.0.0.1 --port=8000
-```
-
-### Flutter Web
-
-Le script `dev.sh` construit désormais l'application Flutter et la sert via PHP pour une meilleure stabilité.
-Pour le faire manuellement :
-
-```bash
-cd hestia_app
-flutter build web --pwa-strategy=none --dart-define=API_BASE_URL=http://127.0.0.1:8000
-cd build/web
-php -S 127.0.0.1:8080
-```
-
-Pour pointer Flutter vers une autre API lors du build :
-
-```bash
-flutter build web --pwa-strategy=none --dart-define=API_BASE_URL=http://votre-api.com
-```
+- connexion avec `admin@kamorohotel.com` / `admin123` ou `reco1@kamorohotel.com` / `reco123` ;
+- création et modification de réservation ;
+- check-in d'une réservation ;
+- consultation du folio et des paiements ;
+- affichage des disponibilités et des suggestions de yield.
 
 ## Comptes De Démonstration
 
@@ -217,44 +231,6 @@ Après exécution du seeder `KamoroHotelSeeder`, les comptes suivants sont dispo
 | Réceptionniste | `reco1@kamorohotel.com` | `reco123` |
 
 Ces identifiants sont destinés à un environnement local ou de démonstration. Ne pas les utiliser en production.
-
-## Variables D'Environnement
-
-### Laravel
-
-Fichier : `hestiapredict/.env`
-
-| Variable | Description | Exemple |
-| --- | --- | --- |
-| `APP_ENV` | Environnement Laravel | `local` |
-| `APP_DEBUG` | Affichage des erreurs détaillées | `true` |
-| `APP_KEY` | Clé applicative Laravel | générée par `php artisan key:generate` |
-| `DB_CONNECTION` | Driver de base de données | `sqlite` |
-| `DB_DATABASE` | Chemin de la base SQLite | `../database.sqlite` |
-| `AI_ENGINE_URL` | URL du moteur FastAPI | `http://127.0.0.1:8001` |
-| `CORS_ALLOWED_ORIGINS` | Origines autorisées pour Flutter | `http://localhost:8080,http://127.0.0.1:8080` |
-
-### Flutter
-
-La base URL de l'API est définie dans `hestia_app/lib/core/app_config.dart`.
-
-Valeur par défaut :
-
-```text
-http://localhost:8000
-```
-
-Override à l'exécution :
-
-```bash
---dart-define=API_BASE_URL=http://localhost:8000
-```
-
-Le mode démo admin est désactivé par défaut. Il ne doit être activé que localement :
-
-```bash
---dart-define=ENABLE_DEMO_MODE=true
-```
 
 ## Documentation API
 
@@ -303,28 +279,6 @@ dart analyze
 flutter test
 ```
 
-## Qualité Et Sécurité
-
-Le projet applique plusieurs garde-fous :
-
-- validation stricte des entrées Laravel ;
-- mots de passe hashés via le cast Laravel `hashed` ;
-- CORS configurable via variable d'environnement ;
-- moteur IA bindé localement en développement ;
-- mode fallback lorsque FastAPI est indisponible ;
-- prix fixes non modifiables par le yield ;
-- prix dynamiques jamais inférieurs au prix plancher ;
-- tests de non-régression sur les calculs de prix.
-
-Point à prévoir pour une mise en production :
-
-- ajouter une authentification API complète avec Sanctum ou Passport ;
-- protéger les routes sensibles par rôle ;
-- remplacer les identifiants de démonstration ;
-- configurer HTTPS ;
-- déplacer la base SQLite vers PostgreSQL ou MySQL ;
-- ajouter une CI pour exécuter les tests et valider les specs OpenAPI.
-
 ## Build Production
 
 ### Flutter Web
@@ -363,7 +317,7 @@ cd hestia-ai
 
 ### Flutter ne reflète pas les modifications
 
-Relancer simplement le script global de développement ou relancer manuellement le build et le serveur local :
+Relancer le script global de développement ou le build et le serveur local :
 
 ```bash
 pkill -f 'php -S 127.0.0.1:8080'
@@ -373,7 +327,7 @@ cd build/web
 php -S 127.0.0.1:8080
 ```
 
-Dans Safari ou Chrome, faire un rafraîchissement complet ou vider le cache (la PWA est désactivée en dev pour éviter la persistance).
+Dans Safari ou Chrome, faire un rafraîchissement complet ou vider le cache.
 
 ### FastAPI ne démarre pas
 

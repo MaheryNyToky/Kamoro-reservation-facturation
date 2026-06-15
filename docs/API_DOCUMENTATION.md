@@ -332,6 +332,31 @@ Réponse :
 ]
 ```
 
+### `PUT /reservations/{id}` / `PATCH /reservations/{id}`
+
+Met à jour une réservation existante.
+
+Payload :
+
+```json
+{
+  "client_name": "Jean Rakoto",
+  "customer_phone": "0340000000",
+  "customer_email": "jean@example.com",
+  "check_in": "2026-07-01",
+  "check_out": "2026-07-03",
+  "room_ids": [12, 13],
+  "extra_beds": 1,
+  "extra_mattresses": 2
+}
+```
+
+Règles importantes :
+
+- au moins un téléphone ou un email doit être fourni ;
+- les chambres et les extras sont revalidés côté Laravel ;
+- la route sert à modifier la réservation, pas le statut ni le paiement.
+
 ### `GET /active-reservations`
 
 Retourne les réservations présentes sur une date donnée, avec un format plus compact.
@@ -457,7 +482,7 @@ Ces endpoints gèrent le check-in, la facturation et les paiements.
 | Méthode | Route | Description |
 | --- | --- | --- |
 | `GET` | `/clients/search` | Recherche un profil client par nom, prénom, téléphone ou pièce d'identité (auto-complétion). |
-| `POST` | `/reservations/{id}/checkin` | Enregistre un client (guest) pour une réservation, incrémente sa fidélité, met à jour le statut à `arrive` et génère le folio. |
+| `POST` | `/reservations/{id}/checkin` | Enregistre un client (guest) pour une réservation, incrémente sa fidélité et met à jour le statut à `arrive`. Le folio est créé à la première consultation de `/reservations/{id}/folio`. |
 | `GET` | `/reservations/{id}/folio` | Récupère la facture (folio) associée à une réservation, avec le détail des lignes et des paiements. |
 | `POST` | `/invoices/{id}/items` | Ajoute un élément à la facture (type: `room`, `extra`, `deposit`). |
 | `POST` | `/invoices/{id}/payments` | Enregistre un paiement (méthodes: `Espèces`, `Carte Bancaire`, `Mobile Money`, etc.). |
@@ -467,7 +492,7 @@ Ces endpoints gèrent le check-in, la facturation et les paiements.
 
 #### `GET /clients/search`
 
-Recherche un client pour l'auto-complétion. Query param : `query` (chaîne de recherche).
+Recherche un client pour l'auto-complétion. Query param : `q` (chaîne de recherche).
 
 #### `POST /reservations/{id}/checkin`
 
@@ -541,6 +566,12 @@ Réponse :
 
 Calcule les prédictions à partir d'un historique agrégé.
 
+Contraintes à respecter :
+
+- au moins `10` lignes d'historique au total ;
+- au moins `5` lignes par `room_type` pour qu'une catégorie soit prédite ;
+- `days_to_predict` est plafonné à `365`.
+
 Payload :
 
 ```json
@@ -551,11 +582,16 @@ Payload :
   "days_to_predict": 30,
   "start_date": "2026-07-01",
   "history": [
-    {
-      "date": "2026-06-01",
-      "room_type": "Chambre Double - Superieure",
-      "rooms_booked": 4
-    }
+    { "date": "2026-06-01", "room_type": "Chambre Double - Superieure", "rooms_booked": 4 },
+    { "date": "2026-06-02", "room_type": "Chambre Double - Superieure", "rooms_booked": 5 },
+    { "date": "2026-06-03", "room_type": "Chambre Double - Superieure", "rooms_booked": 3 },
+    { "date": "2026-06-04", "room_type": "Chambre Double - Superieure", "rooms_booked": 6 },
+    { "date": "2026-06-05", "room_type": "Chambre Double - Superieure", "rooms_booked": 5 },
+    { "date": "2026-06-06", "room_type": "Chambre Double - Superieure", "rooms_booked": 4 },
+    { "date": "2026-06-07", "room_type": "Chambre Double - Superieure", "rooms_booked": 6 },
+    { "date": "2026-06-08", "room_type": "Chambre Double - Superieure", "rooms_booked": 5 },
+    { "date": "2026-06-09", "room_type": "Chambre Double - Superieure", "rooms_booked": 4 },
+    { "date": "2026-06-10", "room_type": "Chambre Double - Superieure", "rooms_booked": 6 }
   ],
   "room_capacities": {
     "Chambre Double - Superieure": 8

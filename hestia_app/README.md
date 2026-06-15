@@ -1,17 +1,27 @@
 # hestia_app
 
-A new Flutter project.
+Application Flutter Web du projet HestiaPredict.
 
-## Getting Started
+Elle sert d'interface de réception pour :
 
-This project is a starting point for a Flutter application.
+- les réservations ;
+- les check-in ;
+- les folios et paiements ;
+- la consultation des disponibilités ;
+- l'accès aux fonctions de gestion selon le rôle.
 
-A few resources to get you started if this is your first Flutter project:
+## Lancer
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+Depuis la racine du dépôt, voir le README principal :
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```text
+../README.md
+```
+
+Commandes utiles :
+
+```bash
+flutter pub get
+flutter test
+flutter build web --dart-define=API_BASE_URL=http://127.0.0.1:8000
+```
