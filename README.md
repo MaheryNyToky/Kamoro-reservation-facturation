@@ -13,14 +13,17 @@ L'application est composée de trois parties :
 ## Fonctionnalités
 
 - Authentification du personnel.
-- Tableau de bord réception.
+- Tableau de bord réception avec simulation IA des gains de revenus (`ai-revenue-summary`).
+- Module PMS intégré : Check-in client avec prise de photo (image_picker), gestion des factures (folios) et paiements.
+- Génération de factures au format PDF (dompdf) et envoi par email.
+- Gestion des extras (lits supplémentaires, matelas).
 - Disponibilité en temps réel par catégorie de chambre.
 - Recherche et filtrage des réservations.
 - Création de réservations multi-chambres.
-- Gestion des statuts : `en_attente`, `arrive`, `annule`.
+- Gestion des statuts et paiements : `en_attente`, `arrive` (payé/non payé), `annule`.
 - Gestion des utilisateurs staff.
 - Prix fixes pour certaines chambres.
-- Prix dynamiques basés sur occupation prévue et règles de yield.
+- Prix dynamiques basés sur occupation prévue et règles de yield (avec mise en cache des modèles IA).
 - Mode fallback lorsque le moteur IA est indisponible.
 - Documentation OpenAPI pour les deux backends.
 - Tests automatisés Laravel, FastAPI et Flutter.
@@ -157,15 +160,15 @@ Le script lance :
 
 | Service | URL |
 | --- | --- |
-| Flutter Web | `http://localhost:8080` |
-| Laravel Dashboard | `http://localhost:8000/dashboard` |
-| Laravel API | `http://localhost:8000/api` |
-| FastAPI Swagger | `http://localhost:8001/docs` |
+| Flutter Web | `http://127.0.0.1:8080/index.html` |
+| Laravel Dashboard | `http://127.0.0.1:8000/dashboard` |
+| Laravel API | `http://127.0.0.1:8000/api` |
+| FastAPI Swagger | `http://127.0.0.1:8001/docs` |
 
 Arrêter les services :
 
 ```bash
-pkill -f 'uvicorn main:app|php artisan serve|flutter_tools|flutter run -d web-server'
+pkill -f 'uvicorn main:app|php artisan serve|php -S 127.0.0.1:8080|php -S localhost:8080'
 ```
 
 ## Lancement Manuel
@@ -186,18 +189,20 @@ AI_ENGINE_URL=http://127.0.0.1:8001 php artisan serve --host=127.0.0.1 --port=80
 
 ### Flutter Web
 
+Le script `dev.sh` construit désormais l'application Flutter et la sert via PHP pour une meilleure stabilité.
+Pour le faire manuellement :
+
 ```bash
 cd hestia_app
-flutter run -d web-server --web-hostname localhost --web-port 8080
+flutter build web --pwa-strategy=none --dart-define=API_BASE_URL=http://127.0.0.1:8000
+cd build/web
+php -S 127.0.0.1:8080
 ```
 
-Pour pointer Flutter vers une autre API :
+Pour pointer Flutter vers une autre API lors du build :
 
 ```bash
-flutter run -d web-server \
-  --web-hostname localhost \
-  --web-port 8080 \
-  --dart-define=API_BASE_URL=http://localhost:8000
+flutter build web --pwa-strategy=none --dart-define=API_BASE_URL=http://votre-api.com
 ```
 
 ## Comptes De Démonstration
@@ -356,15 +361,17 @@ cd hestia-ai
 
 ### Flutter ne reflète pas les modifications
 
-Relancer le serveur Flutter :
+Relancer simplement le script global de développement ou relancer manuellement le build et le serveur local :
 
 ```bash
-pkill -f 'flutter_tools|flutter run -d web-server'
+pkill -f 'php -S 127.0.0.1:8080'
 cd hestia_app
-flutter run -d web-server --web-hostname localhost --web-port 8080
+flutter build web --pwa-strategy=none --dart-define=API_BASE_URL=http://127.0.0.1:8000
+cd build/web
+php -S 127.0.0.1:8080
 ```
 
-Dans Safari, faire un rafraîchissement complet avec `Cmd + Shift + R`.
+Dans Safari ou Chrome, faire un rafraîchissement complet ou vider le cache (la PWA est désactivée en dev pour éviter la persistance).
 
 ### FastAPI ne démarre pas
 

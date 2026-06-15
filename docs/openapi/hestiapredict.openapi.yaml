@@ -219,6 +219,31 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/LaravelPredictionResponse"
+  /dashboard/ai-revenue-summary:
+    get:
+      tags: [Dashboard]
+      summary: Simulation IA des revenus
+      operationId: aiRevenueSummary
+      parameters:
+        - name: days
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 30
+        - name: start_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Resultat de la simulation
+          content:
+            application/json:
+              schema:
+                type: object
   /dashboard/audit-date:
     get:
       tags: [Dashboard]
@@ -233,6 +258,98 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuditDateResponse"
+  /guests/checkin:
+    post:
+      tags: [PMS]
+      summary: Enregistre un client et génère la facture
+      operationId: checkInGuest
+      responses:
+        "200":
+          description: OK
+  /invoices/{id}:
+    get:
+      tags: [PMS]
+      summary: Récupère la facture
+      operationId: getInvoice
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+  /invoices/{id}/items:
+    post:
+      tags: [PMS]
+      summary: Ajoute un élément à la facture
+      operationId: addInvoiceItem
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+  /invoices/{id}/payments:
+    post:
+      tags: [PMS]
+      summary: Enregistre un paiement
+      operationId: addPayment
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+  /invoices/{id}/generate-pdf:
+    post:
+      tags: [PMS]
+      summary: Génère le PDF de la facture
+      operationId: generatePdf
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+  /invoices/{id}/pdf:
+    get:
+      tags: [PMS]
+      summary: Télécharge le PDF
+      operationId: downloadPdf
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+  /invoices/{id}/send-email:
+    post:
+      tags: [PMS]
+      summary: Envoie la facture par email
+      operationId: sendInvoiceEmail
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
   /users:
     get:
       tags: [Users]
@@ -601,6 +718,12 @@ components:
         status:
           type: string
           enum: [en_attente, arrive, annule]
+        payment_status:
+          type: string
+          example: unbilled
+        cancelled_by_name:
+          type: string
+          nullable: true
         source:
           type: string
           example: Appel
@@ -610,18 +733,30 @@ components:
         room_numbers:
           type: string
           example: "103, 104"
+        extra_beds:
+          type: integer
+          example: 0
+        extra_mattresses:
+          type: integer
+          example: 0
         total_price:
           type: integer
           example: 272000
         fixed_total_price:
           type: integer
           example: 250000
+        paid_amount_ariary:
+          type: integer
+          example: 0
         is_booking:
           type: boolean
           example: false
         receptionist:
           type: string
           example: Admin
+        latest_payment_processed_by:
+          type: string
+          nullable: true
         created_at:
           type: string
           nullable: true

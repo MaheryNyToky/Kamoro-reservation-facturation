@@ -88,7 +88,7 @@ Champs principaux :
 | Valeur | Sens | Actif |
 | --- | --- | --- |
 | `en_attente` | Réservation en attente / prévisionnelle | Oui |
-| `arrive` | Client arrivé / réservation confirmée | Oui |
+| `arrive` | Client arrivé / réservation confirmée. Peut être passé via `arrive_paid` ou `arrive_unpaid` pour définir le statut de paiement simultanément. | Oui |
 | `annule` | Réservation annulée | Non |
 
 Les calculs de disponibilité utilisent `en_attente` et `arrive`.
@@ -220,7 +220,7 @@ Payload minimal :
 }
 ```
 
-Payload avec prix dynamiques :
+Payload complet avec extras et prix dynamiques :
 
 ```json
 {
@@ -230,6 +230,8 @@ Payload avec prix dynamiques :
   "check_in": "2026-07-01",
   "check_out": "2026-07-03",
   "room_ids": [12, 13],
+  "extra_beds": 1,
+  "extra_mattresses": 2,
   "room_prices": [
     { "id": 12, "price": 136000 },
     { "id": 13, "price": 136000 }
@@ -312,13 +314,19 @@ Réponse :
     "check_in": "2026-07-01",
     "check_out": "2026-07-03",
     "status": "en_attente",
+    "payment_status": "unbilled",
     "source": "Appel",
+    "cancelled_by_name": null,
     "rooms": "2x Chambre Double (Superieure)",
     "room_numbers": "103, 104",
+    "extra_beds": 0,
+    "extra_mattresses": 0,
     "total_price": 272000,
     "fixed_total_price": 250000,
+    "paid_amount_ariary": 0,
     "is_booking": false,
     "receptionist": "Admin",
+    "latest_payment_processed_by": null,
     "created_at": "2026-06-15 10:00:00"
   }
 ]
@@ -405,6 +413,56 @@ Réponse :
   "period": "Depuis le début de l'année jusqu'au 01/07/2026"
 }
 ```
+
+### `GET /dashboard/ai-revenue-summary`
+
+Retourne la simulation IA des revenus (CA prix fixe vs CA IA simulé) par journée.
+
+Query params :
+
+| Nom | Requis | Description |
+| --- | --- | --- |
+| `days` | Non | Nombre de jours (défaut : 30) |
+| `start_date` | Non | Date de début (défaut : date du jour) |
+
+Réponse :
+
+```json
+{
+  "status": "success",
+  "mode": "ai",
+  "ai_available": true,
+  "is_fallback": false,
+  "rows": [
+    {
+      "date": "2026-07-01",
+      "room_count": 5,
+      "fixed_revenue_ariary": 625000,
+      "ai_revenue_ariary": 680000,
+      "delta_ariary": 55000
+    }
+  ],
+  "totals": {
+    "fixed_revenue_ariary": 625000,
+    "ai_revenue_ariary": 680000,
+    "delta_ariary": 55000
+  }
+}
+```
+
+### Endpoints PMS & Facturation
+
+Ces endpoints gèrent le check-in, la facturation et les paiements.
+
+| Méthode | Route | Description |
+| --- | --- | --- |
+| `POST` | `/guests/checkin` | Enregistre un client (guest) pour une réservation et génère la facture initiale. |
+| `GET` | `/invoices/{id}` | Récupère la facture (folio) et ses détails. |
+| `POST` | `/invoices/{id}/items` | Ajoute un élément à la facture (taxe, extra, discount). |
+| `POST` | `/invoices/{id}/payments` | Enregistre un paiement (cash, card, mobile_money). |
+| `POST` | `/invoices/{id}/generate-pdf` | Génère le PDF de la facture. |
+| `GET` | `/invoices/{id}/pdf` | Télécharge le PDF de la facture. |
+| `POST` | `/invoices/{id}/send-email` | Envoie la facture par email. |
 
 ### Endpoints utilisateurs
 
