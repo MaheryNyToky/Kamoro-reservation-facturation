@@ -8,6 +8,7 @@ PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 LOG_DIR="$PROJECT_ROOT/.dev-logs"
 
 mkdir -p "$LOG_DIR/matplotlib" "$LOG_DIR/cache"
+touch "$PROJECT_ROOT/database.sqlite"
 
 find_ai_python() {
     for candidate in "$PROJECT_ROOT/hestia-ai/venv/bin/python" "$PROJECT_ROOT/hestia-ai/.venv/bin/python" python3; do

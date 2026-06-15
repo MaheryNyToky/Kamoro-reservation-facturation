@@ -66,6 +66,7 @@ wait_for_url "AI" "http://127.0.0.1:8001/health" "$LOG_DIR/ai.log" 30
 # 2. Backend Laravel
 echo "[Laravel] Lancement sur le port 8000..."
 cd "$PROJECT_ROOT/hestiapredict"
+touch "$PROJECT_ROOT/database.sqlite"
 echo "[Laravel] Migration de la base..."
 php artisan migrate --force > "$LOG_DIR/migrate.log" 2>&1
 nohup env AI_ENGINE_URL="http://127.0.0.1:8001" php artisan serve --host=127.0.0.1 --port=8000 > "$LOG_DIR/laravel.log" 2>&1 &
