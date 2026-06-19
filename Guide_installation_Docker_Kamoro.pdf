@@ -1,0 +1,722 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+2 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+3 0 obj
+<< /Length 3264 >>
+stream
+BT
+/F2 18 Tf
+1 0 0 1 54 738 Tm
+(Installation Docker - Kamoro Reservation Facturation) Tj
+/F1 10 Tf
+1 0 0 1 54 711 Tm
+() Tj
+/F1 10 Tf
+1 0 0 1 54 696 Tm
+(Ce guide explique comment installer l'application Kamoro sur un PC Windows avec Docker.) Tj
+/F1 10 Tf
+1 0 0 1 54 681 Tm
+(Il est ecrit pour une personne tres debutante.) Tj
+/F1 10 Tf
+1 0 0 1 54 666 Tm
+(Avec Docker, il n'est plus necessaire d'installer PHP, Composer, Python ou Flutter a la) Tj
+/F1 10 Tf
+1 0 0 1 54 651 Tm
+(main. Docker prepare tout dans des boites separees.) Tj
+/F1 10 Tf
+1 0 0 1 54 636 Tm
+(Lien GitHub du projet : https://github.com/MaheryNyToky/Kamoro-reservation-) Tj
+/F1 10 Tf
+1 0 0 1 54 621 Tm
+(facturation.git) Tj
+/F1 10 Tf
+1 0 0 1 54 606 Tm
+(A la fin, l'application s'ouvrira dans Chrome a cette adresse :) Tj
+/F1 10 Tf
+1 0 0 1 54 591 Tm
+(http://127.0.0.1:8080/index.html) Tj
+/F1 10 Tf
+1 0 0 1 54 576 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 561 Tm
+(1. Ce qu'il faut comprendre) Tj
+/F1 10 Tf
+1 0 0 1 54 540 Tm
+(- Docker Desktop est le programme principal a installer.) Tj
+/F1 10 Tf
+1 0 0 1 54 525 Tm
+(- Le projet contient deja les fichiers Docker necessaires.) Tj
+/F1 10 Tf
+1 0 0 1 54 510 Tm
+(- Le premier lancement peut etre long, parfois 10 a 30 minutes, car Docker telecharge) Tj
+/F1 10 Tf
+1 0 0 1 54 495 Tm
+(  et construit l'application.) Tj
+/F1 10 Tf
+1 0 0 1 54 480 Tm
+(- Les fois suivantes, le lancement sera beaucoup plus rapide.) Tj
+/F1 10 Tf
+1 0 0 1 54 465 Tm
+(- Il faut garder Docker Desktop ouvert pendant l'utilisation de l'application.) Tj
+/F1 10 Tf
+1 0 0 1 54 450 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 435 Tm
+(2. Installer Google Chrome) Tj
+/F1 10 Tf
+1 0 0 1 54 414 Tm
+(Chrome servira a ouvrir l'application.) Tj
+/F1 10 Tf
+1 0 0 1 54 399 Tm
+(- Ouvre Microsoft Edge ou ton navigateur actuel.) Tj
+/F1 10 Tf
+1 0 0 1 54 384 Tm
+(- Va sur : https://www.google.com/chrome/) Tj
+/F1 10 Tf
+1 0 0 1 54 369 Tm
+(- Clique sur Telecharger Chrome.) Tj
+/F1 10 Tf
+1 0 0 1 54 354 Tm
+(- Ouvre le fichier telecharge.) Tj
+/F1 10 Tf
+1 0 0 1 54 339 Tm
+(- Clique sur Oui si Windows demande l'autorisation.) Tj
+/F1 10 Tf
+1 0 0 1 54 324 Tm
+(- Attends la fin de l'installation.) Tj
+/F1 10 Tf
+1 0 0 1 54 309 Tm
+(C'est bon si Google Chrome apparait dans le menu Demarrer.) Tj
+/F1 10 Tf
+1 0 0 1 54 294 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 279 Tm
+(3. Installer Git) Tj
+/F1 10 Tf
+1 0 0 1 54 258 Tm
+(Git sert a telecharger le projet depuis GitHub.) Tj
+/F1 10 Tf
+1 0 0 1 54 243 Tm
+(- Va sur : https://git-scm.com/download/win) Tj
+/F1 10 Tf
+1 0 0 1 54 228 Tm
+(- Ouvre le fichier Git telecharge.) Tj
+/F1 10 Tf
+1 0 0 1 54 213 Tm
+(- Pendant l'installation, clique sur Next a chaque ecran.) Tj
+/F1 10 Tf
+1 0 0 1 54 198 Tm
+(- A la fin, clique sur Install, puis Finish.) Tj
+/F1 10 Tf
+1 0 0 1 54 183 Tm
+(Verification simple :) Tj
+/F1 10 Tf
+1 0 0 1 54 168 Tm
+(- Ouvre PowerShell.) Tj
+/F1 10 Tf
+1 0 0 1 54 153 Tm
+(- Tape cette commande :) Tj
+/F1 9 Tf
+1 0 0 1 54 138 Tm
+(    git --version) Tj
+/F1 10 Tf
+1 0 0 1 54 124 Tm
+(C'est bon si une version s'affiche, par exemple git version 2.x.) Tj
+/F1 10 Tf
+1 0 0 1 54 109 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 94 Tm
+(4. Installer Docker Desktop) Tj
+/F1 10 Tf
+1 0 0 1 54 73 Tm
+(Docker Desktop est l'outil qui va faire tourner l'application sans installer tous les) Tj
+/F1 8 Tf
+1 0 0 1 54 36 Tm
+(Page 1 / 5) Tj
+ET
+endstream
+endobj
+4 0 obj
+<< /Type /Page /Parent 13 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 3 0 R >>
+endobj
+5 0 obj
+<< /Length 3306 >>
+stream
+BT
+/F1 10 Tf
+1 0 0 1 54 738 Tm
+(outils techniques un par un.) Tj
+/F1 10 Tf
+1 0 0 1 54 723 Tm
+(- Va sur : https://www.docker.com/products/docker-desktop/) Tj
+/F1 10 Tf
+1 0 0 1 54 708 Tm
+(- Clique sur Download for Windows.) Tj
+/F1 10 Tf
+1 0 0 1 54 693 Tm
+(- Ouvre le fichier Docker Desktop Installer telecharge.) Tj
+/F1 10 Tf
+1 0 0 1 54 678 Tm
+(- Si Windows demande l'autorisation, clique sur Oui.) Tj
+/F1 10 Tf
+1 0 0 1 54 663 Tm
+(- Pendant l'installation, garde les options proposees par defaut.) Tj
+/F1 10 Tf
+1 0 0 1 54 648 Tm
+(- Clique sur OK ou Install quand Docker le demande.) Tj
+/F1 10 Tf
+1 0 0 1 54 633 Tm
+(- A la fin, Docker peut demander de redemarrer l'ordinateur. Clique sur Restart ou) Tj
+/F1 10 Tf
+1 0 0 1 54 618 Tm
+(  redemarre toi-meme.) Tj
+/F1 8 Tf
+1 0 0 1 54 603 Tm
+() Tj
+/F2 12 Tf
+1 0 0 1 54 591 Tm
+(Premier demarrage de Docker) Tj
+/F1 10 Tf
+1 0 0 1 54 573 Tm
+(- Apres le redemarrage, ouvre Docker Desktop depuis le menu Demarrer.) Tj
+/F1 10 Tf
+1 0 0 1 54 558 Tm
+(- Accepte les conditions si Docker les affiche.) Tj
+/F1 10 Tf
+1 0 0 1 54 543 Tm
+(- Docker peut demander d'activer WSL 2. Accepte ce qu'il propose.) Tj
+/F1 10 Tf
+1 0 0 1 54 528 Tm
+(- Attends que Docker Desktop soit ouvert et stable.) Tj
+/F1 10 Tf
+1 0 0 1 54 513 Tm
+(- En bas a gauche ou en bas de la fenetre, Docker doit indiquer qu'il est pret ou) Tj
+/F1 10 Tf
+1 0 0 1 54 498 Tm
+(  running.) Tj
+/F1 10 Tf
+1 0 0 1 54 483 Tm
+(Important : si Docker Desktop n'est pas ouvert, l'application Kamoro ne pourra pas) Tj
+/F1 10 Tf
+1 0 0 1 54 468 Tm
+(demarrer.) Tj
+/F1 8 Tf
+1 0 0 1 54 453 Tm
+() Tj
+/F2 12 Tf
+1 0 0 1 54 441 Tm
+(Verifier Docker) Tj
+/F1 10 Tf
+1 0 0 1 54 423 Tm
+(- Ouvre PowerShell.) Tj
+/F1 10 Tf
+1 0 0 1 54 408 Tm
+(- Tape cette commande :) Tj
+/F1 9 Tf
+1 0 0 1 54 393 Tm
+(    docker --version) Tj
+/F1 10 Tf
+1 0 0 1 54 379 Tm
+(C'est bon si une version Docker s'affiche.) Tj
+/F1 10 Tf
+1 0 0 1 54 364 Tm
+(- Tape ensuite :) Tj
+/F1 9 Tf
+1 0 0 1 54 349 Tm
+(    docker compose version) Tj
+/F1 10 Tf
+1 0 0 1 54 335 Tm
+(C'est bon si une version Docker Compose s'affiche.) Tj
+/F1 10 Tf
+1 0 0 1 54 320 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 305 Tm
+(5. Telecharger le projet Kamoro) Tj
+/F1 10 Tf
+1 0 0 1 54 284 Tm
+(On va mettre le projet sur le Bureau pour le retrouver facilement.) Tj
+/F1 10 Tf
+1 0 0 1 54 269 Tm
+(- Ouvre PowerShell.) Tj
+/F1 10 Tf
+1 0 0 1 54 254 Tm
+(- Va sur le Bureau :) Tj
+/F1 9 Tf
+1 0 0 1 54 239 Tm
+(    cd Desktop) Tj
+/F1 10 Tf
+1 0 0 1 54 225 Tm
+(- Telecharge le projet :) Tj
+/F1 9 Tf
+1 0 0 1 54 210 Tm
+(    git clone https://github.com/MaheryNyToky/Kamoro-reservation-facturation.git) Tj
+/F1 10 Tf
+1 0 0 1 54 196 Tm
+(- Entre dans le dossier du projet :) Tj
+/F1 9 Tf
+1 0 0 1 54 181 Tm
+(    cd Kamoro-reservation-facturation) Tj
+/F1 10 Tf
+1 0 0 1 54 167 Tm
+(C'est bon si PowerShell est dans le dossier Kamoro-reservation-facturation.) Tj
+/F1 10 Tf
+1 0 0 1 54 152 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 137 Tm
+(6. Creer les icones sur le Bureau) Tj
+/F1 10 Tf
+1 0 0 1 54 116 Tm
+(Cette etape cree deux icones faciles a utiliser : une pour lancer l'application, une) Tj
+/F1 10 Tf
+1 0 0 1 54 101 Tm
+(pour l'arreter.) Tj
+/F1 10 Tf
+1 0 0 1 54 86 Tm
+(- Dans PowerShell, verifie que tu es dans le dossier Kamoro-reservation-facturation.) Tj
+/F1 10 Tf
+1 0 0 1 54 71 Tm
+(- Tape cette commande :) Tj
+/F1 8 Tf
+1 0 0 1 54 36 Tm
+(Page 2 / 5) Tj
+ET
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 13 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 5 0 R >>
+endobj
+7 0 obj
+<< /Length 3377 >>
+stream
+BT
+/F1 9 Tf
+1 0 0 1 54 738 Tm
+(    powershell -ExecutionPolicy Bypass -File .\\Creer-raccourcis-docker-bureau.ps1) Tj
+/F1 10 Tf
+1 0 0 1 54 724 Tm
+(- Retourne sur le Bureau Windows.) Tj
+/F1 10 Tf
+1 0 0 1 54 709 Tm
+(- Tu dois voir deux nouvelles icones : Kamoro - Lancer et Kamoro - Arreter.) Tj
+/F1 10 Tf
+1 0 0 1 54 694 Tm
+(Si les icones ne se creent pas, ce n'est pas grave. Tu peux lancer l'application) Tj
+/F1 10 Tf
+1 0 0 1 54 679 Tm
+(directement avec le fichier Lancer-Kamoro-Docker.bat dans le dossier du projet.) Tj
+/F1 10 Tf
+1 0 0 1 54 664 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 649 Tm
+(7. Lancer l'application) Tj
+/F1 8 Tf
+1 0 0 1 54 628 Tm
+() Tj
+/F2 12 Tf
+1 0 0 1 54 616 Tm
+(Methode la plus simple) Tj
+/F1 10 Tf
+1 0 0 1 54 598 Tm
+(- Double-clique sur l'icone Kamoro - Lancer sur le Bureau.) Tj
+/F1 10 Tf
+1 0 0 1 54 583 Tm
+(- Une fenetre noire va s'ouvrir.) Tj
+/F1 10 Tf
+1 0 0 1 54 568 Tm
+(- Le premier lancement peut etre tres long. C'est normal.) Tj
+/F1 10 Tf
+1 0 0 1 54 553 Tm
+(- Docker va construire trois parties : le backend Laravel, le moteur IA, et) Tj
+/F1 10 Tf
+1 0 0 1 54 538 Tm
+(  l'interface Flutter.) Tj
+/F1 10 Tf
+1 0 0 1 54 523 Tm
+(- Quand c'est termine, Chrome doit s'ouvrir automatiquement.) Tj
+/F1 10 Tf
+1 0 0 1 54 508 Tm
+(- Si Chrome ne s'ouvre pas tout seul, ouvre Chrome et va sur :) Tj
+/F1 9 Tf
+1 0 0 1 54 493 Tm
+(    http://127.0.0.1:8080/index.html) Tj
+/F1 8 Tf
+1 0 0 1 54 479 Tm
+() Tj
+/F2 12 Tf
+1 0 0 1 54 467 Tm
+(Methode de secours) Tj
+/F1 10 Tf
+1 0 0 1 54 449 Tm
+(- Ouvre le dossier Kamoro-reservation-facturation.) Tj
+/F1 10 Tf
+1 0 0 1 54 434 Tm
+(- Double-clique sur Lancer-Kamoro-Docker.bat.) Tj
+/F1 10 Tf
+1 0 0 1 54 419 Tm
+(- Attends la fin du lancement.) Tj
+/F1 10 Tf
+1 0 0 1 54 404 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 389 Tm
+(8. Se connecter) Tj
+/F1 10 Tf
+1 0 0 1 54 368 Tm
+(- Compte administrateur : admin@kamorohotel.com) Tj
+/F1 10 Tf
+1 0 0 1 54 353 Tm
+(- Mot de passe administrateur : admin123) Tj
+/F1 10 Tf
+1 0 0 1 54 338 Tm
+(- Compte reception : reco1@kamorohotel.com) Tj
+/F1 10 Tf
+1 0 0 1 54 323 Tm
+(- Mot de passe reception : reco123) Tj
+/F1 10 Tf
+1 0 0 1 54 308 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 293 Tm
+(9. Donnees de reservation deja incluses) Tj
+/F1 10 Tf
+1 0 0 1 54 272 Tm
+(La base de donnees database.sqlite est incluse dans le projet. Elle contient deja des) Tj
+/F1 10 Tf
+1 0 0 1 54 257 Tm
+(chambres et des reservations pour tester.) Tj
+/F1 8 Tf
+1 0 0 1 54 242 Tm
+() Tj
+/F2 12 Tf
+1 0 0 1 54 230 Tm
+(Reservations futures a tester) Tj
+/F1 10 Tf
+1 0 0 1 54 212 Tm
+(- TEST-NOELY-009 - Noely Razafindrakoto - du 2026-06-28 au 2026-06-30 - statut en) Tj
+/F1 10 Tf
+1 0 0 1 54 197 Tm
+(  attente - chambres 01 et 02.) Tj
+/F1 10 Tf
+1 0 0 1 54 182 Tm
+(- TEST-ANITA-004 - Anita Rakotonirina - du 2026-06-23 au 2026-06-25 - statut en) Tj
+/F1 10 Tf
+1 0 0 1 54 167 Tm
+(  attente - chambres 04, 101 et 01.) Tj
+/F1 10 Tf
+1 0 0 1 54 152 Tm
+(- RES-74501A - M N - du 2026-06-22 au 2026-06-25 - statut arrive - chambre 104.) Tj
+/F1 8 Tf
+1 0 0 1 54 137 Tm
+() Tj
+/F2 12 Tf
+1 0 0 1 54 125 Tm
+(Reservations arrivees ou payees a tester) Tj
+/F1 10 Tf
+1 0 0 1 54 107 Tm
+(- RES-1F46C0 - Tojo Randriamampionona - du 2026-06-19 au 2026-06-20 - statut arrive -) Tj
+/F1 10 Tf
+1 0 0 1 54 92 Tm
+(  chambres 03 et 02.) Tj
+/F1 10 Tf
+1 0 0 1 54 77 Tm
+(- TEST-FENITRA-006 - Fenitra Rabe - du 2026-06-18 au 2026-06-20 - statut arrive et) Tj
+/F1 8 Tf
+1 0 0 1 54 36 Tm
+(Page 3 / 5) Tj
+ET
+endstream
+endobj
+8 0 obj
+<< /Type /Page /Parent 13 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 7 0 R >>
+endobj
+9 0 obj
+<< /Length 3197 >>
+stream
+BT
+/F1 10 Tf
+1 0 0 1 54 738 Tm
+(  paye.) Tj
+/F1 8 Tf
+1 0 0 1 54 723 Tm
+() Tj
+/F2 12 Tf
+1 0 0 1 54 711 Tm
+(Test Booking) Tj
+/F1 10 Tf
+1 0 0 1 54 693 Tm
+(- Cree une nouvelle reservation.) Tj
+/F1 10 Tf
+1 0 0 1 54 678 Tm
+(- Active Reservation via Booking.com.) Tj
+/F1 10 Tf
+1 0 0 1 54 663 Tm
+(- Choisis une Chambre Double Superieure, par exemple 101, 105, 106, 201 ou 202 si elle) Tj
+/F1 10 Tf
+1 0 0 1 54 648 Tm
+(  est libre.) Tj
+/F1 10 Tf
+1 0 0 1 54 633 Tm
+(- Le prix doit etre 162 500 Ar par chambre.) Tj
+/F1 10 Tf
+1 0 0 1 54 618 Tm
+(- Apres check-in, va dans Folio et facturation et active Facture Booking en euro.) Tj
+/F1 10 Tf
+1 0 0 1 54 603 Tm
+(- Le PDF en euro doit afficher 32,50 EUR par chambre, 10 EUR pour lit supplementaire) Tj
+/F1 10 Tf
+1 0 0 1 54 588 Tm
+(  et 6 EUR pour matelas.) Tj
+/F1 10 Tf
+1 0 0 1 54 573 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 558 Tm
+(10. Arreter l'application) Tj
+/F1 10 Tf
+1 0 0 1 54 537 Tm
+(- Quand tu as fini, double-clique sur l'icone Kamoro - Arreter sur le Bureau.) Tj
+/F1 10 Tf
+1 0 0 1 54 522 Tm
+(- Si tu n'as pas l'icone, ouvre le dossier du projet et double-clique sur Arreter-) Tj
+/F1 10 Tf
+1 0 0 1 54 507 Tm
+(  Kamoro-Docker.bat.) Tj
+/F1 10 Tf
+1 0 0 1 54 492 Tm
+(- Cela arrete les boites Docker de l'application.) Tj
+/F1 10 Tf
+1 0 0 1 54 477 Tm
+(Ne supprime pas Docker Desktop et ne supprime pas le dossier du projet, sinon) Tj
+/F1 10 Tf
+1 0 0 1 54 462 Tm
+(l'application ne sera plus disponible.) Tj
+/F1 10 Tf
+1 0 0 1 54 447 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 432 Tm
+(11. Les prochaines fois) Tj
+/F1 10 Tf
+1 0 0 1 54 411 Tm
+(- Ouvre Docker Desktop.) Tj
+/F1 10 Tf
+1 0 0 1 54 396 Tm
+(- Attends que Docker soit pret.) Tj
+/F1 10 Tf
+1 0 0 1 54 381 Tm
+(- Double-clique sur Kamoro - Lancer.) Tj
+/F1 10 Tf
+1 0 0 1 54 366 Tm
+(- Ouvre l'application dans Chrome si elle ne s'ouvre pas toute seule :) Tj
+/F1 10 Tf
+1 0 0 1 54 351 Tm
+(  http://127.0.0.1:8080/index.html) Tj
+/F1 10 Tf
+1 0 0 1 54 336 Tm
+(- Quand tu as fini, double-clique sur Kamoro - Arreter.) Tj
+/F1 10 Tf
+1 0 0 1 54 321 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 306 Tm
+(12. Probleme : Docker n'est pas ouvert) Tj
+/F1 10 Tf
+1 0 0 1 54 285 Tm
+(- Ouvre Docker Desktop depuis le menu Demarrer.) Tj
+/F1 10 Tf
+1 0 0 1 54 270 Tm
+(- Attends quelques minutes.) Tj
+/F1 10 Tf
+1 0 0 1 54 255 Tm
+(- Relance Kamoro - Lancer.) Tj
+/F1 10 Tf
+1 0 0 1 54 240 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 225 Tm
+(13. Probleme : Docker demande WSL 2) Tj
+/F1 10 Tf
+1 0 0 1 54 204 Tm
+(- Accepte l'installation de WSL 2 si Docker la propose.) Tj
+/F1 10 Tf
+1 0 0 1 54 189 Tm
+(- Redemarre l'ordinateur si Docker le demande.) Tj
+/F1 10 Tf
+1 0 0 1 54 174 Tm
+(- Ouvre Docker Desktop apres le redemarrage.) Tj
+/F1 10 Tf
+1 0 0 1 54 159 Tm
+(- Relance Kamoro - Lancer.) Tj
+/F1 10 Tf
+1 0 0 1 54 144 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 129 Tm
+(14. Probleme : le premier lancement est tres long) Tj
+/F1 10 Tf
+1 0 0 1 54 108 Tm
+(- C'est normal au premier lancement.) Tj
+/F1 10 Tf
+1 0 0 1 54 93 Tm
+(- Docker telecharge PHP, Python, Flutter et construit l'application.) Tj
+/F1 10 Tf
+1 0 0 1 54 78 Tm
+(- Il faut laisser l'ordinateur travailler.) Tj
+/F1 10 Tf
+1 0 0 1 54 63 Tm
+(- Si internet est lent, cela peut prendre plus de 30 minutes.) Tj
+/F1 8 Tf
+1 0 0 1 54 36 Tm
+(Page 4 / 5) Tj
+ET
+endstream
+endobj
+10 0 obj
+<< /Type /Page /Parent 13 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 9 0 R >>
+endobj
+11 0 obj
+<< /Length 2227 >>
+stream
+BT
+/F1 10 Tf
+1 0 0 1 54 738 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 723 Tm
+(15. Probleme : le navigateur affiche une erreur) Tj
+/F1 10 Tf
+1 0 0 1 54 702 Tm
+(- Attends encore une ou deux minutes.) Tj
+/F1 10 Tf
+1 0 0 1 54 687 Tm
+(- Recharge la page Chrome.) Tj
+/F1 10 Tf
+1 0 0 1 54 672 Tm
+(- Verifie que l'adresse est exactement : http://127.0.0.1:8080/index.html) Tj
+/F1 10 Tf
+1 0 0 1 54 657 Tm
+(- Verifie que Docker Desktop est ouvert.) Tj
+/F1 10 Tf
+1 0 0 1 54 642 Tm
+(- Si besoin, double-clique sur Kamoro - Arreter puis sur Kamoro - Lancer.) Tj
+/F1 10 Tf
+1 0 0 1 54 627 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 612 Tm
+(16. Probleme : les ports sont deja utilises) Tj
+/F1 10 Tf
+1 0 0 1 54 591 Tm
+(L'application utilise les ports 8000, 8001 et 8080. Si une autre application utilise ces) Tj
+/F1 10 Tf
+1 0 0 1 54 576 Tm
+(ports, Kamoro peut ne pas demarrer.) Tj
+/F1 10 Tf
+1 0 0 1 54 561 Tm
+(- Ferme les anciennes fenetres de lancement Kamoro.) Tj
+/F1 10 Tf
+1 0 0 1 54 546 Tm
+(- Double-clique sur Kamoro - Arreter.) Tj
+/F1 10 Tf
+1 0 0 1 54 531 Tm
+(- Puis double-clique sur Kamoro - Lancer.) Tj
+/F1 10 Tf
+1 0 0 1 54 516 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 501 Tm
+(17. Ce qu'il faut envoyer a la personne) Tj
+/F1 10 Tf
+1 0 0 1 54 480 Tm
+(- Envoyer le lien GitHub : https://github.com/MaheryNyToky/Kamoro-reservation-) Tj
+/F1 10 Tf
+1 0 0 1 54 465 Tm
+(  facturation.git) Tj
+/F1 10 Tf
+1 0 0 1 54 450 Tm
+(- Envoyer ce PDF.) Tj
+/F1 10 Tf
+1 0 0 1 54 435 Tm
+(- Dire a la personne de suivre les etapes dans l'ordre.) Tj
+/F1 10 Tf
+1 0 0 1 54 420 Tm
+(- Dire que le premier lancement est long, mais que c'est normal.) Tj
+/F1 10 Tf
+1 0 0 1 54 405 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 390 Tm
+(18. Resume tres simple) Tj
+/F1 10 Tf
+1 0 0 1 54 369 Tm
+(- Installer Chrome.) Tj
+/F1 10 Tf
+1 0 0 1 54 354 Tm
+(- Installer Git.) Tj
+/F1 10 Tf
+1 0 0 1 54 339 Tm
+(- Installer Docker Desktop.) Tj
+/F1 10 Tf
+1 0 0 1 54 324 Tm
+(- Redemarrer l'ordinateur.) Tj
+/F1 10 Tf
+1 0 0 1 54 309 Tm
+(- Telecharger le projet avec git clone.) Tj
+/F1 10 Tf
+1 0 0 1 54 294 Tm
+(- Creer les icones Bureau.) Tj
+/F1 10 Tf
+1 0 0 1 54 279 Tm
+(- Double-cliquer sur Kamoro - Lancer.) Tj
+/F1 10 Tf
+1 0 0 1 54 264 Tm
+(- Se connecter avec admin@kamorohotel.com / admin123.) Tj
+/F1 8 Tf
+1 0 0 1 54 36 Tm
+(Page 5 / 5) Tj
+ET
+endstream
+endobj
+12 0 obj
+<< /Type /Page /Parent 13 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 11 0 R >>
+endobj
+13 0 obj
+<< /Type /Pages /Kids [4 0 R 6 0 R 8 0 R 10 0 R 12 0 R] /Count 5 >>
+endobj
+14 0 obj
+<< /Type /Catalog /Pages 13 0 R >>
+endobj
+xref
+0 15
+0000000000 65535 f 
+0000000015 00000 n 
+0000000085 00000 n 
+0000000160 00000 n 
+0000003476 00000 n 
+0000003613 00000 n 
+0000006971 00000 n 
+0000007108 00000 n 
+0000010537 00000 n 
+0000010674 00000 n 
+0000013923 00000 n 
+0000014061 00000 n 
+0000016341 00000 n 
+0000016480 00000 n 
+0000016564 00000 n 
+trailer
+<< /Size 15 /Root 14 0 R >>
+startxref
+16615
+%%EOF

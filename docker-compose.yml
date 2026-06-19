@@ -1,38 +1,52 @@
 services:
   laravel:
-    image: dunglas/frankenphp:1-php8.3
-    working_dir: /app
-    volumes:
-      - ./hestiapredict:/app
+    build:
+      context: .
+      dockerfile: docker/laravel/Dockerfile
     environment:
+      APP_NAME: Kamoro
       APP_ENV: local
+      APP_KEY: base64:FGj2TWbt0EUArGLUdqOltgV4PobUoyt8QOzVILqrUxA=
       APP_DEBUG: "true"
+      APP_URL: http://127.0.0.1:8000
       AI_ENGINE_URL: http://ai-engine:8001
+      DB_CONNECTION: sqlite
+      DB_DATABASE: /data/database.sqlite
+      SESSION_DRIVER: file
+      CACHE_STORE: file
+      QUEUE_CONNECTION: sync
+      LOG_CHANNEL: stderr
+      MAIL_MAILER: log
     ports:
       - "8000:8000"
-    command: php artisan serve --host=0.0.0.0 --port=8000
+    volumes:
+      - ./database.sqlite:/data/database.sqlite
+      - laravel_storage:/app/storage
     depends_on:
-      - ai-engine
+      ai-engine:
+        condition: service_healthy
 
   ai-engine:
-    image: python:3.11-slim
-    working_dir: /app
-    volumes:
-      - ./hestia-ai:/app
+    build:
+      context: .
+      dockerfile: docker/ai/Dockerfile
     ports:
       - "8001:8001"
-    command: sh -c "pip install fastapi uvicorn pandas prophet && uvicorn main:app --host 0.0.0.0 --port 8001"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
 
-  database:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: hestiapredict
-      POSTGRES_USER: hestia
-      POSTGRES_PASSWORD: hestia
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend/Dockerfile
     ports:
-      - "5432:5432"
-    volumes:
-      - hestia_pgdata:/var/lib/postgresql/data
+      - "8080:80"
+    depends_on:
+      - laravel
 
 volumes:
-  hestia_pgdata:
+  laravel_storage:
