@@ -141,12 +141,12 @@ BT
 (- Clique sur XAMPP pour Windows.) Tj
 /F1 8 Tf
 1 0 0 1 54 36 Tm
-(Page 1 / 6) Tj
+(Page 1 / 7) Tj
 ET
 endstream
 endobj
 4 0 obj
-<< /Type /Page /Parent 15 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 3 0 R >>
+<< /Type /Page /Parent 17 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 3 0 R >>
 endobj
 5 0 obj
 << /Length 3285 >>
@@ -289,12 +289,12 @@ BT
 (C'est bon si tu vois Python 3.11 ou plus recent.) Tj
 /F1 8 Tf
 1 0 0 1 54 36 Tm
-(Page 2 / 6) Tj
+(Page 2 / 7) Tj
 ET
 endstream
 endobj
 6 0 obj
-<< /Type /Page /Parent 15 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 5 0 R >>
+<< /Type /Page /Parent 17 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 5 0 R >>
 endobj
 7 0 obj
 << /Length 3257 >>
@@ -437,15 +437,15 @@ BT
 (    copy .env.example .env) Tj
 /F1 8 Tf
 1 0 0 1 54 36 Tm
-(Page 3 / 6) Tj
+(Page 3 / 7) Tj
 ET
 endstream
 endobj
 8 0 obj
-<< /Type /Page /Parent 15 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 7 0 R >>
+<< /Type /Page /Parent 17 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 7 0 R >>
 endobj
 9 0 obj
-<< /Length 3146 >>
+<< /Length 3232 >>
 stream
 BT
 /F1 9 Tf
@@ -549,332 +549,441 @@ BT
 () Tj
 /F2 14 Tf
 1 0 0 1 54 239 Tm
-(13. Comptes pour se connecter) Tj
+(13. Mettre l'application sur le Bureau) Tj
 /F1 10 Tf
 1 0 0 1 54 218 Tm
-(- Compte administrateur : admin@kamorohotel.com) Tj
+(Cette etape sert a avoir une icone sur le Bureau. Apres ca, la personne n'aura plus) Tj
 /F1 10 Tf
 1 0 0 1 54 203 Tm
-(- Mot de passe administrateur : admin123) Tj
-/F1 10 Tf
+(besoin de taper les commandes a chaque fois.) Tj
+/F1 8 Tf
 1 0 0 1 54 188 Tm
-(- Compte reception : reco1@kamorohotel.com) Tj
-/F1 10 Tf
-1 0 0 1 54 173 Tm
-(- Mot de passe reception : reco123) Tj
+() Tj
+/F2 12 Tf
+1 0 0 1 54 176 Tm
+(Creer automatiquement le raccourci) Tj
 /F1 10 Tf
 1 0 0 1 54 158 Tm
-() Tj
-/F2 14 Tf
-1 0 0 1 54 143 Tm
-(14. Les prochaines fois) Tj
-/F1 10 Tf
-1 0 0 1 54 122 Tm
-(La prochaine fois, il ne faut plus tout installer. Il faut seulement lancer) Tj
-/F1 10 Tf
-1 0 0 1 54 107 Tm
-(l'application.) Tj
-/F1 10 Tf
-1 0 0 1 54 92 Tm
 (- Ouvre PowerShell.) Tj
 /F1 10 Tf
-1 0 0 1 54 77 Tm
+1 0 0 1 54 143 Tm
 (- Va dans le dossier du projet. Si le projet est sur le Bureau, tape :) Tj
 /F1 9 Tf
-1 0 0 1 54 62 Tm
+1 0 0 1 54 128 Tm
 (    cd Desktop\\Kamoro-reservation-facturation) Tj
+/F1 10 Tf
+1 0 0 1 54 114 Tm
+(- Tape cette commande :) Tj
+/F1 9 Tf
+1 0 0 1 54 99 Tm
+(    powershell -ExecutionPolicy Bypass -File .\\Creer-raccourci-bureau.ps1) Tj
+/F1 10 Tf
+1 0 0 1 54 85 Tm
+(- Regarde ton Bureau Windows.) Tj
+/F1 10 Tf
+1 0 0 1 54 70 Tm
+(- Tu dois voir une nouvelle icone : Kamoro Reservation Facturation.) Tj
 /F1 8 Tf
 1 0 0 1 54 36 Tm
-(Page 4 / 6) Tj
+(Page 4 / 7) Tj
 ET
 endstream
 endobj
 10 0 obj
-<< /Type /Page /Parent 15 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 9 0 R >>
+<< /Type /Page /Parent 17 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 9 0 R >>
 endobj
 11 0 obj
-<< /Length 3481 >>
+<< /Length 3464 >>
 stream
 BT
-/F1 10 Tf
+/F1 8 Tf
 1 0 0 1 54 738 Tm
-(- Lance l'application :) Tj
-/F1 9 Tf
-1 0 0 1 54 723 Tm
-(    .\\dev.ps1) Tj
+() Tj
+/F2 12 Tf
+1 0 0 1 54 726 Tm
+(Utiliser l'application les prochaines fois) Tj
 /F1 10 Tf
-1 0 0 1 54 709 Tm
-(- Ouvre Chrome :) Tj
-/F1 9 Tf
-1 0 0 1 54 694 Tm
-(    http://127.0.0.1:8080/index.html) Tj
+1 0 0 1 54 708 Tm
+(- Double-clique sur l'icone Kamoro Reservation Facturation sur le Bureau.) Tj
 /F1 10 Tf
-1 0 0 1 54 680 Tm
+1 0 0 1 54 693 Tm
+(- Une fenetre va s'ouvrir et lancer les services.) Tj
+/F1 10 Tf
+1 0 0 1 54 678 Tm
+(- Attends que l'application s'ouvre dans Chrome.) Tj
+/F1 10 Tf
+1 0 0 1 54 663 Tm
+(- Ne ferme pas la fenetre de lancement pendant que tu utilises l'application.) Tj
+/F1 8 Tf
+1 0 0 1 54 648 Tm
+() Tj
+/F2 12 Tf
+1 0 0 1 54 636 Tm
+(Si le raccourci ne se cree pas) Tj
+/F1 10 Tf
+1 0 0 1 54 618 Tm
+(- Va dans le dossier Kamoro-reservation-facturation.) Tj
+/F1 10 Tf
+1 0 0 1 54 603 Tm
+(- Double-clique directement sur le fichier Lancer-Kamoro.bat.) Tj
+/F1 10 Tf
+1 0 0 1 54 588 Tm
+(- L'application se lancera aussi de cette maniere.) Tj
+/F1 10 Tf
+1 0 0 1 54 573 Tm
 () Tj
 /F2 14 Tf
-1 0 0 1 54 665 Tm
-(15. Donnees de reservation deja presentes pour tester) Tj
+1 0 0 1 54 558 Tm
+(14. Comptes pour se connecter) Tj
 /F1 10 Tf
-1 0 0 1 54 644 Tm
-(La base de donnees fournie avec le projet contient deja des chambres et des) Tj
+1 0 0 1 54 537 Tm
+(- Compte administrateur : admin@kamorohotel.com) Tj
 /F1 10 Tf
-1 0 0 1 54 629 Tm
-(reservations. Cela permet de tester l'application sans tout creer a la main.) Tj
-/F1 8 Tf
-1 0 0 1 54 614 Tm
+1 0 0 1 54 522 Tm
+(- Mot de passe administrateur : admin123) Tj
+/F1 10 Tf
+1 0 0 1 54 507 Tm
+(- Compte reception : reco1@kamorohotel.com) Tj
+/F1 10 Tf
+1 0 0 1 54 492 Tm
+(- Mot de passe reception : reco123) Tj
+/F1 10 Tf
+1 0 0 1 54 477 Tm
 () Tj
-/F2 12 Tf
-1 0 0 1 54 602 Tm
-(Reservations futures a tester) Tj
+/F2 14 Tf
+1 0 0 1 54 462 Tm
+(15. Les prochaines fois) Tj
 /F1 10 Tf
-1 0 0 1 54 584 Tm
-(- TEST-NOELY-009 - Noely Razafindrakoto - du 2026-06-28 au 2026-06-30 - statut en) Tj
+1 0 0 1 54 441 Tm
+(La prochaine fois, il ne faut plus tout installer. Il faut seulement lancer) Tj
 /F1 10 Tf
-1 0 0 1 54 569 Tm
-(  attente - chambres 01 et 02.) Tj
-/F1 10 Tf
-1 0 0 1 54 554 Tm
-(- TEST-ANITA-004 - Anita Rakotonirina - du 2026-06-23 au 2026-06-25 - statut en) Tj
-/F1 10 Tf
-1 0 0 1 54 539 Tm
-(  attente - chambres 04, 101 et 01.) Tj
-/F1 10 Tf
-1 0 0 1 54 524 Tm
-(- RES-74501A - M N - du 2026-06-22 au 2026-06-25 - statut arrive - chambre 104.) Tj
-/F1 8 Tf
-1 0 0 1 54 509 Tm
-() Tj
-/F2 12 Tf
-1 0 0 1 54 497 Tm
-(Reservations arrivees ou payees a tester) Tj
-/F1 10 Tf
-1 0 0 1 54 479 Tm
-(- RES-1F46C0 - Tojo Randriamampionona - du 2026-06-19 au 2026-06-20 - statut arrive -) Tj
-/F1 10 Tf
-1 0 0 1 54 464 Tm
-(  chambres 03 et 02.) Tj
-/F1 10 Tf
-1 0 0 1 54 449 Tm
-(- TEST-FENITRA-006 - Fenitra Rabe - du 2026-06-18 au 2026-06-20 - statut arrive et) Tj
-/F1 10 Tf
-1 0 0 1 54 434 Tm
-(  paye.) Tj
-/F1 8 Tf
-1 0 0 1 54 419 Tm
-() Tj
-/F2 12 Tf
-1 0 0 1 54 407 Tm
-(Reservations annulees a verifier) Tj
-/F1 10 Tf
-1 0 0 1 54 389 Tm
-(- RES-CD6FD0 - test - du 2026-06-18 au 2026-06-19 - statut annule.) Tj
-/F1 10 Tf
-1 0 0 1 54 374 Tm
-(- RES-DF929A - Mahery Rakotovao - du 2026-06-18 au 2026-06-19 - statut annule.) Tj
-/F1 8 Tf
-1 0 0 1 54 359 Tm
-() Tj
-/F2 12 Tf
-1 0 0 1 54 347 Tm
-(Chambres utiles pour les tests) Tj
-/F1 10 Tf
-1 0 0 1 54 329 Tm
-(- Chambre 02 : Chambre Double Standard etat degrade, prix fixe 95 000 Ar.) Tj
-/F1 10 Tf
-1 0 0 1 54 314 Tm
-(- Chambres 101, 105, 106, 201 et 202 : Chambre Double Superieure, prix 125 000 Ar.) Tj
-/F1 10 Tf
-1 0 0 1 54 299 Tm
-(- Chambre 104 : Chambre Familiale Superieure, prix 205 000 Ar.) Tj
-/F1 10 Tf
-1 0 0 1 54 284 Tm
-(- Chambre 12 ou 15 : Chambre Twin Standard, prix 100 000 Ar.) Tj
-/F1 8 Tf
-1 0 0 1 54 269 Tm
-() Tj
-/F2 12 Tf
-1 0 0 1 54 257 Tm
-(Test special Booking) Tj
-/F1 10 Tf
-1 0 0 1 54 239 Tm
-(Pour tester la nouvelle regle Booking, cree une nouvelle reservation depuis) Tj
-/F1 10 Tf
-1 0 0 1 54 224 Tm
+1 0 0 1 54 426 Tm
 (l'application.) Tj
 /F1 10 Tf
-1 0 0 1 54 209 Tm
-(- Active le bouton Reservation via Booking.com.) Tj
+1 0 0 1 54 411 Tm
+(- Methode simple : double-clique sur l'icone Kamoro Reservation Facturation sur le) Tj
 /F1 10 Tf
-1 0 0 1 54 194 Tm
-(- Choisis uniquement une Chambre Double Superieure, par exemple 101, 105, 106, 201 ou) Tj
+1 0 0 1 54 396 Tm
+(  Bureau.) Tj
 /F1 10 Tf
-1 0 0 1 54 179 Tm
-(  202 si elle est libre.) Tj
+1 0 0 1 54 381 Tm
+(- Methode de secours : va dans le dossier du projet et double-clique sur Lancer-) Tj
 /F1 10 Tf
-1 0 0 1 54 164 Tm
-(- Le prix de la chambre doit etre 162 500 Ar, meme si le prix fixe ou IA affiche autre) Tj
+1 0 0 1 54 366 Tm
+(  Kamoro.bat.) Tj
 /F1 10 Tf
-1 0 0 1 54 149 Tm
-(  chose.) Tj
+1 0 0 1 54 351 Tm
+(- Methode PowerShell : tape cd Desktop\\Kamoro-reservation-facturation puis .\\dev.ps1.) Tj
 /F1 10 Tf
-1 0 0 1 54 134 Tm
-(- Apres le check-in, va dans Folio et facturation, puis active Facture Booking en) Tj
+1 0 0 1 54 336 Tm
+(- Le lien de l'application reste : http://127.0.0.1:8080/index.html) Tj
 /F1 10 Tf
-1 0 0 1 54 119 Tm
-(  euro.) Tj
+1 0 0 1 54 321 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 306 Tm
+(16. Donnees de reservation deja presentes pour tester) Tj
 /F1 10 Tf
-1 0 0 1 54 104 Tm
-(- Dans le PDF en euro, la chambre doit afficher 32,50 EUR. Le lit supplementaire doit) Tj
+1 0 0 1 54 285 Tm
+(La base de donnees fournie avec le projet contient deja des chambres et des) Tj
 /F1 10 Tf
-1 0 0 1 54 89 Tm
-(  afficher 10 EUR et le matelas 6 EUR.) Tj
+1 0 0 1 54 270 Tm
+(reservations. Cela permet de tester l'application sans tout creer a la main.) Tj
+/F1 8 Tf
+1 0 0 1 54 255 Tm
+() Tj
+/F2 12 Tf
+1 0 0 1 54 243 Tm
+(Reservations futures a tester) Tj
 /F1 10 Tf
-1 0 0 1 54 74 Tm
+1 0 0 1 54 225 Tm
+(- TEST-NOELY-009 - Noely Razafindrakoto - du 2026-06-28 au 2026-06-30 - statut en) Tj
+/F1 10 Tf
+1 0 0 1 54 210 Tm
+(  attente - chambres 01 et 02.) Tj
+/F1 10 Tf
+1 0 0 1 54 195 Tm
+(- TEST-ANITA-004 - Anita Rakotonirina - du 2026-06-23 au 2026-06-25 - statut en) Tj
+/F1 10 Tf
+1 0 0 1 54 180 Tm
+(  attente - chambres 04, 101 et 01.) Tj
+/F1 10 Tf
+1 0 0 1 54 165 Tm
+(- RES-74501A - M N - du 2026-06-22 au 2026-06-25 - statut arrive - chambre 104.) Tj
+/F1 8 Tf
+1 0 0 1 54 150 Tm
+() Tj
+/F2 12 Tf
+1 0 0 1 54 138 Tm
+(Reservations arrivees ou payees a tester) Tj
+/F1 10 Tf
+1 0 0 1 54 120 Tm
+(- RES-1F46C0 - Tojo Randriamampionona - du 2026-06-19 au 2026-06-20 - statut arrive -) Tj
+/F1 10 Tf
+1 0 0 1 54 105 Tm
+(  chambres 03 et 02.) Tj
+/F1 10 Tf
+1 0 0 1 54 90 Tm
+(- TEST-FENITRA-006 - Fenitra Rabe - du 2026-06-18 au 2026-06-20 - statut arrive et) Tj
+/F1 10 Tf
+1 0 0 1 54 75 Tm
+(  paye.) Tj
+/F1 8 Tf
+1 0 0 1 54 60 Tm
 () Tj
 /F1 8 Tf
 1 0 0 1 54 36 Tm
-(Page 5 / 6) Tj
+(Page 5 / 7) Tj
 ET
 endstream
 endobj
 12 0 obj
-<< /Type /Page /Parent 15 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 11 0 R >>
+<< /Type /Page /Parent 17 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 11 0 R >>
 endobj
 13 0 obj
-<< /Length 2809 >>
+<< /Length 3316 >>
 stream
 BT
-/F2 14 Tf
+/F2 12 Tf
 1 0 0 1 54 738 Tm
-(16. Probleme frequent : php n'est pas reconnu) Tj
+(Reservations annulees a verifier) Tj
 /F1 10 Tf
-1 0 0 1 54 717 Tm
-(Si PowerShell dit que php n'est pas reconnu, cela veut dire que PHP n'est pas bien) Tj
+1 0 0 1 54 720 Tm
+(- RES-CD6FD0 - test - du 2026-06-18 au 2026-06-19 - statut annule.) Tj
 /F1 10 Tf
-1 0 0 1 54 702 Tm
-(ajoute au PATH.) Tj
-/F1 10 Tf
-1 0 0 1 54 687 Tm
-(- Retourne a l'etape 4.) Tj
-/F1 10 Tf
-1 0 0 1 54 672 Tm
-(- Verifie que tu as bien ajoute : C:\\xampp\\php) Tj
-/F1 10 Tf
-1 0 0 1 54 657 Tm
-(- Ferme PowerShell puis rouvre PowerShell.) Tj
-/F1 10 Tf
-1 0 0 1 54 642 Tm
-(- Retape : php -v) Tj
-/F1 10 Tf
-1 0 0 1 54 627 Tm
+1 0 0 1 54 705 Tm
+(- RES-DF929A - Mahery Rakotovao - du 2026-06-18 au 2026-06-19 - statut annule.) Tj
+/F1 8 Tf
+1 0 0 1 54 690 Tm
 () Tj
-/F2 14 Tf
-1 0 0 1 54 612 Tm
-(17. Probleme frequent : composer n'est pas reconnu) Tj
+/F2 12 Tf
+1 0 0 1 54 678 Tm
+(Chambres utiles pour les tests) Tj
 /F1 10 Tf
-1 0 0 1 54 591 Tm
-(- Reinstalle Composer.) Tj
+1 0 0 1 54 660 Tm
+(- Chambre 02 : Chambre Double Standard etat degrade, prix fixe 95 000 Ar.) Tj
 /F1 10 Tf
-1 0 0 1 54 576 Tm
-(- Pendant l'installation, choisis bien : C:\\xampp\\php\\php.exe) Tj
+1 0 0 1 54 645 Tm
+(- Chambres 101, 105, 106, 201 et 202 : Chambre Double Superieure, prix 125 000 Ar.) Tj
 /F1 10 Tf
-1 0 0 1 54 561 Tm
-(- Ferme PowerShell puis rouvre PowerShell.) Tj
+1 0 0 1 54 630 Tm
+(- Chambre 104 : Chambre Familiale Superieure, prix 205 000 Ar.) Tj
 /F1 10 Tf
-1 0 0 1 54 546 Tm
-(- Retape : composer --version) Tj
-/F1 10 Tf
-1 0 0 1 54 531 Tm
+1 0 0 1 54 615 Tm
+(- Chambre 12 ou 15 : Chambre Twin Standard, prix 100 000 Ar.) Tj
+/F1 8 Tf
+1 0 0 1 54 600 Tm
 () Tj
-/F2 14 Tf
-1 0 0 1 54 516 Tm
-(18. Probleme frequent : python n'est pas reconnu) Tj
+/F2 12 Tf
+1 0 0 1 54 588 Tm
+(Test special Booking) Tj
+/F1 10 Tf
+1 0 0 1 54 570 Tm
+(Pour tester la nouvelle regle Booking, cree une nouvelle reservation depuis) Tj
+/F1 10 Tf
+1 0 0 1 54 555 Tm
+(l'application.) Tj
+/F1 10 Tf
+1 0 0 1 54 540 Tm
+(- Active le bouton Reservation via Booking.com.) Tj
+/F1 10 Tf
+1 0 0 1 54 525 Tm
+(- Choisis uniquement une Chambre Double Superieure, par exemple 101, 105, 106, 201 ou) Tj
+/F1 10 Tf
+1 0 0 1 54 510 Tm
+(  202 si elle est libre.) Tj
 /F1 10 Tf
 1 0 0 1 54 495 Tm
-(- Reinstalle Python.) Tj
+(- Le prix de la chambre doit etre 162 500 Ar, meme si le prix fixe ou IA affiche autre) Tj
 /F1 10 Tf
 1 0 0 1 54 480 Tm
-(- Coche bien Add Python to PATH au debut de l'installation.) Tj
+(  chose.) Tj
 /F1 10 Tf
 1 0 0 1 54 465 Tm
-(- Ferme PowerShell puis rouvre PowerShell.) Tj
+(- Apres le check-in, va dans Folio et facturation, puis active Facture Booking en) Tj
 /F1 10 Tf
 1 0 0 1 54 450 Tm
-(- Retape : python --version) Tj
+(  euro.) Tj
 /F1 10 Tf
 1 0 0 1 54 435 Tm
+(- Dans le PDF en euro, la chambre doit afficher 32,50 EUR. Le lit supplementaire doit) Tj
+/F1 10 Tf
+1 0 0 1 54 420 Tm
+(  afficher 10 EUR et le matelas 6 EUR.) Tj
+/F1 10 Tf
+1 0 0 1 54 405 Tm
 () Tj
 /F2 14 Tf
-1 0 0 1 54 420 Tm
-(19. Probleme frequent : flutter n'est pas reconnu) Tj
-/F1 10 Tf
-1 0 0 1 54 399 Tm
-(- Verifie que Flutter est bien dans : C:\\src\\flutter) Tj
-/F1 10 Tf
-1 0 0 1 54 384 Tm
-(- Verifie que le PATH contient : C:\\src\\flutter\\bin) Tj
+1 0 0 1 54 390 Tm
+(17. Probleme frequent : php n'est pas reconnu) Tj
 /F1 10 Tf
 1 0 0 1 54 369 Tm
-(- Ferme PowerShell puis rouvre PowerShell.) Tj
+(Si PowerShell dit que php n'est pas reconnu, cela veut dire que PHP n'est pas bien) Tj
 /F1 10 Tf
 1 0 0 1 54 354 Tm
-(- Retape : flutter --version) Tj
+(ajoute au PATH.) Tj
 /F1 10 Tf
 1 0 0 1 54 339 Tm
+(- Retourne a l'etape 4.) Tj
+/F1 10 Tf
+1 0 0 1 54 324 Tm
+(- Verifie que tu as bien ajoute : C:\\xampp\\php) Tj
+/F1 10 Tf
+1 0 0 1 54 309 Tm
+(- Ferme PowerShell puis rouvre PowerShell.) Tj
+/F1 10 Tf
+1 0 0 1 54 294 Tm
+(- Retape : php -v) Tj
+/F1 10 Tf
+1 0 0 1 54 279 Tm
 () Tj
 /F2 14 Tf
-1 0 0 1 54 324 Tm
-(20. Probleme frequent : l'application ne s'ouvre pas) Tj
-/F1 10 Tf
-1 0 0 1 54 303 Tm
-(- Verifie que PowerShell affiche Environnement pret.) Tj
-/F1 10 Tf
-1 0 0 1 54 288 Tm
-(- Verifie que tu as ouvert exactement : http://127.0.0.1:8080/index.html) Tj
-/F1 10 Tf
-1 0 0 1 54 273 Tm
-(- Ne ferme pas PowerShell pendant que tu utilises l'application.) Tj
-/F1 10 Tf
-1 0 0 1 54 258 Tm
-(- Si un message parle du port 8000, 8001 ou 8080, ferme les anciennes fenetres) Tj
+1 0 0 1 54 264 Tm
+(18. Probleme frequent : composer n'est pas reconnu) Tj
 /F1 10 Tf
 1 0 0 1 54 243 Tm
-(  PowerShell et recommence.) Tj
+(- Reinstalle Composer.) Tj
 /F1 10 Tf
 1 0 0 1 54 228 Tm
+(- Pendant l'installation, choisis bien : C:\\xampp\\php\\php.exe) Tj
+/F1 10 Tf
+1 0 0 1 54 213 Tm
+(- Ferme PowerShell puis rouvre PowerShell.) Tj
+/F1 10 Tf
+1 0 0 1 54 198 Tm
+(- Retape : composer --version) Tj
+/F1 10 Tf
+1 0 0 1 54 183 Tm
 () Tj
 /F2 14 Tf
-1 0 0 1 54 213 Tm
-(21. A retenir) Tj
-/F1 10 Tf
-1 0 0 1 54 192 Tm
-(- La premiere installation est longue.) Tj
-/F1 10 Tf
-1 0 0 1 54 177 Tm
-(- Les fois suivantes, il suffit de lancer .\\dev.ps1.) Tj
-/F1 10 Tf
-1 0 0 1 54 162 Tm
-(- L'application fonctionne en local sur l'ordinateur.) Tj
+1 0 0 1 54 168 Tm
+(19. Probleme frequent : python n'est pas reconnu) Tj
 /F1 10 Tf
 1 0 0 1 54 147 Tm
-(- Le lien a ouvrir est toujours : http://127.0.0.1:8080/index.html) Tj
+(- Reinstalle Python.) Tj
+/F1 10 Tf
+1 0 0 1 54 132 Tm
+(- Coche bien Add Python to PATH au debut de l'installation.) Tj
+/F1 10 Tf
+1 0 0 1 54 117 Tm
+(- Ferme PowerShell puis rouvre PowerShell.) Tj
+/F1 10 Tf
+1 0 0 1 54 102 Tm
+(- Retape : python --version) Tj
+/F1 10 Tf
+1 0 0 1 54 87 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 72 Tm
+(20. Probleme frequent : flutter n'est pas reconnu) Tj
 /F1 8 Tf
 1 0 0 1 54 36 Tm
-(Page 6 / 6) Tj
+(Page 6 / 7) Tj
 ET
 endstream
 endobj
 14 0 obj
-<< /Type /Page /Parent 15 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 13 0 R >>
+<< /Type /Page /Parent 17 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 13 0 R >>
 endobj
 15 0 obj
-<< /Type /Pages /Kids [4 0 R 6 0 R 8 0 R 10 0 R 12 0 R 14 0 R] /Count 6 >>
+<< /Length 2147 >>
+stream
+BT
+/F1 10 Tf
+1 0 0 1 54 738 Tm
+(- Verifie que Flutter est bien dans : C:\\src\\flutter) Tj
+/F1 10 Tf
+1 0 0 1 54 723 Tm
+(- Verifie que le PATH contient : C:\\src\\flutter\\bin) Tj
+/F1 10 Tf
+1 0 0 1 54 708 Tm
+(- Ferme PowerShell puis rouvre PowerShell.) Tj
+/F1 10 Tf
+1 0 0 1 54 693 Tm
+(- Retape : flutter --version) Tj
+/F1 10 Tf
+1 0 0 1 54 678 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 663 Tm
+(21. Probleme frequent : l'application ne s'ouvre pas) Tj
+/F1 10 Tf
+1 0 0 1 54 642 Tm
+(- Verifie que PowerShell affiche Environnement pret.) Tj
+/F1 10 Tf
+1 0 0 1 54 627 Tm
+(- Verifie que tu as ouvert exactement : http://127.0.0.1:8080/index.html) Tj
+/F1 10 Tf
+1 0 0 1 54 612 Tm
+(- Ne ferme pas PowerShell pendant que tu utilises l'application.) Tj
+/F1 10 Tf
+1 0 0 1 54 597 Tm
+(- Si un message parle du port 8000, 8001 ou 8080, ferme les anciennes fenetres) Tj
+/F1 10 Tf
+1 0 0 1 54 582 Tm
+(  PowerShell et recommence.) Tj
+/F1 10 Tf
+1 0 0 1 54 567 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 552 Tm
+(22. Probleme frequent : le raccourci Bureau ne marche pas) Tj
+/F1 10 Tf
+1 0 0 1 54 531 Tm
+(- Verifie que le dossier Kamoro-reservation-facturation n'a pas ete deplace.) Tj
+/F1 10 Tf
+1 0 0 1 54 516 Tm
+(- Si le dossier a ete deplace, relance : powershell -ExecutionPolicy Bypass -File) Tj
+/F1 10 Tf
+1 0 0 1 54 501 Tm
+(  .\\Creer-raccourci-bureau.ps1) Tj
+/F1 10 Tf
+1 0 0 1 54 486 Tm
+(- Si Windows bloque le fichier, clique sur Informations complementaires puis Executer) Tj
+/F1 10 Tf
+1 0 0 1 54 471 Tm
+(  quand meme.) Tj
+/F1 10 Tf
+1 0 0 1 54 456 Tm
+(- Tu peux toujours lancer l'application en double-cliquant sur Lancer-Kamoro.bat dans) Tj
+/F1 10 Tf
+1 0 0 1 54 441 Tm
+(  le dossier du projet.) Tj
+/F1 10 Tf
+1 0 0 1 54 426 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 411 Tm
+(23. A retenir) Tj
+/F1 10 Tf
+1 0 0 1 54 390 Tm
+(- La premiere installation est longue.) Tj
+/F1 10 Tf
+1 0 0 1 54 375 Tm
+(- Les fois suivantes, il suffit de double-cliquer sur l'icone du Bureau.) Tj
+/F1 10 Tf
+1 0 0 1 54 360 Tm
+(- L'application fonctionne en local sur l'ordinateur.) Tj
+/F1 10 Tf
+1 0 0 1 54 345 Tm
+(- Le lien a ouvrir est toujours : http://127.0.0.1:8080/index.html) Tj
+/F1 8 Tf
+1 0 0 1 54 36 Tm
+(Page 7 / 7) Tj
+ET
+endstream
 endobj
 16 0 obj
-<< /Type /Catalog /Pages 15 0 R >>
+<< /Type /Page /Parent 17 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 15 0 R >>
+endobj
+17 0 obj
+<< /Type /Pages /Kids [4 0 R 6 0 R 8 0 R 10 0 R 12 0 R 14 0 R 16 0 R] /Count 7 >>
+endobj
+18 0 obj
+<< /Type /Catalog /Pages 17 0 R >>
 endobj
 xref
-0 17
+0 19
 0000000000 65535 f 
 0000000015 00000 n 
 0000000085 00000 n 
@@ -885,15 +994,17 @@ xref
 0000007122 00000 n 
 0000010431 00000 n 
 0000010568 00000 n 
-0000013766 00000 n 
-0000013904 00000 n 
-0000017438 00000 n 
-0000017577 00000 n 
-0000020439 00000 n 
-0000020578 00000 n 
-0000020669 00000 n 
+0000013852 00000 n 
+0000013990 00000 n 
+0000017507 00000 n 
+0000017646 00000 n 
+0000021015 00000 n 
+0000021154 00000 n 
+0000023354 00000 n 
+0000023493 00000 n 
+0000023591 00000 n 
 trailer
-<< /Size 17 /Root 16 0 R >>
+<< /Size 19 /Root 18 0 R >>
 startxref
-20720
+23642
 %%EOF
