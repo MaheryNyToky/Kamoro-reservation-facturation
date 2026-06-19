@@ -10,7 +10,7 @@ echo Ne fermez pas cette fenetre pendant le lancement.
 echo.
 
 echo Mise a jour du depot local...
-git -C "%~dp0" pull --ff-only origin main
+git pull --ff-only origin main
 
 if errorlevel 1 (
     echo.
