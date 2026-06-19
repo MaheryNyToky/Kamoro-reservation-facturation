@@ -68,12 +68,12 @@ Installer les outils suivants :
 
 | Outil | Version recommandée |
 | --- | --- |
-| PHP | 8.3 ou supérieur |
+| PHP | 8.4 ou supérieur |
 | Composer | 2.x |
 | Node.js | 20 ou supérieur |
 | npm | 10 ou supérieur |
 | Python | 3.11 ou supérieur |
-| Flutter | SDK compatible Dart `^3.12.1` |
+| Flutter | SDK compatible Dart `^3.12.0` |
 | SQLite | Inclus sur macOS/Linux dans la plupart des environnements |
 
 Vérification rapide :
