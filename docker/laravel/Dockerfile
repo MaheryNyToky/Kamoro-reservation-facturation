@@ -2,7 +2,8 @@ FROM php:8.4-cli
 
 WORKDIR /app
 
-RUN apt-get update \
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
     && apt-get install -y --no-install-recommends \
         git \
         unzip \
@@ -12,7 +13,10 @@ RUN apt-get update \
     && docker-php-ext-install intl pdo_sqlite zip \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+RUN curl --retry 5 --retry-all-errors --connect-timeout 30 -fsSL \
+        https://getcomposer.org/installer -o /tmp/composer-setup.php \
+    && php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer \
+    && rm /tmp/composer-setup.php
 
 COPY hestiapredict/composer.json hestiapredict/composer.lock ./
 RUN composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --no-scripts
