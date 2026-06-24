@@ -21,7 +21,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./database.sqlite:/data/database.sqlite
+      - ./hestiapredict/database:/data
       - laravel_storage:/app/storage
     depends_on:
       ai-engine:
