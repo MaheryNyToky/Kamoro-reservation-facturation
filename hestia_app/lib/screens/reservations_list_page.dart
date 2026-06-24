@@ -142,6 +142,30 @@ class _EditReservationPageState extends State<EditReservationPage> {
       ..addAll(_initialRooms().map((room) => _asInt(room['id'])));
   }
 
+  int _stayNights() {
+    final nights = _checkOut.difference(_checkIn).inDays;
+    return nights < 1 ? 1 : nights;
+  }
+
+  int _calculateRoomPrice() {
+    final nights = _stayNights();
+    return _selectedRooms.fold<int>(
+      0,
+      (total, room) => total + _getRoomPrice(room) * nights,
+    );
+  }
+
+  int _calculateExtrasPrice() {
+    final nights = _stayNights();
+    return ((_extraBeds * 50000) + (_extraMattresses * 30000)) * nights;
+  }
+
+  int _calculateTotalPrice() {
+    return _calculateRoomPrice() + _calculateExtrasPrice();
+  }
+
+  String _nightLabel(int nights) => '$nights nuit${nights > 1 ? 's' : ''}';
+
   Set<String> _initialRoomNumbers() {
     final rawNumbers = widget.reservation['room_numbers'];
     if (rawNumbers is String && rawNumbers.trim().isNotEmpty) {
@@ -618,24 +642,26 @@ class _EditReservationPageState extends State<EditReservationPage> {
                       ),
                     ],
                     const SizedBox(height: 12),
-                    _QuantitySelector(
-                      icon: Icons.bed_outlined,
-                      label: 'Lit supplémentaire',
-                      unitPrice: 50000,
-                      value: _extraBeds,
-                      maxValue: _remainingExtraBeds,
-                      onChanged: (value) => setState(() => _extraBeds = value),
-                    ),
+                  _QuantitySelector(
+                    icon: Icons.bed_outlined,
+                    label: 'Lit supplémentaire',
+                    unitPrice: 50000,
+                    stayNights: _stayNights(),
+                    value: _extraBeds,
+                    maxValue: _remainingExtraBeds,
+                    onChanged: (value) => setState(() => _extraBeds = value),
+                  ),
                     const SizedBox(height: 10),
-                    _QuantitySelector(
-                      icon: Icons.airline_seat_individual_suite_outlined,
-                      label: 'Matelas supplémentaire',
-                      unitPrice: 30000,
-                      value: _extraMattresses,
-                      maxValue: _remainingExtraMattresses,
-                      onChanged: (value) =>
-                          setState(() => _extraMattresses = value),
-                    ),
+                  _QuantitySelector(
+                    icon: Icons.airline_seat_individual_suite_outlined,
+                    label: 'Matelas supplémentaire',
+                    unitPrice: 30000,
+                    stayNights: _stayNights(),
+                    value: _extraMattresses,
+                    maxValue: _remainingExtraMattresses,
+                    onChanged: (value) =>
+                        setState(() => _extraMattresses = value),
+                  ),
                     const SizedBox(height: 12),
                     Container(
                       padding: const EdgeInsets.all(12),
@@ -646,18 +672,50 @@ class _EditReservationPageState extends State<EditReservationPage> {
                           color: _primary.withValues(alpha: 0.18),
                         ),
                       ),
-                      child: Text(
-                        '${_selectedRooms.length} chambre(s) sélectionnée(s)',
-                        style: const TextStyle(
-                          color: _primaryDark,
-                          fontWeight: FontWeight.w900,
-                        ),
+                    child: Text(
+                      '${_selectedRooms.length} chambre(s) sélectionnée(s)',
+                      style: const TextStyle(
+                        color: _primaryDark,
+                        fontWeight: FontWeight.w900,
                       ),
                     ),
-                    const SizedBox(height: 20),
-                    ElevatedButton.icon(
-                      onPressed: _isSaving ? null : _saveChanges,
-                      icon: _isSaving
+                  ),
+                  const SizedBox(height: 20),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: _primary.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: _primary.withValues(alpha: 0.18),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _SummaryLine(
+                          label: 'Prix chambre (${_nightLabel(_stayNights())})',
+                          value: '${formatPrice(_calculateRoomPrice())} Ar',
+                        ),
+                        const SizedBox(height: 6),
+                        _SummaryLine(
+                          label: 'Prix supplément (${_nightLabel(_stayNights())})',
+                          value: '${formatPrice(_calculateExtrasPrice())} Ar',
+                        ),
+                        const Divider(height: 20),
+                        _SummaryLine(
+                          label: 'Prix total',
+                          value: '${formatPrice(_calculateTotalPrice())} Ar',
+                          emphasized: true,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  ElevatedButton.icon(
+                    onPressed: _isSaving ? null : _saveChanges,
+                    icon: _isSaving
                           ? const SizedBox(
                               width: 18,
                               height: 18,
@@ -1901,6 +1959,7 @@ class _QuantitySelector extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.unitPrice,
+    required this.stayNights,
     required this.value,
     required this.onChanged,
     this.maxValue,
@@ -1909,6 +1968,7 @@ class _QuantitySelector extends StatelessWidget {
   final IconData icon;
   final String label;
   final int unitPrice;
+  final int stayNights;
   final int value;
   final ValueChanged<int> onChanged;
   final int? maxValue;
@@ -1933,10 +1993,28 @@ class _QuantitySelector extends StatelessWidget {
                   label,
                   style: const TextStyle(fontWeight: FontWeight.w800),
                 ),
-                Text(
-                  '${formatPrice(unitPrice)} Ar / unité',
-                  style: const TextStyle(color: _muted, fontSize: 12),
-                ),
+                if (stayNights > 1)
+                  Text(
+                    'Montant pour $stayNights nuit${stayNights > 1 ? 's' : ''} : ${formatPrice(unitPrice * stayNights)} Ar',
+                    style: const TextStyle(
+                      color: _primaryDark,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                if (stayNights > 1)
+                  Text(
+                    '${formatPrice(unitPrice)} Ar / nuit',
+                    style: const TextStyle(
+                      color: _muted,
+                      fontSize: 12,
+                    ),
+                  ),
+                if (stayNights <= 1)
+                  Text(
+                    '${formatPrice(unitPrice)} Ar',
+                    style: const TextStyle(color: _muted, fontSize: 12),
+                  ),
                 if (maxValue != null)
                   Text(
                     'Restant : $maxValue',
@@ -2054,6 +2132,40 @@ class _ReservationStatusSelector extends StatelessWidget {
           selected: value == 'paid',
           onSelected: () => onChanged('paid'),
         ),
+      ],
+    );
+  }
+}
+
+class _SummaryLine extends StatelessWidget {
+  const _SummaryLine({
+    required this.label,
+    required this.value,
+    this.emphasized = false,
+  });
+
+  final String label;
+  final String value;
+  final bool emphasized;
+
+  @override
+  Widget build(BuildContext context) {
+    final labelStyle = TextStyle(
+      color: emphasized ? _primaryDark : _muted,
+      fontWeight: FontWeight.w800,
+      fontSize: emphasized ? 15 : 13,
+    );
+    final valueStyle = TextStyle(
+      color: _primaryDark,
+      fontWeight: FontWeight.w900,
+      fontSize: emphasized ? 18 : 14,
+    );
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: labelStyle),
+        Text(value, style: valueStyle),
       ],
     );
   }

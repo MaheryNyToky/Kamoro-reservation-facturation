@@ -1270,6 +1270,40 @@ class _SoftActionButton extends StatelessWidget {
   }
 }
 
+class _SummaryLine extends StatelessWidget {
+  const _SummaryLine({
+    required this.label,
+    required this.value,
+    this.emphasized = false,
+  });
+
+  final String label;
+  final String value;
+  final bool emphasized;
+
+  @override
+  Widget build(BuildContext context) {
+    final labelStyle = TextStyle(
+      color: emphasized ? _primaryDark : _muted,
+      fontWeight: FontWeight.w800,
+      fontSize: emphasized ? 15 : 13,
+    );
+    final valueStyle = TextStyle(
+      color: _primaryDark,
+      fontWeight: FontWeight.w900,
+      fontSize: emphasized ? 18 : 14,
+    );
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: labelStyle),
+        Text(value, style: valueStyle),
+      ],
+    );
+  }
+}
+
 class _QuantitySelector extends StatelessWidget {
   const _QuantitySelector({
     required this.icon,
@@ -1309,18 +1343,33 @@ class _QuantitySelector extends StatelessWidget {
                   label,
                   style: const TextStyle(fontWeight: FontWeight.w800),
                 ),
-                Text(
-                  '${formatPrice(unitPrice)} Ar / unité',
-                  style: const TextStyle(color: _muted, fontSize: 12),
-                ),
-                Text(
-                  'Total sur $stayNights nuit${stayNights > 1 ? 's' : ''} : ${formatPrice(unitPrice * stayNights)} Ar',
-                  style: const TextStyle(
-                    color: _primaryDark,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
+                if (stayNights > 1)
+                  Text(
+                    'Montant pour $stayNights nuit${stayNights > 1 ? 's' : ''} : ${formatPrice(unitPrice * stayNights)} Ar',
+                    style: const TextStyle(
+                      color: _primaryDark,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-                ),
+                if (stayNights > 1)
+                  Text(
+                    '${formatPrice(unitPrice)} Ar / nuit',
+                    style: const TextStyle(color: _muted, fontSize: 12),
+                  ),
+                if (stayNights <= 1)
+                  Text(
+                    '${formatPrice(unitPrice)} Ar',
+                    style: const TextStyle(color: _muted, fontSize: 12),
+                  ),
+                if (stayNights > 1)
+                  Text(
+                    'Base affichée pour comparaison',
+                    style: const TextStyle(
+                      color: _muted,
+                      fontSize: 12,
+                    ),
+                  ),
                 if (maxValue != null)
                   Text(
                     'Restant : $maxValue',
@@ -1725,14 +1774,24 @@ class _NewBookingPageState extends State<NewBookingPage> {
   }
 
   int _calculateTotalPrice() {
+    return _calculateRoomPrice() + _calculateExtrasPrice();
+  }
+
+  int _calculateRoomPrice() {
     int total = 0;
     final nights = _stayNights();
     for (var room in _selectedRooms) {
       total += _getSuggestedPrice(room) * nights;
     }
-    total += ((_extraBeds * 50000) + (_extraMattresses * 30000)) * nights;
     return total;
   }
+
+  int _calculateExtrasPrice() {
+    final nights = _stayNights();
+    return ((_extraBeds * 50000) + (_extraMattresses * 30000)) * nights;
+  }
+
+  String _nightLabel(int nights) => '$nights nuit${nights > 1 ? 's' : ''}';
 
   bool _matchesRoomSearch(dynamic room) {
     final query = _roomSearchQuery.trim().toLowerCase();
@@ -1910,23 +1969,23 @@ class _NewBookingPageState extends State<NewBookingPage> {
                         color: _primary.withValues(alpha: 0.18),
                       ),
                     ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'Prix Total:',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                          ),
+                        _SummaryLine(
+                          label: 'Prix chambre (${_nightLabel(_stayNights())})',
+                          value: '${formatPrice(_calculateRoomPrice())} Ar',
                         ),
-                        Text(
-                          '${formatPrice(_calculateTotalPrice())} Ar',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 18,
-                            color: _primaryDark,
-                          ),
+                        const SizedBox(height: 6),
+                        _SummaryLine(
+                          label: 'Prix supplément (${_nightLabel(_stayNights())})',
+                          value: '${formatPrice(_calculateExtrasPrice())} Ar',
+                        ),
+                        const Divider(height: 20),
+                        _SummaryLine(
+                          label: 'Prix total',
+                          value: '${formatPrice(_calculateTotalPrice())} Ar',
+                          emphasized: true,
                         ),
                       ],
                     ),
