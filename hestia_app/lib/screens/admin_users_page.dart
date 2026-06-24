@@ -52,18 +52,88 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
   }
 
   String _staffEmailFromName(String fullName) {
-    final localPart = fullName.trim().toLowerCase().replaceAll(
-      RegExp(r'[^a-z0-9]+'),
-      '',
-    );
-    if (localPart.isEmpty) {
+    final normalized = _asciiFold(
+      fullName.toLowerCase(),
+    ).trim().replaceAll(RegExp(r'[^a-z0-9]+'), ' ').trim();
+    if (normalized.isEmpty) {
       return '';
     }
+
+    final localPart = normalized.split(RegExp(r'\s+')).join('.');
     return '$localPart@kamorohotel.com';
   }
 
   String _generateStaffPassword() {
     return _random.nextInt(1000000).toString().padLeft(6, '0');
+  }
+
+  String _asciiFold(String input) {
+    var value = input;
+    const replacements = <String, String>{
+      'À': 'A',
+      'Á': 'A',
+      'Â': 'A',
+      'Ä': 'A',
+      'Ã': 'A',
+      'Å': 'A',
+      'Æ': 'AE',
+      'Ç': 'C',
+      'È': 'E',
+      'É': 'E',
+      'Ê': 'E',
+      'Ë': 'E',
+      'Ì': 'I',
+      'Í': 'I',
+      'Î': 'I',
+      'Ï': 'I',
+      'Ñ': 'N',
+      'Ò': 'O',
+      'Ó': 'O',
+      'Ô': 'O',
+      'Ö': 'O',
+      'Õ': 'O',
+      'Œ': 'OE',
+      'Ù': 'U',
+      'Ú': 'U',
+      'Û': 'U',
+      'Ü': 'U',
+      'Ý': 'Y',
+      'à': 'a',
+      'á': 'a',
+      'â': 'a',
+      'ä': 'a',
+      'ã': 'a',
+      'å': 'a',
+      'æ': 'ae',
+      'ç': 'c',
+      'è': 'e',
+      'é': 'e',
+      'ê': 'e',
+      'ë': 'e',
+      'ì': 'i',
+      'í': 'i',
+      'î': 'i',
+      'ï': 'i',
+      'ñ': 'n',
+      'ò': 'o',
+      'ó': 'o',
+      'ô': 'o',
+      'ö': 'o',
+      'õ': 'o',
+      'œ': 'oe',
+      'ù': 'u',
+      'ú': 'u',
+      'û': 'u',
+      'ü': 'u',
+      'ý': 'y',
+      'ÿ': 'y',
+    };
+
+    replacements.forEach((from, to) {
+      value = value.replaceAll(from, to);
+    });
+
+    return value;
   }
 
   @override

@@ -71,18 +71,13 @@ class _CheckInPageState extends State<CheckInPage> {
     final results = await _clientSearchService.search(query);
     if (!mounted || results.isEmpty) return;
 
-    ClientProfile? match;
-    for (final client in results) {
-      final fullName = client.displayName.toLowerCase();
-      final phone = (client.phoneNumber ?? '').toLowerCase();
-      if (fullName == widget.reservation.clientName.toLowerCase() ||
-          phone == widget.reservation.phone.toLowerCase()) {
-        match = client;
-        break;
-      }
-    }
+    final match = _findExactClientMatch(
+      results,
+      name: widget.reservation.clientName,
+      phone: widget.reservation.phone,
+    );
+    if (match == null) return;
 
-    match ??= results.first;
     _applyClient(match);
   }
 
@@ -112,26 +107,55 @@ class _CheckInPageState extends State<CheckInPage> {
     final results = await _clientSearchService.search(query);
     if (!mounted || results.isEmpty) return;
 
-    ClientProfile? match;
-    final normalizedName = widget.reservation.clientName.toLowerCase();
-    final normalizedPhone = widget.reservation.phone.toLowerCase();
-    final normalizedId = _idNumberController.text.trim().toLowerCase();
+    final match = _findExactClientMatch(
+      results,
+      name: widget.reservation.clientName,
+      phone: widget.reservation.phone,
+      document: _idNumberController.text.trim(),
+    );
+    if (match == null) return;
 
-    for (final client in results) {
-      final fullName = client.displayName.toLowerCase();
-      final phone = (client.phoneNumber ?? '').toLowerCase();
-      final document = client.displayDocumentNumber.toLowerCase();
+    _applyClient(match);
+  }
 
-      if ((normalizedName.isNotEmpty && fullName == normalizedName) ||
-          (normalizedPhone.isNotEmpty && phone == normalizedPhone) ||
-          (normalizedId.isNotEmpty && document == normalizedId)) {
-        match = client;
-        break;
+  ClientProfile? _findExactClientMatch(
+    List<ClientProfile> clients, {
+    String? name,
+    String? phone,
+    String? document,
+  }) {
+    final normalizedName = _normalizeLookupValue(name);
+    final normalizedPhone = _normalizePhoneValue(phone);
+    final normalizedDocument = _normalizeLookupValue(document);
+
+    for (final client in clients) {
+      final clientName = _normalizeLookupValue(client.displayName);
+      final clientPhone = _normalizePhoneValue(client.phoneNumber);
+      final clientDocument = _normalizeLookupValue(
+        client.displayDocumentNumber,
+      );
+
+      final nameMatches =
+          normalizedName.isNotEmpty && clientName == normalizedName;
+      final phoneMatches =
+          normalizedPhone.isNotEmpty && clientPhone == normalizedPhone;
+      final documentMatches =
+          normalizedDocument.isNotEmpty && clientDocument == normalizedDocument;
+
+      if (nameMatches || phoneMatches || documentMatches) {
+        return client;
       }
     }
 
-    match ??= results.first;
-    _applyClient(match);
+    return null;
+  }
+
+  String _normalizeLookupValue(String? value) {
+    return (value ?? '').trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+  }
+
+  String _normalizePhoneValue(String? value) {
+    return (value ?? '').replaceAll(RegExp(r'\D+'), '');
   }
 
   void _applyClient(ClientProfile client) {
@@ -288,7 +312,9 @@ class _CheckInPageState extends State<CheckInPage> {
       request.fields['checked_in_by_name'] = widget.userName;
       request.fields['checked_in_by_role'] = widget.role;
 
-      final streamedResponse = await request.send().timeout(const Duration(seconds: 8));
+      final streamedResponse = await request.send().timeout(
+        const Duration(seconds: 8),
+      );
       final response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200 || response.statusCode == 201) {
