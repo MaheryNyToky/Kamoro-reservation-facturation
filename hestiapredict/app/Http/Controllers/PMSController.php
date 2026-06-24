@@ -180,7 +180,7 @@ class PMSController extends Controller
         ]);
 
         $result = DB::transaction(function () use ($validated, $id) {
-            $invoice = Invoice::with(['payments', 'reservation.guest'])->lockForUpdate()->findOrFail($id);
+            $invoice = Invoice::with(['payments', 'reservation.audits', 'reservation.guest'])->lockForUpdate()->findOrFail($id);
             $previousStatus = $invoice->status;
 
             if ($invoice->status === 'finalized') {
@@ -196,15 +196,17 @@ class PMSController extends Controller
                 ]);
             }
 
-            if ((int) $validated['amount_ariary'] > $remainingAmount) {
-                throw ValidationException::withMessages([
-                    'amount_ariary' => 'Le paiement dépasse le reste à payer.',
-                ]);
-            }
+            $amounts = $this->normalizePaymentAmounts(
+                (int) $validated['amount_ariary'],
+                $remainingAmount,
+                $validated['payment_method'],
+            );
 
             $payment = Payment::create([
                 'invoice_id' => $invoice->id,
-                'amount_ariary' => $validated['amount_ariary'],
+                'amount_ariary' => $amounts['applied_amount_ariary'],
+                'amount_received_ariary' => $amounts['received_amount_ariary'],
+                'change_given_ariary' => $amounts['change_given_ariary'],
                 'payment_method' => $validated['payment_method'],
                 'payment_operator' => $validated['payment_operator'] ?? null,
                 'payment_context' => 'payment',
@@ -219,7 +221,9 @@ class PMSController extends Controller
                 'actor_name' => $validated['processed_by_name'] ?? null,
                 'actor_role' => $validated['processed_by_role'] ?? null,
                 'details' => [
-                    'amount_ariary' => (int) $validated['amount_ariary'],
+                    'amount_received_ariary' => $amounts['received_amount_ariary'],
+                    'amount_ariary' => $amounts['applied_amount_ariary'],
+                    'change_given_ariary' => $amounts['change_given_ariary'],
                     'payment_method' => $validated['payment_method'],
                     'payment_operator' => $validated['payment_operator'] ?? null,
                     'reference' => $validated['reference'] ?? null,
@@ -261,7 +265,7 @@ class PMSController extends Controller
         ]);
 
         $result = DB::transaction(function () use ($validated, $id) {
-            $reservation = Reservation::with(['invoice.payments', 'guest'])->lockForUpdate()->findOrFail($id);
+            $reservation = Reservation::with(['invoice.payments', 'audits', 'guest'])->lockForUpdate()->findOrFail($id);
             $invoice = $reservation->invoice ?: $this->ensureOpenFolio($reservation);
             $previousStatus = $invoice->status;
 
@@ -272,15 +276,17 @@ class PMSController extends Controller
                 ]);
             }
 
-            if ((int) $validated['amount_ariary'] > $remainingAmount) {
-                throw ValidationException::withMessages([
-                    'amount_ariary' => 'Le paiement dépasse le reste à payer.',
-                ]);
-            }
+            $amounts = $this->normalizePaymentAmounts(
+                (int) $validated['amount_ariary'],
+                $remainingAmount,
+                $validated['payment_method'],
+            );
 
             $payment = Payment::create([
                 'invoice_id' => $invoice->id,
-                'amount_ariary' => $validated['amount_ariary'],
+                'amount_ariary' => $amounts['applied_amount_ariary'],
+                'amount_received_ariary' => $amounts['received_amount_ariary'],
+                'change_given_ariary' => $amounts['change_given_ariary'],
                 'payment_method' => $validated['payment_method'],
                 'payment_operator' => $validated['payment_operator'] ?? null,
                 'payment_context' => 'deposit',
@@ -295,7 +301,9 @@ class PMSController extends Controller
                 'actor_name' => $validated['processed_by_name'] ?? null,
                 'actor_role' => $validated['processed_by_role'] ?? null,
                 'details' => [
-                    'amount_ariary' => (int) $validated['amount_ariary'],
+                    'amount_received_ariary' => $amounts['received_amount_ariary'],
+                    'amount_ariary' => $amounts['applied_amount_ariary'],
+                    'change_given_ariary' => $amounts['change_given_ariary'],
                     'payment_method' => $validated['payment_method'],
                     'payment_operator' => $validated['payment_operator'] ?? null,
                     'reference' => $validated['reference'] ?? null,
@@ -321,6 +329,103 @@ class PMSController extends Controller
 
         return response()->json([
             'message' => 'Acompte enregistré',
+            ...$result,
+        ]);
+    }
+
+    public function updatePayment(Request $request, int $id, int $paymentId): JsonResponse
+    {
+        $validated = $request->validate([
+            'amount_ariary' => 'required|integer|min:1',
+            'payment_method' => 'required|string|in:Espèces,Carte Bancaire,Mobile Money,Chèque,Virement',
+            'payment_operator' => 'nullable|string|in:mvola,orange money,airtel money',
+            'reference' => 'nullable|string|max:120',
+            'processed_by_name' => 'nullable|string|max:120',
+            'processed_by_role' => 'nullable|string|in:admin,receptionist,superadmin',
+        ]);
+
+        $result = DB::transaction(function () use ($validated, $id, $paymentId) {
+            $invoice = Invoice::with(['payments', 'reservation.audits', 'reservation.guest'])
+                ->lockForUpdate()
+                ->findOrFail($id);
+
+            if ($invoice->status === 'finalized') {
+                throw ValidationException::withMessages([
+                    'invoice' => 'Facture finalisée, modification impossible.',
+                ]);
+            }
+
+            $payment = $invoice->payments->firstWhere('id', $paymentId)
+                ?? Payment::query()
+                    ->where('invoice_id', $invoice->id)
+                    ->lockForUpdate()
+                    ->findOrFail($paymentId);
+
+            $actorRole = $validated['processed_by_role'] ?? 'receptionist';
+            $this->assertPaymentModificationAllowed($invoice->reservation, $actorRole);
+
+            $otherPaymentsTotal = (int) $invoice->payments
+                ->where('id', '!=', $payment->id)
+                ->sum('amount_ariary');
+            $remainingAmountForPayment = max(0, (int) $invoice->total_amount_ariary - $otherPaymentsTotal);
+
+            $amounts = $this->normalizePaymentAmounts(
+                (int) $validated['amount_ariary'],
+                $remainingAmountForPayment,
+                $validated['payment_method'],
+            );
+
+            $before = [
+                'amount_received_ariary' => (int) ($payment->amount_received_ariary ?? $payment->amount_ariary),
+                'amount_ariary' => (int) $payment->amount_ariary,
+                'change_given_ariary' => (int) ($payment->change_given_ariary ?? 0),
+                'payment_method' => $payment->payment_method,
+                'payment_operator' => $payment->payment_operator,
+                'reference' => $payment->reference,
+            ];
+
+            $payment->update([
+                'amount_ariary' => $amounts['applied_amount_ariary'],
+                'amount_received_ariary' => $amounts['received_amount_ariary'],
+                'change_given_ariary' => $amounts['change_given_ariary'],
+                'payment_method' => $validated['payment_method'],
+                'payment_operator' => $validated['payment_operator'] ?? null,
+                'reference' => $validated['reference'] ?? null,
+                'processed_by_name' => $validated['processed_by_name'] ?? $payment->processed_by_name,
+                'processed_by_role' => $validated['processed_by_role'] ?? $payment->processed_by_role,
+            ]);
+
+            ReservationAudit::create([
+                'reservation_id' => $invoice->reservation_id,
+                'action' => 'payment_modified',
+                'actor_name' => $validated['processed_by_name'] ?? null,
+                'actor_role' => $validated['processed_by_role'] ?? null,
+                'details' => [
+                    'payment_id' => $payment->id,
+                    'before' => $before,
+                    'after' => [
+                        'amount_received_ariary' => $amounts['received_amount_ariary'],
+                        'amount_ariary' => $amounts['applied_amount_ariary'],
+                        'change_given_ariary' => $amounts['change_given_ariary'],
+                        'payment_method' => $validated['payment_method'],
+                        'payment_operator' => $validated['payment_operator'] ?? null,
+                        'reference' => $validated['reference'] ?? null,
+                    ],
+                ],
+            ]);
+
+            $invoice = $this->syncInvoiceAfterPayment($invoice->refresh());
+
+            return [
+                'payment' => $this->paymentPayload($payment->refresh()),
+                'invoice' => $this->folioPayload($invoice),
+            ];
+        });
+
+        $this->availabilityService->invalidateCaches();
+
+        return response()->json([
+            'message' => 'Paiement modifié',
             ...$result,
         ]);
     }
@@ -554,6 +659,10 @@ class PMSController extends Controller
             'deposit_amount_ariary' => (int) $invoice->deposit_amount_ariary,
             'paid_amount_ariary' => $invoice->paid_amount_ariary,
             'balance_amount_ariary' => $invoice->balance_amount_ariary,
+            'change_given_ariary' => (int) $invoice->payments->sum(fn (Payment $payment) => (int) ($payment->change_given_ariary ?? 0)),
+            'payment_modification_count' => $invoice->reservation?->audits()
+                ->where('action', 'payment_modified')
+                ->count() ?? 0,
             'pdf_url' => $invoice->pdf_path ? url("/api/invoices/{$invoice->id}/pdf") : null,
             'finalized_at' => optional($invoice->finalized_at)->toDateTimeString(),
             'guest' => $invoice->reservation?->guest,
@@ -574,6 +683,8 @@ class PMSController extends Controller
                 'payment_operator' => $payment->payment_operator,
                 'payment_context' => $payment->payment_context ?? 'payment',
                 'reference' => $payment->reference,
+                'amount_received_ariary' => (int) ($payment->amount_received_ariary ?? $payment->amount_ariary),
+                'change_given_ariary' => (int) ($payment->change_given_ariary ?? 0),
                 'processed_by_name' => $payment->processed_by_name,
                 'processed_by_role' => $payment->processed_by_role,
                 'created_at' => optional($payment->created_at)->toDateTimeString(),
@@ -595,6 +706,7 @@ class PMSController extends Controller
         $paidAmount = (int) $invoice->paid_amount_ariary;
         $balanceAmount = (int) $invoice->balance_amount_ariary;
         $depositAmount = (int) $invoice->deposit_amount_ariary;
+        $changeAmount = (int) $invoice->payments->sum(fn (Payment $payment) => (int) ($payment->change_given_ariary ?? 0));
         $visibleItems = $invoice->items->where('type', '!=', 'tax');
         $subtotal = (int) $visibleItems->sum(fn (InvoiceItem $item) => $item->amount_ariary * $item->quantity);
         $discountAmount = (int) $invoice->discount_amount_ariary;
@@ -646,18 +758,23 @@ class PMSController extends Controller
             $processedRole = $payment->processed_by_role ? e($payment->processed_by_role) : '-';
             $operator = $payment->payment_operator ? ' / ' . e($payment->payment_operator) : '';
             $paymentContext = ($payment->payment_context ?? 'payment') === 'deposit' ? 'Acompte' : 'Paiement';
+            $receivedAmount = (int) ($payment->amount_received_ariary ?? $payment->amount_ariary);
+            $appliedAmount = (int) $payment->amount_ariary;
+            $changeGiven = (int) ($payment->change_given_ariary ?? 0);
             $paymentRows .= '<tr>'
                 . '<td>' . optional($payment->created_at)->format('d/m/Y H:i') . '</td>'
                 . '<td>' . e($payment->payment_method) . $operator . '</td>'
                 . '<td>' . $paymentContext . '</td>'
+                . '<td>' . $this->formatMoney($showEuro ? $this->ariaryToEuro($receivedAmount) : (float) $receivedAmount, $currencyLabel, false) . '</td>'
+                . '<td>' . $this->formatMoney($showEuro ? $this->ariaryToEuro($changeGiven) : (float) $changeGiven, $currencyLabel, false) . '</td>'
+                . '<td>' . $this->formatMoney($showEuro ? $this->ariaryToEuro($appliedAmount) : (float) $appliedAmount, $currencyLabel, false) . '</td>'
                 . '<td>' . $processedBy . ' (' . $processedRole . ')</td>'
                 . '<td>' . $reference . '</td>'
-                . '<td>' . $this->formatMoney($showEuro ? $this->ariaryToEuro((int) $payment->amount_ariary) : (float) $payment->amount_ariary, $currencyLabel, false) . '</td>'
                 . '</tr>';
         }
 
         if ($paymentRows === '') {
-            $paymentRows = '<tr><td colspan="6">Aucun paiement enregistré</td></tr>';
+            $paymentRows = '<tr><td colspan="8">Aucun paiement enregistré</td></tr>';
         }
 
         return "
@@ -739,7 +856,7 @@ class PMSController extends Controller
                 <div class='section-title'>Paiements</div>
                 <table class='lines'>
                     <thead>
-                        <tr><th>Date</th><th>Méthode</th><th>Type</th><th>Traité par</th><th>Référence</th><th class='num'>{$amountHeader}</th></tr>
+                        <tr><th>Date</th><th>Méthode</th><th>Type</th><th class='num'>Reçu</th><th class='num'>Rendu</th><th class='num'>Net</th><th>Traité par</th><th>Référence</th></tr>
                     </thead>
                     <tbody>{$paymentRows}</tbody>
                 </table>
@@ -773,6 +890,12 @@ class PMSController extends Controller
                             <div class='label'>Reste à payer</div>
                             <div class='value'>" . $this->formatMoney($displayBalance, $currencyLabel) . "</div>
                         </div>
+                        " . ($changeAmount > 0 ? "
+                        <div class='summary-row'>
+                            <div class='label'>Monnaie rendue</div>
+                            <div class='value'>" . $this->formatMoney($showEuro ? $this->ariaryToEuro($changeAmount) : $changeAmount, $currencyLabel) . "</div>
+                        </div>
+                        " : '') . "
                     </div>
                 </div>
                 " . ($depositAmount > 0 ? "<div class='deposit-note'>Acompte déjà versé : " . $this->formatMoney($displayDeposit, $currencyLabel) . "</div>" : '') . "
@@ -880,6 +1003,64 @@ class PMSController extends Controller
         $this->ensureInvoicePdf($invoice, $invoice->document_type ?? 'facture');
 
         return $invoice->refresh()->load('reservation.guest', 'payments');
+    }
+
+    private function normalizePaymentAmounts(int $receivedAmount, int $availableAmount, string $paymentMethod): array
+    {
+        $receivedAmount = max(1, $receivedAmount);
+        $availableAmount = max(0, $availableAmount);
+
+        if ($receivedAmount > $availableAmount && $paymentMethod !== 'Espèces') {
+            throw ValidationException::withMessages([
+                'amount_ariary' => 'Le paiement dépasse le reste à payer.',
+            ]);
+        }
+
+        $appliedAmount = min($receivedAmount, $availableAmount);
+        $changeGiven = max(0, $receivedAmount - $appliedAmount);
+
+        return [
+            'received_amount_ariary' => $receivedAmount,
+            'applied_amount_ariary' => $appliedAmount,
+            'change_given_ariary' => $changeGiven,
+        ];
+    }
+
+    private function assertPaymentModificationAllowed(?Reservation $reservation, string $actorRole): void
+    {
+        if (!$reservation) {
+            throw ValidationException::withMessages([
+                'payment' => 'Réservation introuvable pour ce paiement.',
+            ]);
+        }
+
+        $modificationCount = (int) $reservation->audits()
+            ->where('action', 'payment_modified')
+            ->count();
+
+        if ($actorRole === 'receptionist' && $modificationCount >= 1) {
+            throw ValidationException::withMessages([
+                'payment' => 'Le réceptionniste ne peut modifier qu’un seul paiement par réservation.',
+            ]);
+        }
+    }
+
+    private function paymentPayload(Payment $payment): array
+    {
+        return [
+            'id' => $payment->id,
+            'invoice_id' => $payment->invoice_id,
+            'amount_ariary' => (int) $payment->amount_ariary,
+            'amount_received_ariary' => (int) ($payment->amount_received_ariary ?? $payment->amount_ariary),
+            'change_given_ariary' => (int) ($payment->change_given_ariary ?? 0),
+            'payment_method' => $payment->payment_method,
+            'payment_operator' => $payment->payment_operator,
+            'payment_context' => $payment->payment_context ?? 'payment',
+            'reference' => $payment->reference,
+            'processed_by_name' => $payment->processed_by_name,
+            'processed_by_role' => $payment->processed_by_role,
+            'created_at' => optional($payment->created_at)->toDateTimeString(),
+        ];
     }
 
     private function applyInvoiceDiscount(Invoice $invoice, ?string $mode, mixed $value): void

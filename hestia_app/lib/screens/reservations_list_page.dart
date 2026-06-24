@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -1098,7 +1099,7 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (context) {
-        final amountController = TextEditingController();
+        final amountController = TextEditingController(text: '');
         final referenceController = TextEditingController();
         String paymentMethod = 'Espèces';
         String paymentOperator = 'mvola';
@@ -1121,6 +1122,7 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                   TextField(
                     controller: amountController,
                     keyboardType: TextInputType.number,
+                    inputFormatters: const [AriaryInputFormatter()],
                     decoration: const InputDecoration(
                       labelText: 'Montant de l’acompte (Ar)',
                       prefixIcon: Icon(Icons.payments_outlined),
@@ -1188,7 +1190,7 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
             ),
             ElevatedButton(
               onPressed: () {
-                final amount = int.tryParse(amountController.text.trim()) ?? 0;
+                final amount = parseAriaryAmount(amountController.text);
                 if (amount <= 0) return;
                 Navigator.pop(context, {
                   'amount_ariary': amount,

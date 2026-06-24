@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter/services.dart';
 import 'package:printing/printing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:share_plus/share_plus.dart';
@@ -47,6 +48,10 @@ class _FolioPageState extends State<FolioPage> {
   int get _invoiceId => _asInt(_folio?['id']);
   bool get _isFinalized => _folio?['status'] == 'finalized';
   bool get _hasPdf => (_folio?['pdf_url'] ?? '').toString().isNotEmpty;
+  bool get _canEditPayments =>
+      widget.role != 'receptionist' || _paymentModificationCount < 1;
+  int get _paymentModificationCount =>
+      _asInt(_folio?['payment_modification_count']);
   bool get _isBookingReservation {
     final folioFlag = _folio?['is_booking'];
     final reservationFlag = widget.reservation['is_booking'];
@@ -142,7 +147,8 @@ class _FolioPageState extends State<FolioPage> {
     final result = await _showItemDialog();
     if (result == null) return;
 
-    await _postJson(
+    await _sendJson(
+      'POST',
       '/api/invoices/$_invoiceId/items',
       result,
       successMessage: 'Extra ajouté.',
@@ -153,11 +159,35 @@ class _FolioPageState extends State<FolioPage> {
     final result = await _showPaymentDialog();
     if (result == null) return;
 
-    await _postJson('/api/invoices/$_invoiceId/payments', {
-      ...result,
-      'processed_by_name': widget.userName,
-      'processed_by_role': widget.role,
-    }, successMessage: 'Paiement enregistré.');
+    await _sendJson(
+      'POST',
+      '/api/invoices/$_invoiceId/payments',
+      {
+        ...result,
+        'processed_by_name': widget.userName,
+        'processed_by_role': widget.role,
+      },
+      successMessage: 'Paiement enregistré.',
+    );
+  }
+
+  Future<void> _editPayment(Map<String, dynamic> payment) async {
+    final result = await _showPaymentDialog(
+      payment: payment,
+      title: 'Modifier le paiement',
+    );
+    if (result == null) return;
+
+    await _sendJson(
+      'PUT',
+      '/api/invoices/$_invoiceId/payments/${payment['id']}',
+      {
+        ...result,
+        'processed_by_name': widget.userName,
+        'processed_by_role': widget.role,
+      },
+      successMessage: 'Paiement modifié.',
+    );
   }
 
   Future<void> _generatePdf() async {
@@ -178,7 +208,8 @@ class _FolioPageState extends State<FolioPage> {
 
     payload['actor_role'] = widget.role;
 
-    await _postJson(
+    await _sendJson(
+      'POST',
       '/api/invoices/$_invoiceId/generate-pdf',
       payload,
       successMessage: 'Facture PDF mise à jour.',
@@ -194,25 +225,29 @@ class _FolioPageState extends State<FolioPage> {
     final email = await _showEmailDialog();
     if (email == null) return;
 
-    await _postJson(
+    await _sendJson(
+      'POST',
       '/api/invoices/$_invoiceId/send-email',
       {'email': email},
       successMessage: 'Facture envoyée par email.',
     );
   }
 
-  Future<void> _postJson(
+  Future<void> _sendJson(
+    String method,
     String path,
     Map<String, dynamic> body, {
     required String successMessage,
   }) async {
     setState(() => _isBusy = true);
     try {
-      final response = await http.post(
-        Uri.parse('$baseUrl$path'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode(body),
-      );
+      final uri = Uri.parse('$baseUrl$path');
+      final headers = {'Content-Type': 'application/json'};
+      final encodedBody = json.encode(body);
+      final response = switch (method) {
+        'PUT' => await http.put(uri, headers: headers, body: encodedBody),
+        _ => await http.post(uri, headers: headers, body: encodedBody),
+      };
       if (!mounted) return;
 
       final decoded = response.body.isNotEmpty
@@ -323,6 +358,7 @@ class _FolioPageState extends State<FolioPage> {
               TextField(
                 controller: amountController,
                 keyboardType: TextInputType.number,
+                inputFormatters: const [AriaryInputFormatter()],
                 decoration: const InputDecoration(
                   labelText: 'Prix unitaire (Ar)',
                   prefixIcon: Icon(Icons.payments_outlined),
@@ -357,7 +393,7 @@ class _FolioPageState extends State<FolioPage> {
           ElevatedButton(
             onPressed: () {
               final description = descriptionController.text.trim();
-              final amount = int.tryParse(amountController.text.trim()) ?? 0;
+              final amount = parseAriaryAmount(amountController.text);
               final quantity =
                   int.tryParse(quantityController.text.trim()) ?? 1;
               if (description.isEmpty || amount <= 0 || quantity <= 0) return;
@@ -381,13 +417,23 @@ class _FolioPageState extends State<FolioPage> {
     );
   }
 
-  Future<Map<String, dynamic>?> _showPaymentDialog() async {
+  Future<Map<String, dynamic>?> _showPaymentDialog({
+    Map<String, dynamic>? payment,
+    String title = 'Enregistrer un paiement',
+  }) async {
     final amountController = TextEditingController(
-      text: _asInt(_folio?['balance_amount_ariary']).toString(),
+      text: payment != null
+          ? formatPrice(
+              _asInt(
+                payment['amount_received_ariary'] ?? payment['amount_ariary'],
+              ),
+            )
+          : '',
     );
     final referenceController = TextEditingController();
-    String method = 'Espèces';
-    String operator = 'mvola';
+    referenceController.text = payment?['reference']?.toString() ?? '';
+    String method = payment?['payment_method']?.toString() ?? 'Espèces';
+    String operator = payment?['payment_operator']?.toString() ?? 'mvola';
     const methods = [
       'Espèces',
       'Carte Bancaire',
@@ -401,7 +447,7 @@ class _FolioPageState extends State<FolioPage> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Enregistrer un paiement'),
+          title: Text(title),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -409,6 +455,7 @@ class _FolioPageState extends State<FolioPage> {
                 TextField(
                   controller: amountController,
                   keyboardType: TextInputType.number,
+                  inputFormatters: const [AriaryInputFormatter()],
                   decoration: const InputDecoration(
                     labelText: 'Montant (Ar)',
                     prefixIcon: Icon(Icons.payments_outlined),
@@ -472,7 +519,7 @@ class _FolioPageState extends State<FolioPage> {
             ),
             ElevatedButton(
               onPressed: () {
-                final amount = int.tryParse(amountController.text.trim()) ?? 0;
+                final amount = parseAriaryAmount(amountController.text);
                 if (amount <= 0) return;
                 Navigator.pop(context, {
                   'amount_ariary': amount,
@@ -656,6 +703,18 @@ class _FolioPageState extends State<FolioPage> {
                                     label: const Text('Paiement'),
                                   ),
                           ),
+                          if (!_isFinalized && !_canEditPayments)
+                            const Padding(
+                              padding: EdgeInsets.only(bottom: 8),
+                              child: Text(
+                                'Le réceptionniste ne peut modifier qu’un seul paiement par réservation.',
+                                style: TextStyle(
+                                  color: _muted,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
                           if (payments.isEmpty)
                             const Padding(
                               padding: EdgeInsets.symmetric(vertical: 16),
@@ -667,6 +726,13 @@ class _FolioPageState extends State<FolioPage> {
                                 payment: Map<String, dynamic>.from(
                                   payment as Map,
                                 ),
+                                onEdit: !_isFinalized && _canEditPayments
+                                    ? () => _editPayment(
+                                        Map<String, dynamic>.from(
+                                          payment as Map,
+                                        ),
+                                      )
+                                    : null,
                               ),
                             ),
                           const SizedBox(height: 20),
@@ -863,6 +929,7 @@ class _SummaryPanel extends StatelessWidget {
     final depositAmount = _asInt(folio['deposit_amount_ariary']);
     final paidAmount = _asInt(folio['paid_amount_ariary']);
     final balanceAmount = _asInt(folio['balance_amount_ariary']);
+    final changeAmount = _asInt(folio['change_given_ariary']);
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -937,6 +1004,10 @@ class _SummaryPanel extends StatelessWidget {
                 label: 'Reste à payer',
                 value: _asPrice(balanceAmount),
                 emphasized: true,
+              ),
+              _AmountMetric(
+                label: 'Monnaie rendue',
+                value: _asPrice(changeAmount),
               ),
             ],
           ),
@@ -1059,9 +1130,10 @@ class _InvoiceItemTile extends StatelessWidget {
 }
 
 class _PaymentTile extends StatelessWidget {
-  const _PaymentTile({required this.payment});
+  const _PaymentTile({required this.payment, this.onEdit});
 
   final Map<String, dynamic> payment;
+  final VoidCallback? onEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -1069,11 +1141,16 @@ class _PaymentTile extends StatelessWidget {
         (payment['payment_context']?.toString() ?? 'payment') == 'deposit'
         ? 'Acompte'
         : 'Paiement';
+    final received = _asInt(
+      payment['amount_received_ariary'] ?? payment['amount_ariary'],
+    );
+    final applied = _asInt(payment['amount_ariary']);
+    final change = _asInt(payment['change_given_ariary']);
     return Card(
       child: ListTile(
         leading: const Icon(Icons.payments_outlined, color: _primary),
         title: Text(
-          '${formatPrice(_asInt(payment['amount_ariary']))} Ar',
+          'Reçu : ${formatPrice(received)} Ar',
           style: const TextStyle(fontWeight: FontWeight.w900),
         ),
         subtitle: Text(
@@ -1084,6 +1161,8 @@ class _PaymentTile extends StatelessWidget {
                     (payment['payment_operator'] ?? '').toString().isNotEmpty
                 ? payment['payment_operator'].toString()
                 : null,
+            'Net : ${formatPrice(applied)} Ar',
+            if (change > 0) 'Rendu : ${formatPrice(change)} Ar',
             [
               payment['processed_by_name']?.toString(),
               payment['processed_by_role']?.toString(),
@@ -1091,6 +1170,13 @@ class _PaymentTile extends StatelessWidget {
             payment['reference']?.toString(),
           ].where((value) => value != null && value.isNotEmpty).join(' - '),
         ),
+        trailing: onEdit == null
+            ? null
+            : IconButton(
+                tooltip: 'Modifier',
+                icon: const Icon(Icons.edit_outlined),
+                onPressed: onEdit,
+              ),
       ),
     );
   }

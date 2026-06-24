@@ -31,6 +31,7 @@ Route::middleware('throttle:30,1')->group(function () {
     Route::post('/reservations/{id}/deposit', [PMSController::class, 'addDeposit']);
     Route::post('/invoices/{id}/items', [PMSController::class, 'addInvoiceItem']);
     Route::post('/invoices/{id}/payments', [PMSController::class, 'addPayment']);
+    Route::put('/invoices/{id}/payments/{paymentId}', [PMSController::class, 'updatePayment']);
     Route::post('/users', [HotelManagementController::class, 'createUser']);
     Route::post('/users/update', [HotelManagementController::class, 'updateUser']);
     Route::delete('/users/{id}', [HotelManagementController::class, 'deleteUser']);

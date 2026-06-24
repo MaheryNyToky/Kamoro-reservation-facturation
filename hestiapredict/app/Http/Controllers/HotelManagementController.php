@@ -281,62 +281,68 @@ class HotelManagementController extends Controller
     public function searchClientHistory(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'q' => 'required|string|min:2|max:120',
+            'q' => 'nullable|string|max:120',
         ]);
 
-        $term = trim($validated['q']);
+        $term = trim((string) ($validated['q'] ?? ''));
         $normalizedPhone = PhoneNumber::normalize($term);
         $normalizedTerm = Str::lower(Str::ascii($normalizedPhone ?? $term));
         $today = now()->startOfDay();
 
-        $cacheKey = 'dashboard:client-history:' . $this->availabilityService->getCacheVersion() . ':' . $normalizedTerm;
-        $reservations = Cache::remember($cacheKey, now()->addMinutes(1), function () use ($normalizedTerm, $today) {
-            return Reservation::query()
-            ->with(['rooms', 'user', 'guest', 'invoice.payments', 'latestAudit', 'latestCheckInAudit', 'latestModificationAudit'])
-            ->where(function ($query) use ($normalizedTerm) {
-                $like = '%' . $normalizedTerm . '%';
+        $cacheSuffix = $normalizedTerm !== '' ? $normalizedTerm : 'recent';
+        $cacheKey = 'dashboard:client-history:' . $this->availabilityService->getCacheVersion() . ':' . $cacheSuffix;
+        $reservations = Cache::remember($cacheKey, now()->addMinutes(1), function () use ($normalizedTerm, $today, $term) {
+            $query = Reservation::query()
+                ->with(['rooms', 'user', 'guest', 'invoice.payments', 'latestAudit', 'latestCheckInAudit', 'latestModificationAudit']);
 
-                $query->whereRaw('LOWER(client_name) LIKE ?', [$like])
-                    ->orWhereRaw('LOWER(client_phone) LIKE ?', [$like])
-                    ->orWhereRaw('LOWER(customer_phone) LIKE ?', [$like])
-                    ->orWhereRaw('LOWER(booking_reference) LIKE ?', [$like])
-                    ->orWhereHas('guest', function ($guestQuery) use ($like) {
-                        $guestQuery
-                            ->whereRaw('LOWER(full_name) LIKE ?', [$like])
-                            ->orWhereRaw('LOWER(first_name) LIKE ?', [$like])
-                            ->orWhereRaw('LOWER(last_name) LIKE ?', [$like])
-                            ->orWhereRaw('LOWER(phone_number) LIKE ?', [$like])
-                            ->orWhereRaw('LOWER(id_number) LIKE ?', [$like])
-                            ->orWhereRaw('LOWER(id_document_number) LIKE ?', [$like]);
-                    });
-            })
-            ->orderByDesc('check_in_date')
-            ->orderByDesc('created_at')
-            ->limit(100)
-            ->get()
-            ->map(function (Reservation $reservation) use ($today) {
-                $formatted = $this->bookingService->formatReservation($reservation);
-                $checkIn = Carbon::parse($reservation->check_in_date);
-                $checkOut = Carbon::parse($reservation->check_out_date);
+            if ($term !== '') {
+                $query->where(function ($query) use ($normalizedTerm) {
+                    $like = '%' . $normalizedTerm . '%';
 
-                $period = 'futur';
-                if ($reservation->status === 'annule') {
-                    $period = 'annulé';
-                } elseif ($checkOut->lt($today)) {
-                    $period = 'passé';
-                } elseif ($checkIn->lte($today) && $checkOut->gt($today)) {
-                    $period = 'présent';
-                }
+                    $query->whereRaw('LOWER(client_name) LIKE ?', [$like])
+                        ->orWhereRaw('LOWER(client_phone) LIKE ?', [$like])
+                        ->orWhereRaw('LOWER(customer_phone) LIKE ?', [$like])
+                        ->orWhereRaw('LOWER(booking_reference) LIKE ?', [$like])
+                        ->orWhereHas('guest', function ($guestQuery) use ($like) {
+                            $guestQuery
+                                ->whereRaw('LOWER(full_name) LIKE ?', [$like])
+                                ->orWhereRaw('LOWER(first_name) LIKE ?', [$like])
+                                ->orWhereRaw('LOWER(last_name) LIKE ?', [$like])
+                                ->orWhereRaw('LOWER(phone_number) LIKE ?', [$like])
+                                ->orWhereRaw('LOWER(id_number) LIKE ?', [$like])
+                                ->orWhereRaw('LOWER(id_document_number) LIKE ?', [$like]);
+                        });
+                });
+            }
 
-                return [
-                    ...$formatted,
-                    'period' => $period,
-                    'check_in_date' => $checkIn->toDateString(),
-                    'check_out_date' => $checkOut->toDateString(),
-                ];
-            })
-            ->values()
-            ->all();
+            return $query
+                ->orderByDesc('check_in_date')
+                ->orderByDesc('created_at')
+                ->limit(100)
+                ->get()
+                ->map(function (Reservation $reservation) use ($today) {
+                    $formatted = $this->bookingService->formatReservation($reservation);
+                    $checkIn = Carbon::parse($reservation->check_in_date);
+                    $checkOut = Carbon::parse($reservation->check_out_date);
+
+                    $period = 'futur';
+                    if ($reservation->status === 'annule') {
+                        $period = 'annulé';
+                    } elseif ($checkOut->lt($today)) {
+                        $period = 'passé';
+                    } elseif ($checkIn->lte($today) && $checkOut->gt($today)) {
+                        $period = 'présent';
+                    }
+
+                    return [
+                        ...$formatted,
+                        'period' => $period,
+                        'check_in_date' => $checkIn->toDateString(),
+                        'check_out_date' => $checkOut->toDateString(),
+                    ];
+                })
+                ->values()
+                ->all();
         });
 
         return response()->json([

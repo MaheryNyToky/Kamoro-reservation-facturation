@@ -13,6 +13,8 @@ class Payment extends Model
     protected $fillable = [
         'invoice_id',
         'amount_ariary',
+        'amount_received_ariary',
+        'change_given_ariary',
         'payment_method',
         'payment_operator',
         'payment_context',
@@ -23,6 +25,8 @@ class Payment extends Model
 
     protected $casts = [
         'amount_ariary' => 'integer',
+        'amount_received_ariary' => 'integer',
+        'change_given_ariary' => 'integer',
     ];
 
     public function invoice(): BelongsTo

@@ -76,6 +76,39 @@ class ClientHistorySearchTest extends TestCase
         $this->assertSame($future->id, (int) $response->json('data.0.id'));
     }
 
+    public function test_client_history_without_query_returns_recent_reservations(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-24 12:00:00'));
+
+        $user = User::create([
+            'name' => 'Reception Test',
+            'email' => 'reception-recent@example.com',
+            'password' => 'password',
+            'role' => 'receptionist',
+            'is_blacklisted' => false,
+        ]);
+
+        $room = Room::create([
+            'room_number' => '102',
+            'type' => 'Chambre Double',
+            'model' => 'Standard',
+            'base_price_ariary' => 50000,
+            'is_fixed_price' => false,
+        ]);
+
+        $recent = $this->createReservation($user->id, $room->id, 'Recent Client', '2026-06-24', '2026-06-26');
+        $older = $this->createReservation($user->id, $room->id, 'Older Client', '2026-06-20', '2026-06-21');
+
+        $response = $this->getJson('/api/dashboard/client-history');
+
+        $response->assertOk();
+        $response->assertJsonPath('status', 'success');
+        $this->assertGreaterThanOrEqual(2, count($response->json('data')));
+        $this->assertSame($recent->id, (int) $response->json('data.0.id'));
+        $this->assertSame('Recent Client', $response->json('data.0.client_name'));
+        $this->assertSame($older->id, (int) $response->json('data.1.id'));
+    }
+
     protected function tearDown(): void
     {
         Carbon::setTestNow();

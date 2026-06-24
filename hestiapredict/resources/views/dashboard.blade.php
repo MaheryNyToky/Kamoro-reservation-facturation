@@ -915,7 +915,7 @@
                 return `
                     <div class="flex flex-col gap-1">
                         ${infoPill('En attente')}
-                        <span class="text-[10px] font-semibold text-[var(--muted)]">Effectué par : N/A</span>
+                        <span class="text-[10px] font-semibold text-[var(--muted)]">Effectué par : ${checkInActor}</span>
                         ${modifiedLine}
                     </div>
                 `;
@@ -1116,24 +1116,18 @@
             const summary = document.getElementById('client-history-summary');
             const tableBody = document.getElementById('client-history-table-body');
 
-            if (query.length < 2) {
-                clientHistoryData = [];
-                if (tableBody) {
-                    tableBody.innerHTML = '';
-                }
-                if (summary && !silent) {
-                    summary.textContent = 'Saisis au moins 2 caractères pour lancer la recherche.';
-                }
-                return;
-            }
-
             if (summary && !silent) {
-                summary.textContent = 'Recherche en cours...';
+                summary.textContent = query.length >= 2
+                    ? 'Recherche en cours...'
+                    : 'Chargement des réservations récentes...';
             }
 
-            const cacheKey = cacheKeyFor('/api/dashboard/client-history', query.toLowerCase());
+            const cacheKey = cacheKeyFor('/api/dashboard/client-history', query.length >= 2 ? query.toLowerCase() : 'recent');
+            const url = query.length >= 2
+                ? `/api/dashboard/client-history?q=${encodeURIComponent(query)}`
+                : '/api/dashboard/client-history';
 
-            safeFetchJson(`/api/dashboard/client-history?q=${encodeURIComponent(query)}`, cacheKey, {
+            safeFetchJson(url, cacheKey, {
                 timeoutMs: 4500,
             })
                 .then(({ data, fromCache }) => {

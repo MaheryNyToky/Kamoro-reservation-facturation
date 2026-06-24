@@ -183,6 +183,44 @@ class ReservationListingOptimizationTest extends TestCase
         $this->assertSame(480000, (int) $reservationData['fixed_total_price']);
     }
 
+    public function test_reservations_all_includes_the_checkin_actor_after_checkin(): void
+    {
+        $user = User::create([
+            'name' => 'Reception Test',
+            'email' => 'reservation-listing-checkin-actor@example.com',
+            'password' => 'password',
+            'role' => 'receptionist',
+            'is_blacklisted' => false,
+        ]);
+
+        $reservation = $this->createReservation($user->id, 'Checkin Actor Client', 'en_attente');
+
+        $checkInResponse = $this->postJson("/api/reservations/{$reservation->id}/checkin", [
+            'full_name' => 'Checkin Actor Client',
+            'first_name' => 'Checkin',
+            'last_name' => 'Actor Client',
+            'customer_phone' => '0340000777',
+            'phone_number' => '0340000777',
+            'date_of_birth' => '1992-04-04',
+            'sex' => 'Femme',
+            'id_type' => 'CIN',
+            'id_number' => 'CIN-777777',
+            'id_document_number' => 'CIN-777777',
+            'checked_in_by_name' => 'Reception Test',
+            'checked_in_by_role' => 'receptionist',
+        ]);
+
+        $checkInResponse->assertOk();
+
+        $response = $this->getJson('/api/reservations/all?date=2026-06-20&status=all');
+        $response->assertOk();
+
+        $reservationData = collect($response->json())->firstWhere('client_name', 'Checkin Actor Client');
+        $this->assertNotNull($reservationData);
+        $this->assertSame('Reception Test', $reservationData['check_in_by']);
+        $this->assertSame('receptionist', $reservationData['check_in_role']);
+    }
+
     public function test_reservation_status_summary_returns_counts_without_full_listing(): void
     {
         $user = User::create([
