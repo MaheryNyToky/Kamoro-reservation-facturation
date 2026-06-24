@@ -1095,14 +1095,35 @@ class _ReceptionDashboardContent extends StatelessWidget {
   }
 
   int? _getAiSuggestedPrice(dynamic category) {
-    String roomType = category['type'].toString().trim();
-    String roomModel = category['model'].toString().trim();
-    String key = "$roomType - $roomModel";
+    final keyCandidates = _predictionKeyCandidates(category);
     String dateStr = selectedDate.toIso8601String().substring(0, 10);
 
-    if (aiPredictions.containsKey(key)) {
-      List<dynamic> predictions = aiPredictions[key];
-      var prediction = predictions.firstWhere(
+    for (final key in keyCandidates) {
+      final predictions = aiPredictions[key];
+      if (predictions is! List) continue;
+      final prediction = predictions.firstWhere(
+        (p) => p['date'] == dateStr,
+        orElse: () => null,
+      );
+      if (prediction != null) {
+        return prediction['adjusted_price_ariary'] ??
+            prediction['suggested_price_ariary'];
+      }
+    }
+
+    final normalizedCandidates =
+        keyCandidates.map(_normalizeKey).where((value) => value.isNotEmpty);
+    for (final entry in aiPredictions.entries) {
+      final entryKey = _normalizeKey(entry.key.toString());
+      if (entry.value is! List) continue;
+      if (!normalizedCandidates.any((candidate) =>
+          entryKey == candidate ||
+          entryKey.contains(candidate) ||
+          candidate.contains(entryKey))) {
+        continue;
+      }
+      final predictions = entry.value as List<dynamic>;
+      final prediction = predictions.firstWhere(
         (p) => p['date'] == dateStr,
         orElse: () => null,
       );
@@ -1112,6 +1133,121 @@ class _ReceptionDashboardContent extends StatelessWidget {
       }
     }
     return null;
+  }
+
+  List<String> _predictionKeyCandidates(dynamic category) {
+    final type = (category['type'] ?? '').toString().trim();
+    final model = (category['model'] ?? '').toString().trim();
+    final identifier = (category['identifier'] ?? '').toString().trim();
+    final raw = <String>[
+      if (identifier.isNotEmpty) identifier,
+      if (type.isNotEmpty && model.isNotEmpty) '$type - $model',
+      if (type.isNotEmpty && model.isNotEmpty) '$type $model',
+      if (type.isNotEmpty) type,
+      if (model.isNotEmpty) model,
+    ];
+    final seen = <String>{};
+    return raw.where((value) => seen.add(value)).toList();
+  }
+
+  String _normalizeKey(String input) {
+    var value = input.toLowerCase().trim();
+    value = value.replaceAll(RegExp(r'\s+'), ' ');
+    const replacements = {
+      'à': 'a',
+      'â': 'a',
+      'ä': 'a',
+      'á': 'a',
+      'ã': 'a',
+      'ç': 'c',
+      'é': 'e',
+      'è': 'e',
+      'ê': 'e',
+      'ë': 'e',
+      'î': 'i',
+      'ï': 'i',
+      'ô': 'o',
+      'ö': 'o',
+      'ù': 'u',
+      'û': 'u',
+      'ü': 'u',
+      'ÿ': 'y',
+      'œ': 'oe',
+    };
+    replacements.forEach((from, to) => value = value.replaceAll(from, to));
+    value = value.replaceAll(RegExp(r'[^a-z0-9 -]'), '');
+    return value;
+  }
+
+  int _categoryRank(dynamic category) {
+    final text = _normalizeKey(
+      '${category['type'] ?? ''} ${category['model'] ?? ''}',
+    );
+    if (text.contains('double')) return 0;
+    if (text.contains('twin')) return 1;
+    if (text.contains('triple')) return 2;
+    if (text.contains('famil')) return 3;
+    if (text.contains('suite')) return 4;
+    return 5;
+  }
+
+  String _categoryGroupLabel(dynamic category) {
+    final text = _normalizeKey(
+      '${category['type'] ?? ''} ${category['model'] ?? ''}',
+    );
+    if (text.contains('double')) return 'Chambres doubles';
+    if (text.contains('twin')) return 'Chambres twin';
+    if (text.contains('triple')) return 'Chambres triples';
+    if (text.contains('famil')) return 'Chambres familiales';
+    if (text.contains('suite')) return 'Suites';
+    return 'Autres chambres';
+  }
+
+  List<Map<String, dynamic>> _sortedCategories() {
+    final sorted = categories
+        .map((cat) => Map<String, dynamic>.from(cat))
+        .toList();
+    sorted.sort((a, b) {
+      final rankA = _categoryRank(a);
+      final rankB = _categoryRank(b);
+      if (rankA != rankB) return rankA.compareTo(rankB);
+      final typeA = _normalizeKey((a['type'] ?? '').toString());
+      final typeB = _normalizeKey((b['type'] ?? '').toString());
+      final byType = typeA.compareTo(typeB);
+      if (byType != 0) return byType;
+      final modelA = _normalizeKey((a['model'] ?? '').toString());
+      final modelB = _normalizeKey((b['model'] ?? '').toString());
+      return modelA.compareTo(modelB);
+    });
+    return sorted;
+  }
+
+  List<_RoomCategoryGroup> _groupedCategories() {
+    final grouped = <String, List<Map<String, dynamic>>>{};
+    for (final category in _sortedCategories()) {
+      final label = _categoryGroupLabel(category);
+      grouped.putIfAbsent(label, () => []);
+      grouped[label]!.add(category);
+    }
+
+    const order = [
+      'Chambres doubles',
+      'Chambres twin',
+      'Chambres triples',
+      'Chambres familiales',
+      'Suites',
+      'Autres chambres',
+    ];
+
+    return order
+        .where((label) => grouped.containsKey(label))
+        .map(
+          (label) => _RoomCategoryGroup(
+            title: label,
+            items: grouped[label]!,
+          ),
+        )
+        .toList();
   }
 
   Widget _buildBody(BuildContext context) {
@@ -1150,41 +1286,79 @@ class _ReceptionDashboardContent extends StatelessWidget {
         ),
       );
     }
-    return GridView.builder(
+    final groupedCategories = _groupedCategories();
+
+    return ListView.separated(
       key: const ValueKey('grid'),
       padding: const EdgeInsets.fromLTRB(0, 0, 0, 96),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 310,
-        childAspectRatio: 1.18,
-        mainAxisSpacing: 16,
-        crossAxisSpacing: 16,
-      ),
-      itemCount: categories.length,
-      itemBuilder: (context, index) {
-        final cat = categories[index];
-        final suggestedPrice = _getAiSuggestedPrice(cat);
-
-        return TweenAnimationBuilder<double>(
-          tween: Tween(begin: 0, end: 1),
-          duration: Duration(milliseconds: 260 + (index.clamp(0, 8) * 35)),
-          curve: Curves.easeOutCubic,
-          builder: (context, value, child) {
-            return Opacity(
-              opacity: value,
-              child: Transform.translate(
-                offset: Offset(0, 10 * (1 - value)),
-                child: child,
+      itemCount: groupedCategories.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 22),
+      itemBuilder: (context, groupIndex) {
+        final group = groupedCategories[groupIndex];
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              group.title,
+              style: const TextStyle(
+                color: _ink,
+                fontSize: 17,
+                fontWeight: FontWeight.w900,
               ),
-            );
-          },
-          child: AvailabilityCard(
-            category: Map<String, dynamic>.from(cat),
-            suggestedPrice: suggestedPrice,
-          ),
+            ),
+            const SizedBox(height: 12),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: List.generate(group.items.length, (index) {
+                  final cat = group.items[index];
+                  final suggestedPrice = _getAiSuggestedPrice(cat);
+                  return Padding(
+                    padding: EdgeInsets.only(
+                      right: index == group.items.length - 1 ? 0 : 16,
+                    ),
+                    child: TweenAnimationBuilder<double>(
+                      tween: Tween(begin: 0, end: 1),
+                      duration: Duration(
+                        milliseconds: 240 + (index.clamp(0, 8) * 35),
+                      ),
+                      curve: Curves.easeOutCubic,
+                      builder: (context, value, child) {
+                        return Opacity(
+                          opacity: value,
+                          child: Transform.translate(
+                            offset: Offset(0, 10 * (1 - value)),
+                            child: child,
+                          ),
+                        );
+                      },
+                      child: SizedBox(
+                        width: 300,
+                        child: AvailabilityCard(
+                          category: Map<String, dynamic>.from(cat),
+                          suggestedPrice: suggestedPrice,
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+              ),
+            ),
+          ],
         );
       },
     );
   }
+}
+
+class _RoomCategoryGroup {
+  const _RoomCategoryGroup({
+    required this.title,
+    required this.items,
+  });
+
+  final String title;
+  final List<Map<String, dynamic>> items;
 }
 
 class _KpiChip extends StatelessWidget {

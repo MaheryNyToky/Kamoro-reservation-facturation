@@ -53,10 +53,10 @@
         }
 
         .bento-card {
-            border-radius: 28px;
-            background: var(--sand-50);
+            border-radius: 30px;
+            background: linear-gradient(180deg, rgba(251, 244, 234, 0.98), rgba(247, 238, 228, 0.94));
             border: 1px solid var(--line);
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 20px 46px rgba(78, 62, 48, 0.08);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62), 0 18px 40px rgba(78, 62, 48, 0.08);
         }
 
         .kpi-value {
@@ -71,6 +71,7 @@
             min-height: 46px;
             border-radius: 999px;
             transition: 180ms ease;
+            box-shadow: 0 10px 22px rgba(35, 31, 27, 0.06);
         }
 
         .pill-btn.active {
@@ -94,9 +95,10 @@
 
         .table-shell {
             border: 1px solid var(--line);
-            border-radius: 24px;
+            border-radius: 28px;
             overflow: hidden;
             background: rgba(255, 251, 247, 0.82);
+            box-shadow: 0 14px 34px rgba(78, 62, 48, 0.06);
         }
 
         .data-table th {
@@ -521,6 +523,35 @@
             return `${Math.round(value || 0).toLocaleString()} Ar`;
         }
 
+        function normalizeRoomLabel(value) {
+            return (value || '')
+                .toString()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .toLowerCase()
+                .replace(/\s+/g, ' ')
+                .trim();
+        }
+
+        function roomSortRank(key) {
+            const normalized = normalizeRoomLabel(key);
+            if (normalized.includes('double')) return 0;
+            if (normalized.includes('twin')) return 1;
+            if (normalized.includes('triple')) return 2;
+            if (normalized.includes('famil')) return 3;
+            if (normalized.includes('suite')) return 4;
+            return 5;
+        }
+
+        function sortRoomCategories(keys) {
+            return [...keys].sort((a, b) => {
+                const rankA = roomSortRank(a);
+                const rankB = roomSortRank(b);
+                if (rankA !== rankB) return rankA - rankB;
+                return normalizeRoomLabel(a).localeCompare(normalizeRoomLabel(b), 'fr');
+            });
+        }
+
         function cacheKeyFor(url, extra = '') {
             return `hestia-dashboard:${url}${extra ? `:${extra}` : ''}`;
         }
@@ -648,7 +679,7 @@
                         return;
                     }
 
-                    Object.keys(data.results).forEach(categoryKey => {
+                    sortRoomCategories(Object.keys(data.results)).forEach(categoryKey => {
                         const categoryData = data.results[categoryKey];
                         const specificDay = categoryData.find(d => d.date === pricingDate) || categoryData[0];
                         const parts = categoryKey.split(' - ');

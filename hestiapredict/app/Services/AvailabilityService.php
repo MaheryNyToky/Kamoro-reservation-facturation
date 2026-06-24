@@ -71,10 +71,12 @@ class AvailabilityService
                     ->orderBy('model')
                     ->get()
                     ->groupBy(fn (Room $room) => $room->type . ' (' . $room->model . ')')
+                    ->sortBy(fn (Collection $rooms) => $this->roomCategorySortKey($rooms->first()))
                     ->map(function (Collection $rooms) use ($occupiedRoomIds) {
                         $first = $rooms->first();
 
                         return [
+                            'identifier' => $first->identifier,
                             'type' => $first->type,
                             'model' => $first->model,
                             'base_price' => $first->base_price_ariary,
@@ -127,6 +129,30 @@ class AvailabilityService
                     ->where('reservations.check_out_date', '>', $date);
             })
             ->count();
+    }
+
+    private function roomCategorySortKey(?Room $room): array
+    {
+        if (!$room) {
+            return [99, '', ''];
+        }
+
+        $label = mb_strtolower(trim($room->type . ' ' . $room->model));
+        $order = 99;
+
+        if (str_contains($label, 'double')) {
+            $order = 0;
+        } elseif (str_contains($label, 'twin')) {
+            $order = 1;
+        } elseif (str_contains($label, 'triple')) {
+            $order = 2;
+        } elseif (str_contains($label, 'famil')) {
+            $order = 3;
+        } elseif (str_contains($label, 'suite')) {
+            $order = 4;
+        }
+
+        return [$order, $room->type, $room->model];
     }
 
     public function occupancyIndexForPeriod(

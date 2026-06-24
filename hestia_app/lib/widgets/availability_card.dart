@@ -17,15 +17,11 @@ class AvailabilityCard extends StatelessWidget {
     final basePrice = category['base_price'] ?? category['fixed_price'] ?? 0;
     final isFixedPrice = category['is_fixed_price'] == true;
     final occupancy = total > 0 ? ((total - available) / total) : 0.0;
+    final progress = occupancy.clamp(0.0, 1.0);
     final isFull = available == 0;
-    
-    // Nouveaux icônes : Porte ouverte si libre, fermée si plein
     final icon = isFull ? Icons.no_meeting_room : Icons.meeting_room;
-    
     final color = isFull ? const Color(0xFF9F1239) : const Color(0xFF0F766E);
-    final softColor = isFull
-        ? const Color(0xFFFFEEF2)
-        : const Color(0xFFE8F7F2);
+    final softColor = isFull ? const Color(0xFFFFEEF2) : const Color(0xFFE8F7F2);
 
     return Material(
       color: Colors.white.withValues(alpha: 0.88),
@@ -69,7 +65,6 @@ class AvailabilityCard extends StatelessWidget {
                             color: Color(0xFF0F172A),
                             fontWeight: FontWeight.w900,
                             fontSize: 16,
-                            letterSpacing: 0,
                           ),
                         ),
                         const SizedBox(height: 2),
@@ -81,54 +76,45 @@ class AvailabilityCard extends StatelessWidget {
                             fontSize: 12,
                             color: Color(0xFF64748B),
                             fontWeight: FontWeight.w700,
-                            letterSpacing: 0,
                           ),
                         ),
                       ],
                     ),
                   ),
+                  _AvailabilityRing(
+                    available: available,
+                    total: total,
+                    color: color,
+                    progress: progress,
+                  ),
                 ],
               ),
-              const Spacer(),
+              const SizedBox(height: 14),
               Row(
                 children: [
-                  // Le "1 sur 2 libre" se déplace ici à la place de "Propre"
                   Text(
                     '$available sur $total libres',
                     style: TextStyle(
                       color: color,
                       fontSize: 13,
                       fontWeight: FontWeight.w900,
-                      letterSpacing: 0,
                     ),
                   ),
                   const Spacer(),
                   Text(
-                    '${(occupancy.clamp(0.0, 1.0) * 100).round()}%',
+                    '${(progress * 100).round()}%',
                     style: const TextStyle(
                       color: Color(0xFF64748B),
                       fontSize: 12,
                       fontWeight: FontWeight.w800,
-                      letterSpacing: 0,
                     ),
                   ),
                 ],
-              ),
-              const SizedBox(height: 8),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(99),
-                child: LinearProgressIndicator(
-                  value: occupancy.clamp(0.0, 1.0),
-                  minHeight: 8,
-                  backgroundColor: const Color(0xFFE5E7EB),
-                  valueColor: AlwaysStoppedAnimation<Color>(color),
-                ),
               ),
               const SizedBox(height: 14),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  // Prix de base à gauche
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -150,7 +136,6 @@ class AvailabilityCard extends StatelessWidget {
                       ),
                     ],
                   ),
-                  // Prix suggéré par IA à droite
                   if (suggestedPrice != null && suggestedPrice != basePrice)
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
@@ -187,6 +172,81 @@ class AvailabilityCard extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _AvailabilityRing extends StatelessWidget {
+  const _AvailabilityRing({
+    required this.available,
+    required this.total,
+    required this.color,
+    required this.progress,
+  });
+
+  final int available;
+  final int total;
+  final Color color;
+  final double progress;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 72,
+      height: 72,
+      child: TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0, end: progress),
+        duration: const Duration(milliseconds: 450),
+        curve: Curves.easeOutCubic,
+        builder: (context, value, _) {
+          return Stack(
+            alignment: Alignment.center,
+            children: [
+              SizedBox.expand(
+                child: CircularProgressIndicator(
+                  value: 1,
+                  strokeWidth: 6,
+                  backgroundColor: const Color(0xFFE2E8F0),
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    color.withValues(alpha: 0.10),
+                  ),
+                ),
+              ),
+              SizedBox.expand(
+                child: CircularProgressIndicator(
+                  value: value,
+                  strokeWidth: 6,
+                  backgroundColor: Colors.transparent,
+                  valueColor: AlwaysStoppedAnimation<Color>(color),
+                ),
+              ),
+              Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    available.toString(),
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 19,
+                      fontWeight: FontWeight.w900,
+                      height: 1,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'libres',
+                    style: TextStyle(
+                      color: color.withValues(alpha: 0.76),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          );
+        },
       ),
     );
   }
