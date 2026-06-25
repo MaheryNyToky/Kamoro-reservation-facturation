@@ -7,6 +7,8 @@ Il gère :
 - l'authentification du staff ;
 - les disponibilités et réservations ;
 - les check-in, folios, paiements et PDF ;
+- les acomptes enregistrés avant ou après le check-in ;
+- la génération de factures PDF compactes, pensées pour tenir sur une page dans le cas standard ;
 - l'orchestration du moteur IA FastAPI.
 
 ## Référence

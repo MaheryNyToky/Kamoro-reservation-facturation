@@ -483,10 +483,11 @@ Ces endpoints gèrent le check-in, la facturation et les paiements.
 | --- | --- | --- |
 | `GET` | `/clients/search` | Recherche un profil client par nom, prénom, téléphone ou pièce d'identité (auto-complétion). |
 | `POST` | `/reservations/{id}/checkin` | Enregistre un client (guest) pour une réservation, incrémente sa fidélité et met à jour le statut à `arrive`. Le folio est créé à la première consultation de `/reservations/{id}/folio`. |
+| `POST` | `/reservations/{id}/deposit` | Enregistre un acompte sur la réservation, met à jour le folio et régénère le PDF de facture. |
 | `GET` | `/reservations/{id}/folio` | Récupère la facture (folio) associée à une réservation, avec le détail des lignes et des paiements. |
 | `POST` | `/invoices/{id}/items` | Ajoute un élément à la facture (type: `room`, `extra`, `deposit`). |
 | `POST` | `/invoices/{id}/payments` | Enregistre un paiement (méthodes: `Espèces`, `Carte Bancaire`, `Mobile Money`, etc.). |
-| `POST` | `/invoices/{id}/generate-pdf` | Calcule les remises, génère le numéro de facture et produit le fichier PDF. |
+| `POST` | `/invoices/{id}/generate-pdf` | Calcule les remises, génère le numéro de facture et produit le fichier PDF avec une mise en page A4 compacte. Le cas standard tient sur une page. |
 | `GET` | `/invoices/{id}/pdf` | Télécharge le PDF de la facture. |
 | `POST` | `/invoices/{id}/send-email` | Envoie la facture par email au client. |
 
@@ -522,6 +523,23 @@ Payload optionnel pour les remises :
   "discount_value": 10
 }
 ```
+
+Le rendu PDF est volontairement compact pour préserver la lisibilité tout en tenant sur une page dans la majorité des cas standards. Les dossiers avec beaucoup de chambres, d'extras ou de paiements peuvent naturellement dépasser une page.
+
+#### `POST /reservations/{id}/deposit`
+
+Payload :
+```json
+{
+  "amount_ariary": 20000,
+  "payment_method": "Espèces",
+  "processed_by_name": "Réception Test",
+  "processed_by_role": "receptionist",
+  "reference": "ACPT-001"
+}
+```
+
+L'endpoint enregistre l'acompte, synchronise le statut de paiement du folio et régénère le PDF associé.
 
 ### Endpoints utilisateurs
 

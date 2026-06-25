@@ -425,6 +425,43 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Invoice"
+  /reservations/{id}/deposit:
+    post:
+      tags: [PMS]
+      summary: Enregistre un acompte sur la réservation
+      operationId: addDeposit
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount_ariary, payment_method]
+              properties:
+                amount_ariary: {type: integer}
+                payment_method:
+                  type: string
+                  enum: [Espèces, Carte Bancaire, Mobile Money, Chèque, Virement]
+                processed_by_name: {type: string}
+                processed_by_role: {type: string}
+                reference: {type: string}
+      responses:
+        "200":
+          description: Acompte enregistré.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: {type: string}
+                  payment: {$ref: "#/components/schemas/Payment"}
+                  invoice: {$ref: "#/components/schemas/Invoice"}
   /invoices/{id}/items:
     post:
       tags: [PMS]
@@ -499,7 +536,7 @@ paths:
   /invoices/{id}/generate-pdf:
     post:
       tags: [PMS]
-      summary: Génère le PDF de la facture
+      summary: Génère le PDF de la facture au format A4 compact
       operationId: generatePdf
       parameters:
         - name: id

@@ -19,7 +19,7 @@ L'application est composée de trois parties :
     - **Check-in client** : Prise de photo d'identité (via `image_picker`), enregistrement des informations légales, auto-complétion des données des clients réguliers, et passage automatique du statut à `arrive`. Auparavant appelé "Arrivé", le bouton et le processus ont été renommés "Check-in" pour plus de clarté.
     - **Gestion des Folios** : Facturation détaillée par réservation avec ajout d'extras (lits, matelas, consommations) et de remises. Auparavant, la taxe de séjour s'affichait comme un item standard, elle est désormais extraite de la liste principale. L'accès au folio a également été sécurisé : il n'est plus accessible qu'après le check-in, sauf pour les administrateurs.
     - **Suivi des paiements** : Multi-modes (espèces, carte, mobile money) avec gestion des paiements partiels et soldes.
-    - **Documents PDF** : Génération de factures professionnelles au format PDF (via `dompdf`) avec possibilité de partage, impression ou envoi par email directement depuis l'application Flutter.
+    - **Documents PDF** : Génération de factures professionnelles au format PDF (via `dompdf`) avec une mise en page compacte pensée pour tenir sur une page dans le cas standard, tout en restant lisible et partageable depuis Flutter.
 - Gestion des extras (lits supplémentaires, matelas).
 - Disponibilité en temps réel par catégorie de chambre avec **cache-busting** pour garantir la fraîcheur des données.
 - Recherche et filtrage avancé des réservations.
@@ -29,6 +29,12 @@ L'application est composée de trois parties :
 - Moteur IA basé sur **Facebook Prophet** pour les prévisions d'occupation et suggestions de prix dynamiques.
 - Documentation OpenAPI complète pour les deux backends.
 - Tests automatisés Laravel (Feature/Unit), FastAPI et Flutter.
+
+## Mises à jour récentes
+
+- Les listes métier et compteurs liés à `en_attente` et à l'occupation confirmée ont été resserrés pour réduire les valeurs affichées en retard.
+- La saisie d'acompte est plus robuste côté réception: validation plus explicite, maintien du formulaire pendant l'envoi et protection contre les doubles soumissions.
+- La facture PDF a été compactée pour tenir sur une seule page dans le cas standard, sans tomber dans une police trop petite.
 
 ## Architecture
 
