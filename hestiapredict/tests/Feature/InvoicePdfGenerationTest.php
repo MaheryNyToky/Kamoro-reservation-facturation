@@ -2,11 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\PMSController;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\Payment;
 use App\Models\Reservation;
 use App\Models\Room;
 use App\Models\User;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
@@ -316,5 +319,102 @@ class InvoicePdfGenerationTest extends TestCase
         $this->assertSame(3, (int) $refreshed->items->firstWhere('description', 'Matelas supplémentaire')?->quantity);
         $this->assertNotNull($refreshed->pdf_path);
         $this->assertTrue(Storage::disk('local')->exists($refreshed->pdf_path));
+    }
+
+    public function test_standard_invoice_pdf_stays_on_one_page(): void
+    {
+        $user = User::create([
+            'name' => 'Admin Compact Test',
+            'email' => 'admin-compact-test@example.com',
+            'password' => 'password',
+            'role' => 'admin',
+            'is_blacklisted' => false,
+        ]);
+
+        $room = Room::create([
+            'room_number' => '801',
+            'type' => 'Chambre Double',
+            'model' => 'Standard',
+            'base_price_ariary' => 50000,
+            'is_fixed_price' => false,
+        ]);
+
+        $reservation = Reservation::create([
+            'user_id' => $user->id,
+            'client_name' => 'Compact Invoice Client',
+            'client_phone' => '0340000090',
+            'customer_phone' => '0340000090',
+            'customer_email' => 'compact@example.com',
+            'booking_reference' => 'BR-' . uniqid(),
+            'source' => 'Appel',
+            'check_in_date' => '2026-06-20',
+            'check_out_date' => '2026-06-21',
+            'status' => 'arrive',
+            'payment_status' => 'unbilled',
+            'extra_beds' => 0,
+            'extra_mattresses' => 0,
+        ]);
+
+        $reservation->rooms()->attach($room->id, [
+            'price_snapshot_ariary' => 50000,
+        ]);
+
+        $invoice = Invoice::create([
+            'reservation_id' => $reservation->id,
+            'invoice_number' => null,
+            'total_amount_ariary' => 70000,
+            'tax_amount_ariary' => 0,
+            'discount_mode' => null,
+            'discount_value' => null,
+            'discount_amount_ariary' => 0,
+            'deposit_amount_ariary' => 20000,
+            'pdf_path' => null,
+            'finalized_at' => null,
+            'status' => 'open',
+            'document_type' => 'facture',
+        ]);
+
+        InvoiceItem::create([
+            'invoice_id' => $invoice->id,
+            'description' => 'Séjour chambre',
+            'type' => 'room',
+            'amount_ariary' => 50000,
+            'quantity' => 1,
+        ]);
+
+        InvoiceItem::create([
+            'invoice_id' => $invoice->id,
+            'description' => 'Petit-déjeuner',
+            'type' => 'extra',
+            'amount_ariary' => 20000,
+            'quantity' => 1,
+        ]);
+
+        Payment::create([
+            'invoice_id' => $invoice->id,
+            'amount_ariary' => 20000,
+            'amount_received_ariary' => 20000,
+            'change_given_ariary' => 0,
+            'payment_method' => 'Espèces',
+            'payment_context' => 'deposit',
+            'reference' => 'ACPT-001',
+            'processed_by_name' => 'Réception Test',
+            'processed_by_role' => 'receptionist',
+        ]);
+
+        $html = $this->invoiceHtmlForTest($invoice, 'facture', 'ariary');
+        $pdf = Pdf::loadHTML($html);
+        $pdf->render();
+
+        $this->assertSame(1, $pdf->getDomPDF()->getCanvas()->get_page_count());
+    }
+
+    private function invoiceHtmlForTest(Invoice $invoice, string $documentType, string $currencyMode): string
+    {
+        $controller = app(PMSController::class);
+        $method = new \ReflectionMethod($controller, 'invoiceHtml');
+        $method->setAccessible(true);
+
+        return $method->invoke($controller, $invoice->fresh(['items', 'payments', 'reservation.guest', 'reservation.rooms']), $documentType, $currencyMode);
     }
 }

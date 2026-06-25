@@ -782,35 +782,37 @@ class PMSController extends Controller
             <head>
                 <meta charset='utf-8'>
                 <style>
-                    body { font-family: DejaVu Sans, sans-serif; color: #1f2937; font-size: 12px; margin: 28px; }
-                    .document-ribbon { margin-bottom: 12px; padding: 9px 12px; background: {$accentSoft}; border: 1px solid {$accentColor}; color: {$accentText}; border-radius: 10px; text-align: center; font-size: 11px; font-weight: bold; letter-spacing: 0.8px; }
-                    .topbar { display: table; width: 100%; border-bottom: 2px solid {$accentColor}; padding-bottom: 14px; margin-bottom: 18px; }
+                    @page { size: A4 portrait; margin: 12mm 14mm; }
+                    body { font-family: DejaVu Sans, sans-serif; color: #1f2937; font-size: 11px; margin: 0; line-height: 1.25; }
+                    .document-ribbon { margin-bottom: 8px; padding: 6px 10px; background: {$accentSoft}; border: 1px solid {$accentColor}; color: {$accentText}; border-radius: 8px; text-align: center; font-size: 10px; font-weight: bold; letter-spacing: 0.7px; }
+                    .topbar { display: table; width: 100%; border-bottom: 2px solid {$accentColor}; padding-bottom: 10px; margin-bottom: 12px; }
                     .brand { display: table-cell; width: 62%; vertical-align: top; }
-                    .brand-logo { width: 155px; height: auto; display: block; margin-bottom: 4px; }
-                    .brand-fallback { margin: 0; color: {$accentText}; font-size: 22px; letter-spacing: 0.4px; font-weight: bold; }
-                    .brand .subtitle { color: #64748b; font-size: 11px; margin-top: 4px; }
+                    .brand-logo { width: 130px; height: auto; display: block; margin-bottom: 2px; }
+                    .brand-fallback { margin: 0; color: {$accentText}; font-size: 19px; letter-spacing: 0.4px; font-weight: bold; }
+                    .brand .subtitle { color: #64748b; font-size: 10px; margin-top: 3px; }
                     .meta { display: table-cell; width: 38%; vertical-align: top; text-align: right; }
-                    .pill { display: inline-block; padding: 6px 10px; border-radius: 999px; background: {$badgeBg}; color: {$badgeText}; font-weight: bold; font-size: 11px; }
+                    .pill { display: inline-block; padding: 4px 8px; border-radius: 999px; background: {$badgeBg}; color: {$badgeText}; font-weight: bold; font-size: 10px; }
                     .pill.unpaid { background: #fef3c7; color: #92400e; }
-                    .info-grid { width: 100%; margin-bottom: 18px; }
+                    .info-grid { width: 100%; margin-bottom: 12px; }
                     .info-grid td { vertical-align: top; padding: 0; border: 0; }
-                    .box { border: 1px solid #dbe4ea; border-radius: 8px; padding: 12px 14px; background: #fff; }
-                    .box-title { color: #64748b; font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 6px; }
-                    table.lines { width: 100%; border-collapse: collapse; margin-top: 4px; }
-                    table.lines th, table.lines td { border-bottom: 1px solid #dbe4ea; padding: 9px 8px; text-align: left; }
-                    table.lines th { background-color: #f8fafc; color: #0f172a; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; }
+                    .box { border: 1px solid #dbe4ea; border-radius: 8px; padding: 9px 11px; background: #fff; }
+                    .box-title { color: #64748b; font-size: 9px; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 4px; }
+                    table.lines { width: 100%; border-collapse: collapse; margin-top: 3px; }
+                    table.lines th, table.lines td { border-bottom: 1px solid #dbe4ea; padding: 5px 6px; text-align: left; line-height: 1.2; }
+                    table.lines th { background-color: #f8fafc; color: #0f172a; font-size: 10px; text-transform: uppercase; letter-spacing: 0.35px; }
                     table.lines td.num, table.lines th.num { text-align: right; }
-                    .section-title { margin: 18px 0 8px; color: {$accentText}; font-size: 13px; font-weight: bold; }
-                    .summary-wrap { width: 100%; margin-top: 16px; }
-                    .summary { width: 42%; margin-left: auto; border: 1px solid #dbe4ea; border-radius: 10px; padding: 12px 14px; }
-                    .summary-row { display: table; width: 100%; margin-bottom: 6px; }
+                    table.lines tr { page-break-inside: avoid; }
+                    .section-title { margin: 10px 0 6px; color: {$accentText}; font-size: 12px; font-weight: bold; }
+                    .summary-wrap { width: 100%; margin-top: 10px; }
+                    .summary { width: 48%; margin-left: auto; border: 1px solid #dbe4ea; border-radius: 8px; padding: 9px 11px; }
+                    .summary-row { display: table; width: 100%; margin-bottom: 4px; }
                     .summary-row .label { display: table-cell; color: #475569; }
                     .summary-row .value { display: table-cell; text-align: right; }
-                    .summary-row.total { margin-top: 8px; padding-top: 8px; border-top: 1px solid #cbd5e1; font-weight: bold; font-size: 13px; color: #0f172a; }
+                    .summary-row.total { margin-top: 6px; padding-top: 6px; border-top: 1px solid #cbd5e1; font-weight: bold; font-size: 12px; color: #0f172a; }
                     .summary-row.discount .value { color: #b91c1c; }
                     .summary-row.deposit .value { color: #0f766e; }
-                    .notice { margin: 12px 0 18px; padding: 10px 12px; border: 1px solid #cbd5e1; background: #f8fafc; color: #334155; border-radius: 8px; }
-                    .deposit-note { margin-top: 8px; color: #0f766e; font-weight: bold; }
+                    .notice { margin: 8px 0 12px; padding: 8px 10px; border: 1px solid #cbd5e1; background: #f8fafc; color: #334155; border-radius: 8px; font-size: 10.5px; }
+                    .footer-note { margin-top: 10px; font-weight: bold; text-transform: uppercase; font-size: 10.5px; line-height: 1.25; }
                 </style>
             </head>
             <body>
@@ -856,7 +858,7 @@ class PMSController extends Controller
                 <div class='section-title'>Paiements</div>
                 <table class='lines'>
                     <thead>
-                        <tr><th>Date</th><th>Méthode</th><th>Type</th><th class='num'>Reçu</th><th class='num'>Rendu</th><th class='num'>Net</th><th>Traité par</th><th>Référence</th></tr>
+                        <tr><th>Date</th><th>Méthode</th><th>Type</th><th class='num'>Reçu</th><th class='num'>Rendu</th><th class='num'>Net</th><th>Par</th><th>Réf.</th></tr>
                     </thead>
                     <tbody>{$paymentRows}</tbody>
                 </table>
@@ -898,8 +900,7 @@ class PMSController extends Controller
                         " : '') . "
                     </div>
                 </div>
-                " . ($depositAmount > 0 ? "<div class='deposit-note'>Acompte déjà versé : " . $this->formatMoney($displayDeposit, $currencyLabel) . "</div>" : '') . "
-                <div style='margin-top: 18px; font-weight: bold; text-transform: uppercase;'>
+                <div class='footer-note'>
                     Arrêtée la présente {$amountLabel} à la somme de : {$amountInWords}
                 </div>
             </body>
