@@ -1,6 +1,5 @@
 import 'dart:convert';
 
-import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -648,26 +647,26 @@ class _EditReservationPageState extends State<EditReservationPage> {
                       ),
                     ],
                     const SizedBox(height: 12),
-                  _QuantitySelector(
-                    icon: Icons.bed_outlined,
-                    label: 'Lit supplémentaire',
-                    unitPrice: 50000,
-                    stayNights: _stayNights(),
-                    value: _extraBeds,
-                    maxValue: _remainingExtraBeds,
-                    onChanged: (value) => setState(() => _extraBeds = value),
-                  ),
+                    _QuantitySelector(
+                      icon: Icons.bed_outlined,
+                      label: 'Lit supplémentaire',
+                      unitPrice: 50000,
+                      stayNights: _stayNights(),
+                      value: _extraBeds,
+                      maxValue: _remainingExtraBeds,
+                      onChanged: (value) => setState(() => _extraBeds = value),
+                    ),
                     const SizedBox(height: 10),
-                  _QuantitySelector(
-                    icon: Icons.airline_seat_individual_suite_outlined,
-                    label: 'Matelas supplémentaire',
-                    unitPrice: 30000,
-                    stayNights: _stayNights(),
-                    value: _extraMattresses,
-                    maxValue: _remainingExtraMattresses,
-                    onChanged: (value) =>
-                        setState(() => _extraMattresses = value),
-                  ),
+                    _QuantitySelector(
+                      icon: Icons.airline_seat_individual_suite_outlined,
+                      label: 'Matelas supplémentaire',
+                      unitPrice: 30000,
+                      stayNights: _stayNights(),
+                      value: _extraMattresses,
+                      maxValue: _remainingExtraMattresses,
+                      onChanged: (value) =>
+                          setState(() => _extraMattresses = value),
+                    ),
                     const SizedBox(height: 12),
                     Container(
                       padding: const EdgeInsets.all(12),
@@ -678,60 +677,62 @@ class _EditReservationPageState extends State<EditReservationPage> {
                           color: _primary.withValues(alpha: 0.18),
                         ),
                       ),
-                    child: Text(
-                      '${_selectedRooms.length} chambre(s) sélectionnée(s)',
-                      style: const TextStyle(
-                        color: _primaryDark,
-                        fontWeight: FontWeight.w900,
+                      child: Text(
+                        '${_selectedRooms.length} chambre(s) sélectionnée(s)',
+                        style: const TextStyle(
+                          color: _primaryDark,
+                          fontWeight: FontWeight.w900,
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 20),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: _primary.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: _primary.withValues(alpha: 0.18),
+                    const SizedBox(height: 20),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: _primary.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: _primary.withValues(alpha: 0.18),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _SummaryLine(
+                            label: 'Prix par nuit chambres',
+                            value:
+                                '${formatPrice(_calculateRoomNightPrice())} Ar',
+                          ),
+                          const SizedBox(height: 6),
+                          _SummaryLine(
+                            label: 'Prix total chambre',
+                            value: '${formatPrice(_calculateRoomPrice())} Ar',
+                          ),
+                          const SizedBox(height: 6),
+                          _SummaryLine(
+                            label: 'Prix par nuit option',
+                            value:
+                                '${formatPrice(_calculateExtrasNightPrice())} Ar',
+                          ),
+                          const SizedBox(height: 6),
+                          _SummaryLine(
+                            label: 'Prix total option',
+                            value: '${formatPrice(_calculateExtrasPrice())} Ar',
+                          ),
+                          const Divider(height: 20),
+                          _SummaryLine(
+                            label: 'Prix total',
+                            value: '${formatPrice(_calculateTotalPrice())} Ar',
+                            emphasized: true,
+                          ),
+                        ],
                       ),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _SummaryLine(
-                          label: 'Prix par nuit chambres',
-                          value: '${formatPrice(_calculateRoomNightPrice())} Ar',
-                        ),
-                        const SizedBox(height: 6),
-                        _SummaryLine(
-                          label: 'Prix total chambre',
-                          value: '${formatPrice(_calculateRoomPrice())} Ar',
-                        ),
-                        const SizedBox(height: 6),
-                        _SummaryLine(
-                          label: 'Prix par nuit option',
-                          value: '${formatPrice(_calculateExtrasNightPrice())} Ar',
-                        ),
-                        const SizedBox(height: 6),
-                        _SummaryLine(
-                          label: 'Prix total option',
-                          value: '${formatPrice(_calculateExtrasPrice())} Ar',
-                        ),
-                        const Divider(height: 20),
-                        _SummaryLine(
-                          label: 'Prix total',
-                          value: '${formatPrice(_calculateTotalPrice())} Ar',
-                          emphasized: true,
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  ElevatedButton.icon(
-                    onPressed: _isSaving ? null : _saveChanges,
-                    icon: _isSaving
+                    const SizedBox(height: 20),
+                    ElevatedButton.icon(
+                      onPressed: _isSaving ? null : _saveChanges,
+                      icon: _isSaving
                           ? const SizedBox(
                               width: 18,
                               height: 18,
@@ -1118,7 +1119,7 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
     return value.toString();
   }
 
-  Future<void> _submitDeposit({
+  Future<bool> _submitDeposit({
     required Map<String, dynamic> reservation,
     required int amount,
     required String paymentMethod,
@@ -1126,17 +1127,20 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
     required String reference,
   }) async {
     try {
-      final response = await _apiClient
-          .postJson('/api/reservations/${reservation['id']}/deposit', {
-            'amount_ariary': amount,
-            'payment_method': paymentMethod,
-            'payment_operator': paymentOperator,
-            'reference': reference,
-            'processed_by_name': widget.userName,
-            'processed_by_role': widget.role,
-          });
+      final response = await _apiClient.postJson(
+        '/api/reservations/${reservation['id']}/deposit',
+        {
+          'amount_ariary': amount,
+          'payment_method': paymentMethod,
+          'payment_operator': paymentOperator,
+          'reference': reference,
+          'processed_by_name': widget.userName,
+          'processed_by_role': widget.role,
+        },
+        const Duration(seconds: 20),
+      );
 
-      if (!mounted) return;
+      if (!mounted) return false;
 
       final decoded = response.body.isNotEmpty
           ? json.decode(response.body)
@@ -1149,7 +1153,7 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
           ),
         );
         _fetchReservations();
-        return;
+        return true;
       }
 
       final message = decoded is Map && decoded['message'] != null
@@ -1159,24 +1163,28 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
         SnackBar(content: Text(message), backgroundColor: Colors.red),
       );
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) return false;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Erreur réseau : $e'),
           backgroundColor: Colors.orange,
         ),
       );
+      return false;
     }
+
+    return false;
   }
 
   Future<void> _openDepositDialog(Map<String, dynamic> reservation) async {
-    final result = await showDialog<Map<String, dynamic>>(
+    await showDialog<void>(
       context: context,
       builder: (context) {
         final amountController = TextEditingController(text: '');
         final referenceController = TextEditingController();
         String paymentMethod = 'Espèces';
         String paymentOperator = 'mvola';
+        bool isSubmitting = false;
         const methods = [
           'Espèces',
           'Carte Bancaire',
@@ -1186,53 +1194,31 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
         ];
         const operators = ['mvola', 'orange money', 'airtel money'];
 
-        return AlertDialog(
-          title: const Text('Enregistrer un acompte'),
-          content: StatefulBuilder(
-            builder: (context, setDialogState) => SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: amountController,
-                    keyboardType: TextInputType.number,
-                    inputFormatters: const [AriaryInputFormatter()],
-                    decoration: const InputDecoration(
-                      labelText: 'Montant de l’acompte (Ar)',
-                      prefixIcon: Icon(Icons.payments_outlined),
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Enregistrer un acompte'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: amountController,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: const [AriaryInputFormatter()],
+                      decoration: const InputDecoration(
+                        labelText: 'Montant de l’acompte (Ar)',
+                        prefixIcon: Icon(Icons.payments_outlined),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    initialValue: paymentMethod,
-                    decoration: const InputDecoration(
-                      labelText: 'Méthode de paiement',
-                      prefixIcon: Icon(Icons.credit_card),
-                    ),
-                    items: methods
-                        .map(
-                          (value) => DropdownMenuItem(
-                            value: value,
-                            child: Text(value),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) => setDialogState(() {
-                      paymentMethod = value ?? paymentMethod;
-                      if (paymentMethod != 'Mobile Money') {
-                        paymentOperator = 'mvola';
-                      }
-                    }),
-                  ),
-                  if (paymentMethod == 'Mobile Money') ...[
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      initialValue: paymentOperator,
+                      initialValue: paymentMethod,
                       decoration: const InputDecoration(
-                        labelText: 'Opérateur',
-                        prefixIcon: Icon(Icons.phone_android),
+                        labelText: 'Méthode de paiement',
+                        prefixIcon: Icon(Icons.credit_card),
                       ),
-                      items: operators
+                      items: methods
                           .map(
                             (value) => DropdownMenuItem(
                               value: value,
@@ -1240,55 +1226,101 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                             ),
                           )
                           .toList(),
-                      onChanged: (value) => setDialogState(
-                        () => paymentOperator = value ?? paymentOperator,
+                      onChanged: (value) => setDialogState(() {
+                        paymentMethod = value ?? paymentMethod;
+                        if (paymentMethod != 'Mobile Money') {
+                          paymentOperator = 'mvola';
+                        }
+                      }),
+                    ),
+                    if (paymentMethod == 'Mobile Money') ...[
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        initialValue: paymentOperator,
+                        decoration: const InputDecoration(
+                          labelText: 'Opérateur',
+                          prefixIcon: Icon(Icons.phone_android),
+                        ),
+                        items: operators
+                            .map(
+                              (value) => DropdownMenuItem(
+                                value: value,
+                                child: Text(value),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (value) => setDialogState(
+                          () => paymentOperator = value ?? paymentOperator,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: referenceController,
+                      decoration: const InputDecoration(
+                        labelText: 'Référence (optionnel)',
+                        prefixIcon: Icon(Icons.tag),
                       ),
                     ),
                   ],
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: referenceController,
-                    decoration: const InputDecoration(
-                      labelText: 'Référence (optionnel)',
-                      prefixIcon: Icon(Icons.tag),
-                    ),
-                  ),
-                ],
+                ),
               ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Annuler'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                final amount = parseAriaryAmount(amountController.text);
-                if (amount <= 0) return;
-                Navigator.pop(context, {
-                  'amount_ariary': amount,
-                  'payment_method': paymentMethod,
-                  'payment_operator': paymentMethod == 'Mobile Money'
-                      ? paymentOperator
-                      : null,
-                  'reference': referenceController.text.trim(),
-                });
-              },
-              child: const Text('Valider'),
-            ),
-          ],
+              actions: [
+                TextButton(
+                  onPressed: isSubmitting ? null : () => Navigator.pop(context),
+                  child: const Text('Annuler'),
+                ),
+                ElevatedButton(
+                  onPressed: isSubmitting
+                      ? null
+                      : () async {
+                          final amount = parseAriaryAmount(
+                            amountController.text,
+                          );
+                          if (amount <= 0) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Saisis un montant d’acompte valide.',
+                                ),
+                                backgroundColor: Colors.orange,
+                              ),
+                            );
+                            return;
+                          }
+
+                          setDialogState(() => isSubmitting = true);
+                          try {
+                            final ok = await _submitDeposit(
+                              reservation: reservation,
+                              amount: amount,
+                              paymentMethod: paymentMethod,
+                              paymentOperator: paymentMethod == 'Mobile Money'
+                                  ? paymentOperator
+                                  : null,
+                              reference: referenceController.text.trim(),
+                            );
+                            if (!context.mounted || !ok) return;
+                            Navigator.pop(context);
+                          } finally {
+                            if (context.mounted) {
+                              setDialogState(() => isSubmitting = false);
+                            }
+                          }
+                        },
+                  child: isSubmitting
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Valider'),
+                ),
+              ],
+            );
+          },
         );
       },
-    );
-
-    if (result == null) return;
-    await _submitDeposit(
-      reservation: reservation,
-      amount: result['amount_ariary'] as int,
-      paymentMethod: result['payment_method']?.toString() ?? 'Espèces',
-      paymentOperator: result['payment_operator']?.toString(),
-      reference: result['reference']?.toString() ?? '',
     );
   }
 
@@ -2012,10 +2044,7 @@ class _QuantitySelector extends StatelessWidget {
                 if (maxValue != null)
                   Text(
                     'Restant : $maxValue',
-                    style: const TextStyle(
-                      color: _muted,
-                      fontSize: 12,
-                    ),
+                    style: const TextStyle(color: _muted, fontSize: 12),
                   ),
               ],
             ),

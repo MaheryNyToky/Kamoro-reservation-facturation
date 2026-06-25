@@ -19,23 +19,33 @@ class ApiClient {
     Map<String, String>? queryParameters,
     Duration? timeout,
   ]) {
-    return http.get(uri(path, queryParameters)).timeout(timeout ?? _defaultTimeout);
+    return http
+        .get(uri(path, queryParameters))
+        .timeout(timeout ?? _defaultTimeout);
   }
 
-  Future<http.Response> postJson(String path, Map<String, dynamic> body) {
-    return http.post(
-      uri(path),
-      headers: {'Content-Type': 'application/json'},
-      body: json.encode(body),
-    ).timeout(_defaultTimeout);
+  Future<http.Response> postJson(
+    String path,
+    Map<String, dynamic> body, [
+    Duration? timeout,
+  ]) {
+    return http
+        .post(
+          uri(path),
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode(body),
+        )
+        .timeout(timeout ?? _defaultTimeout);
   }
 
   Future<http.Response> putJson(String path, Map<String, dynamic> body) {
-    return http.put(
-      uri(path),
-      headers: {'Content-Type': 'application/json'},
-      body: json.encode(body),
-    ).timeout(_defaultTimeout);
+    return http
+        .put(
+          uri(path),
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode(body),
+        )
+        .timeout(_defaultTimeout);
   }
 
   Future<http.Response> updateReservation(int id, Map<String, dynamic> body) {
