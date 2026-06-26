@@ -121,10 +121,12 @@ def build_lines() -> list[tuple[str, int, str]]:
     cmd(".\\Creer-raccourcis-docker-bureau.ps1")
     bullet("Si tu es dans l'Invite de commandes ou si Windows bloque le script, tape plutot :")
     cmd("powershell -ExecutionPolicy Bypass -File .\\Creer-raccourcis-docker-bureau.ps1")
+    bullet("Tu peux aussi utiliser le lanceur Windows sans te battre avec PowerShell :")
+    cmd(".\\Creer-raccourcis-docker-bureau.cmd")
     bullet("Retourne sur le Bureau Windows.")
     bullet("Tu dois voir deux nouvelles icones : Kamoro - Lancer et Kamoro - Arreter.")
     p("Si tu ne les vois pas, regarde aussi le Bureau public Windows, puis refais la commande en gardant PowerShell ouvert.")
-    p("Si Windows bloque le script, fais un clic droit sur le fichier .ps1 et choisis Executer avec PowerShell, ou utilise directement le fichier Lancer-Kamoro-Docker.bat dans le dossier du projet.")
+    p("Si Windows bloque le script, fais un clic droit sur le fichier .ps1 et choisis Executer avec PowerShell, ou lance le fichier Creer-raccourcis-docker-bureau.cmd, ou utilise directement le fichier Lancer-Kamoro-Docker.bat dans le dossier du projet.")
 
     h1("7. Lancer l'application")
     h2("Methode la plus simple")
