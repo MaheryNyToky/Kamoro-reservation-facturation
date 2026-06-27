@@ -409,6 +409,75 @@ class InvoicePdfGenerationTest extends TestCase
         $this->assertSame(1, $pdf->getDomPDF()->getCanvas()->get_page_count());
     }
 
+    public function test_invoice_pdf_footer_includes_signatures_and_legal_block(): void
+    {
+        $user = User::create([
+            'name' => 'Admin Footer Test',
+            'email' => 'admin-footer-test@example.com',
+            'password' => 'password',
+            'role' => 'admin',
+            'is_blacklisted' => false,
+        ]);
+
+        $room = Room::create([
+            'room_number' => '802',
+            'type' => 'Chambre Double',
+            'model' => 'Standard',
+            'base_price_ariary' => 50000,
+            'is_fixed_price' => false,
+        ]);
+
+        $reservation = Reservation::create([
+            'user_id' => $user->id,
+            'client_name' => 'Footer Invoice Client',
+            'client_phone' => '0340000091',
+            'customer_phone' => '0340000091',
+            'customer_email' => 'footer@example.com',
+            'booking_reference' => 'BR-' . uniqid(),
+            'source' => 'Appel',
+            'check_in_date' => '2026-06-22',
+            'check_out_date' => '2026-06-23',
+            'status' => 'arrive',
+            'payment_status' => 'unbilled',
+            'extra_beds' => 0,
+            'extra_mattresses' => 0,
+        ]);
+
+        $reservation->rooms()->attach($room->id, [
+            'price_snapshot_ariary' => 50000,
+        ]);
+
+        $invoice = Invoice::create([
+            'reservation_id' => $reservation->id,
+            'invoice_number' => null,
+            'total_amount_ariary' => 50000,
+            'tax_amount_ariary' => 0,
+            'discount_mode' => null,
+            'discount_value' => null,
+            'discount_amount_ariary' => 0,
+            'deposit_amount_ariary' => 0,
+            'pdf_path' => null,
+            'finalized_at' => null,
+            'status' => 'open',
+            'document_type' => 'facture',
+        ]);
+
+        InvoiceItem::create([
+            'invoice_id' => $invoice->id,
+            'description' => 'Séjour chambre',
+            'type' => 'room',
+            'amount_ariary' => 50000,
+            'quantity' => 1,
+        ]);
+
+        $html = $this->invoiceHtmlForTest($invoice, 'facture', 'ariary');
+
+        $this->assertStringContainsString('Fait à Ambondromamy le ', $html);
+        $this->assertStringContainsString('NIF: 2000683017 STAT: 46101 11 2011 Siège social: LOT II H 12 ter Bis EA Ankerana', $html);
+        $this->assertStringContainsString("class='signature-title'>Client</div>", $html);
+        $this->assertStringContainsString("class='signature-title'>Responsable</div>", $html);
+    }
+
     private function invoiceHtmlForTest(Invoice $invoice, string $documentType, string $currencyMode): string
     {
         $controller = app(PMSController::class);

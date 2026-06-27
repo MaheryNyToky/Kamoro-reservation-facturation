@@ -994,6 +994,7 @@ class PMSController extends Controller
         $paymentNotice = $balanceAmount > 0
             ? 'Facture pas encore payée intégralement'
             : 'Facture réglée intégralement';
+        $printedAt = now()->format('d/m/Y');
         $rows = '';
         $paymentRows = '';
         $roomBookById = $reservation->rooms->mapWithKeys(
@@ -1078,6 +1079,16 @@ class PMSController extends Controller
                     .summary-row.discount .value { color: #b91c1c; }
                     .summary-row.deposit .value { color: #0f766e; }
                     .notice { margin: 8px 0 12px; padding: 8px 10px; border: 1px solid #cbd5e1; background: #f8fafc; color: #334155; border-radius: 8px; font-size: 10.5px; }
+                    .signature-wrap { width: 100%; margin-top: 14px; page-break-inside: avoid; }
+                    .signature-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+                    .signature-cell { width: 50%; vertical-align: top; padding: 0 4px; }
+                    .signature-box { min-height: 84px; border: 1px solid #dbe4ea; border-radius: 10px; padding: 10px 12px; background: #fff; }
+                    .signature-title { margin-bottom: 6px; color: {$accentText}; font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; }
+                    .signature-line { margin-top: 34px; border-top: 1px solid #94a3b8; padding-top: 5px; color: #475569; font-size: 10px; }
+                    .signature-label { display: block; margin-bottom: 3px; color: #64748b; font-size: 9px; text-transform: uppercase; letter-spacing: 0.4px; }
+                    .invoice-footer { margin-top: 14px; page-break-inside: avoid; }
+                    .invoice-location { margin-top: 8px; font-weight: bold; text-align: right; color: {$accentText}; font-size: 10.5px; }
+                    .legal-block { margin-top: 8px; padding: 8px 10px; border: 1px solid {$accentColor}; border-radius: 8px; background: {$accentSoft}; color: {$accentText}; font-size: 9.8px; line-height: 1.35; }
                     .footer-note { margin-top: 10px; font-weight: bold; text-transform: uppercase; font-size: 10.5px; line-height: 1.25; }
                 </style>
             </head>
@@ -1165,6 +1176,32 @@ class PMSController extends Controller
                             <div class='value'>" . $this->formatMoney($showEuro ? $this->ariaryToEuro($changeAmount) : $changeAmount, $currencyLabel) . "</div>
                         </div>
                         " : '') . "
+                    </div>
+                </div>
+                <div class='signature-wrap'>
+                    <table class='signature-table'>
+                        <tr>
+                            <td class='signature-cell'>
+                                <div class='signature-box'>
+                                    <div class='signature-title'>Client</div>
+                                    <span class='signature-label'>Signature</span>
+                                    <div class='signature-line'>&nbsp;</div>
+                                </div>
+                            </td>
+                            <td class='signature-cell'>
+                                <div class='signature-box'>
+                                    <div class='signature-title'>Responsable</div>
+                                    <span class='signature-label'>Signature</span>
+                                    <div class='signature-line'>&nbsp;</div>
+                                </div>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+                <div class='invoice-footer'>
+                    <div class='invoice-location'>Fait à Ambondromamy le {$printedAt}</div>
+                    <div class='legal-block'>
+                        NIF: 2000683017 STAT: 46101 11 2011 Siège social: LOT II H 12 ter Bis EA Ankerana
                     </div>
                 </div>
                 <div class='footer-note'>
