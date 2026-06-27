@@ -7,6 +7,10 @@ class Reservation {
     required this.checkIn,
     required this.checkOut,
     required this.roomIds,
+    this.roomDetails = const [],
+    this.bookingType = 'individual',
+    this.billingMode = 'grouped',
+    this.organization,
     this.extraBeds = 0,
     this.extraMattresses = 0,
   });
@@ -18,6 +22,10 @@ class Reservation {
   final DateTime checkIn;
   final DateTime checkOut;
   final List<int> roomIds;
+  final List<Map<String, dynamic>> roomDetails;
+  final String bookingType;
+  final String billingMode;
+  final Map<String, dynamic>? organization;
   final int extraBeds;
   final int extraMattresses;
 
@@ -32,6 +40,12 @@ class Reservation {
           _parseDate(json['check_out']) ??
           DateTime.now().add(const Duration(days: 1)),
       roomIds: _parseRoomIds(json['room_ids']),
+      roomDetails: _parseRoomDetails(json['room_details']),
+      bookingType: (json['booking_type'] ?? 'individual').toString(),
+      billingMode: (json['billing_mode'] ?? 'grouped').toString(),
+      organization: json['organization'] is Map<String, dynamic>
+          ? Map<String, dynamic>.from(json['organization'] as Map)
+          : null,
       extraBeds: _asInt(json['extra_beds'] ?? 0),
       extraMattresses: _asInt(json['extra_mattresses'] ?? 0),
     );
@@ -92,10 +106,7 @@ class Reservation {
 
   static List<int> _parseRoomIds(dynamic value) {
     if (value is Iterable) {
-      return value
-          .map(_asInt)
-          .where((id) => id > 0)
-          .toList();
+      return value.map(_asInt).where((id) => id > 0).toList();
     }
 
     if (value is String) {
@@ -103,6 +114,17 @@ class Reservation {
           .split(',')
           .map((item) => _asInt(item.trim()))
           .where((id) => id > 0)
+          .toList();
+    }
+
+    return const [];
+  }
+
+  static List<Map<String, dynamic>> _parseRoomDetails(dynamic value) {
+    if (value is Iterable) {
+      return value
+          .whereType<Map>()
+          .map((room) => Map<String, dynamic>.from(room))
           .toList();
     }
 

@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Invoice extends Model
 {
@@ -13,6 +14,7 @@ class Invoice extends Model
 
     protected $fillable = [
         'reservation_id',
+        'organization_id',
         'invoice_number',
         'total_amount_ariary',
         'tax_amount_ariary',
@@ -24,6 +26,10 @@ class Invoice extends Model
         'finalized_at',
         'status',
         'document_type',
+        'billing_mode',
+        'invoice_kind',
+        'parent_invoice_id',
+        'booking_room_id',
     ];
 
     protected $casts = [
@@ -45,6 +51,11 @@ class Invoice extends Model
         return $this->belongsTo(Reservation::class);
     }
 
+    public function organization(): BelongsTo
+    {
+        return $this->belongsTo(Organization::class);
+    }
+
     public function items(): HasMany
     {
         return $this->hasMany(InvoiceItem::class);
@@ -55,13 +66,35 @@ class Invoice extends Model
         return $this->hasMany(Payment::class);
     }
 
+    public function parentInvoice(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'parent_invoice_id');
+    }
+
+    public function childInvoices(): HasMany
+    {
+        return $this->hasMany(self::class, 'parent_invoice_id');
+    }
+
+    public function roomBooking(): BelongsTo
+    {
+        return $this->belongsTo(ReservationRoom::class, 'booking_room_id');
+    }
+
     public function getPaidAmountAriaryAttribute(): int
     {
-        if ($this->relationLoaded('payments')) {
-            return (int) $this->payments->sum('amount_ariary');
+        $paid = $this->relationLoaded('payments')
+            ? (int) $this->payments->sum('amount_ariary')
+            : (int) $this->payments()->sum('amount_ariary');
+
+        if (($this->invoice_kind ?? 'master') === 'master') {
+            $paid += (int) $this->childInvoices()
+                ->with('payments')
+                ->get()
+                ->sum(fn (self $childInvoice) => (int) $childInvoice->payments->sum('amount_ariary'));
         }
 
-        return (int) $this->payments()->sum('amount_ariary');
+        return $paid;
     }
 
     public function getBalanceAmountAriaryAttribute(): int

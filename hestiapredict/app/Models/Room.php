@@ -23,7 +23,22 @@ class Room extends Model
     public function reservations(): BelongsToMany
     {
         return $this->belongsToMany(Reservation::class, 'booking_room')
-            ->withPivot('price_snapshot_ariary')
+            ->using(ReservationRoom::class)
+            ->withPivot(
+                'id',
+                'price_snapshot_ariary',
+                'occupant_name',
+                'occupant_phone',
+                'occupant_email',
+                'occupant_date_of_birth',
+                'occupant_sex',
+                'occupant_id_type',
+                'occupant_id_number',
+                'checked_in_at',
+                'checked_in_by_name',
+                'checked_in_by_role',
+                'invoice_id',
+            )
             ->withTimestamps();
     }
 

@@ -1166,19 +1166,20 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                 if (invoice != null) {
                   updated['deposit_amount_ariary'] =
                       invoice['deposit_amount_ariary'] ??
-                          updated['deposit_amount_ariary'];
+                      updated['deposit_amount_ariary'];
                   updated['paid_amount_ariary'] =
                       invoice['paid_amount_ariary'] ??
-                          updated['paid_amount_ariary'];
+                      updated['paid_amount_ariary'];
                   updated['balance_amount_ariary'] =
                       invoice['balance_amount_ariary'] ??
-                          updated['balance_amount_ariary'];
+                      updated['balance_amount_ariary'];
                   updated['payment_status'] =
                       invoice['status'] ?? updated['payment_status'];
                 }
                 if (payment != null) {
                   updated['latest_deposit_method'] = payment['payment_method'];
-                  updated['latest_deposit_operator'] = payment['payment_operator'];
+                  updated['latest_deposit_operator'] =
+                      payment['payment_operator'];
                   updated['latest_deposit_processed_by'] =
                       payment['processed_by_name'];
                   updated['latest_deposit_processed_by_role'] =
@@ -1757,9 +1758,26 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                                 ),
                               const SizedBox(height: 10),
                               Text(
-                                (res['email'] == 'N/A' ||
-                                        res['email'] == null ||
-                                        res['email'].toString().isEmpty)
+                                (res['booking_type'] ?? '').toString() ==
+                                        'organization'
+                                    ? [
+                                        if ((res['organization_phone'] ?? '')
+                                            .toString()
+                                            .isNotEmpty)
+                                          'Siège : ${res['organization_phone']}',
+                                        if ((res['phone'] ?? '')
+                                            .toString()
+                                            .isNotEmpty)
+                                          'Numéro contact : ${res['phone']}',
+                                        if ((res['email'] ?? '')
+                                                .toString()
+                                                .isNotEmpty &&
+                                            res['email'].toString() != 'N/A')
+                                          'Email contact : ${res['email']}',
+                                      ].join(' | ')
+                                    : (res['email'] == 'N/A' ||
+                                          res['email'] == null ||
+                                          res['email'].toString().isEmpty)
                                     ? 'Contact : ${res['phone']}'
                                     : 'Tél. ${res['phone']} | ${res['email']}',
                                 style: const TextStyle(
@@ -1870,15 +1888,18 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                                               fontSize: 12,
                                             ),
                                           ),
-                                          Text(
-                                            'Prix ajusté (IA) : ${formatPrice(res['total_price'])} Ar',
-                                            style: const TextStyle(
-                                              color: _muted,
-                                              fontStyle: FontStyle.italic,
-                                              fontWeight: FontWeight.w600,
-                                              fontSize: 12,
+                                          if ((res['booking_type'] ?? '')
+                                                  .toString() !=
+                                              'organization')
+                                            Text(
+                                              'Prix ajusté (IA) : ${formatPrice(res['total_price'])} Ar',
+                                              style: const TextStyle(
+                                                color: _muted,
+                                                fontStyle: FontStyle.italic,
+                                                fontWeight: FontWeight.w600,
+                                                fontSize: 12,
+                                              ),
                                             ),
-                                          ),
                                         ],
                                       ),
                                     ),

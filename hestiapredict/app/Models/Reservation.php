@@ -18,7 +18,10 @@ class Reservation extends Model
         'client_phone',
         'customer_phone',
         'customer_email',
+        'organization_id',
         'booking_reference',
+        'booking_type',
+        'billing_mode',
         'source',
         'is_booking_com',
         'check_in_date',
@@ -44,11 +47,36 @@ class Reservation extends Model
         return $this->belongsTo(User::class);
     }
 
+    public function organization(): BelongsTo
+    {
+        return $this->belongsTo(Organization::class);
+    }
+
     public function rooms(): BelongsToMany
     {
         return $this->belongsToMany(Room::class, 'booking_room')
-            ->withPivot('price_snapshot_ariary')
+            ->using(ReservationRoom::class)
+            ->withPivot(
+                'id',
+                'price_snapshot_ariary',
+                'occupant_name',
+                'occupant_phone',
+                'occupant_email',
+                'occupant_date_of_birth',
+                'occupant_sex',
+                'occupant_id_type',
+                'occupant_id_number',
+                'checked_in_at',
+                'checked_in_by_name',
+                'checked_in_by_role',
+                'invoice_id',
+            )
             ->withTimestamps();
+    }
+
+    public function roomBookings(): HasMany
+    {
+        return $this->hasMany(ReservationRoom::class);
     }
 
     public function guest()
@@ -58,7 +86,12 @@ class Reservation extends Model
 
     public function invoice()
     {
-        return $this->hasOne(Invoice::class);
+        return $this->hasOne(Invoice::class)->where('invoice_kind', 'master');
+    }
+
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(Invoice::class);
     }
 
     public function audits(): HasMany

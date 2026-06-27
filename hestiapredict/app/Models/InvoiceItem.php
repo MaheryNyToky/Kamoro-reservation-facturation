@@ -12,6 +12,7 @@ class InvoiceItem extends Model
 
     protected $fillable = [
         'invoice_id',
+        'booking_room_id',
         'description',
         'type',
         'amount_ariary',
@@ -26,5 +27,10 @@ class InvoiceItem extends Model
     public function invoice(): BelongsTo
     {
         return $this->belongsTo(Invoice::class);
+    }
+
+    public function bookingRoom(): BelongsTo
+    {
+        return $this->belongsTo(ReservationRoom::class, 'booking_room_id');
     }
 }

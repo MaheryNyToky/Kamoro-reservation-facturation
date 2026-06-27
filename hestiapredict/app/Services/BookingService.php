@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Reservation;
 use App\Models\ReservationAudit;
 use App\Models\Payment;
+use App\Models\Organization;
 use App\Models\Room;
 use App\Models\User;
 use App\Support\PhoneNumber;
@@ -38,6 +39,29 @@ class BookingService
             }
 
             $source = $data['source'] ?? 'Appel';
+            // La réservation ne force plus le mode de facturation:
+            // on garde grouped par défaut et le choix se fait au moment de la facture.
+            $billingMode = in_array($data['billing_mode'] ?? 'grouped', ['grouped', 'per_room'], true)
+                ? ($data['billing_mode'] ?? 'grouped')
+                : 'grouped';
+            $organization = null;
+            $organizationName = trim((string) ($data['organization_name'] ?? ''));
+            if ($organizationName !== '') {
+                $organization = Organization::query()->updateOrCreate(
+                    ['name' => $organizationName],
+                    [
+                        'phone' => PhoneNumber::normalize($data['organization_phone'] ?? null),
+                        'contact_name' => $data['organization_contact_name'] ?? null,
+                        'contact_phone' => PhoneNumber::normalize($data['organization_contact_phone'] ?? null),
+                        'contact_email' => $data['organization_contact_email'] ?? null,
+                        'email' => $data['organization_email'] ?? null,
+                        'billing_address' => $data['organization_billing_address'] ?? null,
+                        'nif' => $data['organization_nif'] ?? ($data['organization_tax_id'] ?? null),
+                        'stat' => $data['organization_stat'] ?? null,
+                        'tax_id' => $data['organization_nif'] ?? ($data['organization_tax_id'] ?? null),
+                    ],
+                );
+            }
             $customerPhone = PhoneNumber::normalize($data['customer_phone'] ?? null);
             $roomIds = collect($data['room_ids'] ?? [])
                 ->map(fn ($roomId) => (int) $roomId)
@@ -91,7 +115,10 @@ class BookingService
                 'client_phone' => $customerPhone ?? '000000000',
                 'customer_phone' => $customerPhone,
                 'customer_email' => $data['customer_email'] ?? null,
+                'organization_id' => $organization?->id,
                 'booking_reference' => 'RES-' . strtoupper(bin2hex(random_bytes(3))),
+                'booking_type' => $organization ? 'organization' : 'individual',
+                'billing_mode' => $billingMode,
                 'source' => $source,
                 'is_booking_com' => $source === 'Booking',
                 'check_in_date' => $data['check_in'],
@@ -131,10 +158,13 @@ class BookingService
                     'check_in' => $data['check_in'],
                     'check_out' => $data['check_out'],
                     'source' => $source,
+                    'booking_type' => $reservation->booking_type,
+                    'billing_mode' => $reservation->billing_mode,
+                    'organization_name' => $organization?->name,
                 ],
             ]);
 
-            return $reservation->load('rooms');
+            return $reservation->load('rooms', 'organization');
         });
     }
 
@@ -631,6 +661,17 @@ class BookingService
                 'fixed_price_ariary' => $room->base_price_ariary,
                 'is_fixed_price' => $room->is_fixed_price,
                 'price_snapshot_ariary' => (int) $room->pivot->price_snapshot_ariary,
+                'occupant_name' => $room->pivot->occupant_name,
+                'occupant_phone' => $room->pivot->occupant_phone,
+                'occupant_email' => $room->pivot->occupant_email,
+                'occupant_date_of_birth' => optional($room->pivot->occupant_date_of_birth)->toDateString(),
+                'occupant_sex' => $room->pivot->occupant_sex,
+                'occupant_id_type' => $room->pivot->occupant_id_type,
+                'occupant_id_number' => $room->pivot->occupant_id_number,
+                'checked_in_at' => optional($room->pivot->checked_in_at)->toDateTimeString(),
+                'checked_in_by_name' => $room->pivot->checked_in_by_name,
+                'checked_in_by_role' => $room->pivot->checked_in_by_role,
+                'invoice_id' => $room->pivot->invoice_id,
             ])
             ->values();
 
@@ -704,9 +745,25 @@ class BookingService
             'contact' => ($reservation->customer_phone && $reservation->customer_phone !== '000000000')
                 ? $reservation->customer_phone
                 : ($reservation->client_phone ?? ($reservation->customer_email ?? 'N/A')),
+            'organization_phone' => $reservation->organization?->phone ?? 'N/A',
             'status' => $reservation->status,
             'payment_status' => $paymentStatus,
             'source' => $reservation->source,
+            'booking_type' => $reservation->booking_type ?? ($reservation->organization_id ? 'organization' : 'individual'),
+            'billing_mode' => $reservation->billing_mode ?? 'grouped',
+            'organization' => $reservation->organization ? [
+                'id' => $reservation->organization->id,
+                'name' => $reservation->organization->name,
+                'phone' => $reservation->organization->phone,
+                'contact_name' => $reservation->organization->contact_name,
+                'contact_phone' => $reservation->organization->contact_phone,
+                'contact_email' => $reservation->organization->contact_email,
+                'email' => $reservation->organization->email,
+                'billing_address' => $reservation->organization->billing_address,
+                'nif' => $reservation->organization->nif ?? $reservation->organization->tax_id,
+                'stat' => $reservation->organization->stat,
+                'tax_id' => $reservation->organization->tax_id,
+            ] : null,
             'cancelled_by_name' => $reservation->cancelled_by_name,
             'cancelled_at' => optional($reservation->cancelled_at)->toDateTimeString(),
             'rooms' => $groupedRooms,

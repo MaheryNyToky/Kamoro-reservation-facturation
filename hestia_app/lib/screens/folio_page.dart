@@ -43,9 +43,11 @@ class _FolioPageState extends State<FolioPage> {
   bool _isBusy = false;
   String _documentType = 'facture';
   bool _bookingInvoiceInEuro = false;
+  String _billingMode = 'grouped';
+  int? _selectedInvoiceId;
 
   int get _reservationId => _asInt(widget.reservation['id']);
-  int get _invoiceId => _asInt(_folio?['id']);
+  int get _invoiceId => _selectedInvoiceId ?? _asInt(_folio?['id']);
   bool get _isFinalized => _folio?['status'] == 'finalized';
   bool get _hasPdf => (_folio?['pdf_url'] ?? '').toString().isNotEmpty;
   bool get _canEditPayments =>
@@ -58,6 +60,34 @@ class _FolioPageState extends State<FolioPage> {
     final source = widget.reservation['source']?.toString();
 
     return folioFlag == true || reservationFlag == true || source == 'Booking';
+  }
+
+  List<Map<String, dynamic>> get _availableInvoices {
+    return (_folio?['invoices'] as List<dynamic>? ?? [])
+        .whereType<Map>()
+        .map((invoice) => Map<String, dynamic>.from(invoice))
+        .toList();
+  }
+
+  int? _invoiceIdForBillingMode(String billingMode) {
+    final normalized = billingMode == 'individual' ? 'individual' : 'grouped';
+    if (normalized == 'grouped') {
+      final master = _availableInvoices.firstWhere(
+        (invoice) =>
+            (invoice['invoice_kind']?.toString() ?? 'master') == 'master',
+        orElse: () => const <String, dynamic>{},
+      );
+      final masterId = _asInt(master['id']);
+      return masterId > 0 ? masterId : _selectedInvoiceId;
+    }
+
+    final child = _availableInvoices.firstWhere(
+      (invoice) =>
+          (invoice['invoice_kind']?.toString() ?? 'master') != 'master',
+      orElse: () => const <String, dynamic>{},
+    );
+    final childId = _asInt(child['id']);
+    return childId > 0 ? childId : _selectedInvoiceId;
   }
 
   int _stayNights() {
@@ -88,7 +118,7 @@ class _FolioPageState extends State<FolioPage> {
     _fetchFolio();
   }
 
-  Future<void> _fetchFolio() async {
+  Future<void> _fetchFolio({int? invoiceId}) async {
     if (!_canAccess) {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -97,11 +127,15 @@ class _FolioPageState extends State<FolioPage> {
     }
 
     setState(() => _isLoading = true);
-    final cacheKey = 'folio_cache:$_reservationId';
+    final cacheKey = 'folio_cache:$_reservationId:${invoiceId ?? "default"}';
     try {
-      final response = await http
-          .get(Uri.parse('$baseUrl/api/reservations/$_reservationId/folio'))
-          .timeout(const Duration(seconds: 5));
+      final uri = Uri.parse('$baseUrl/api/reservations/$_reservationId/folio')
+          .replace(
+            queryParameters: invoiceId == null
+                ? null
+                : {'invoice_id': invoiceId.toString()},
+          );
+      final response = await http.get(uri).timeout(const Duration(seconds: 5));
       if (!mounted) return;
       if (response.statusCode == 200) {
         final payload = Map<String, dynamic>.from(json.decode(response.body));
@@ -110,6 +144,8 @@ class _FolioPageState extends State<FolioPage> {
         setState(() {
           _folio = payload;
           _documentType = (_folio?['document_type'] ?? 'facture').toString();
+          _billingMode = (_folio?['billing_mode'] ?? 'grouped').toString();
+          _selectedInvoiceId = _asInt(_folio?['selected_invoice_id']);
         });
       } else {
         final prefs = await SharedPreferences.getInstance();
@@ -118,6 +154,8 @@ class _FolioPageState extends State<FolioPage> {
           setState(() {
             _folio = Map<String, dynamic>.from(json.decode(cached));
             _documentType = (_folio?['document_type'] ?? 'facture').toString();
+            _billingMode = (_folio?['billing_mode'] ?? 'grouped').toString();
+            _selectedInvoiceId = _asInt(_folio?['selected_invoice_id']);
           });
           _showMessage('Mode dégradé: folio local affiché.', isError: false);
         } else {
@@ -132,6 +170,8 @@ class _FolioPageState extends State<FolioPage> {
           setState(() {
             _folio = Map<String, dynamic>.from(json.decode(cached));
             _documentType = (_folio?['document_type'] ?? 'facture').toString();
+            _billingMode = (_folio?['billing_mode'] ?? 'grouped').toString();
+            _selectedInvoiceId = _asInt(_folio?['selected_invoice_id']);
           });
           _showMessage('Mode dégradé: folio local affiché.', isError: false);
         }
@@ -204,6 +244,7 @@ class _FolioPageState extends State<FolioPage> {
     final payload = <String, dynamic>{
       'pricing_mode': widget.pricingMode,
       'document_type': _documentType,
+      'billing_mode': _billingMode,
       'currency_mode': _isBookingReservation && _bookingInvoiceInEuro
           ? 'euro'
           : 'ariary',
@@ -268,9 +309,11 @@ class _FolioPageState extends State<FolioPage> {
           setState(() {
             _folio = Map<String, dynamic>.from(decoded['invoice'] as Map);
             _documentType = (_folio?['document_type'] ?? 'facture').toString();
+            _billingMode = (_folio?['billing_mode'] ?? 'grouped').toString();
+            _selectedInvoiceId = _asInt(_folio?['selected_invoice_id']);
           });
         } else {
-          await _fetchFolio();
+          await _fetchFolio(invoiceId: _invoiceId);
         }
         _showMessage(successMessage);
       } else {
@@ -642,6 +685,10 @@ class _FolioPageState extends State<FolioPage> {
         .where((item) => (item as Map)['type']?.toString() != 'tax')
         .toList();
     final payments = (_folio?['payments'] as List<dynamic>? ?? []);
+    final roomBookings = (_folio?['room_bookings'] as List<dynamic>? ?? [])
+        .whereType<Map>()
+        .map((room) => Map<String, dynamic>.from(room))
+        .toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -668,6 +715,98 @@ class _FolioPageState extends State<FolioPage> {
                             reservation: widget.reservation,
                             showLoyalty: widget.role != 'receptionist',
                           ),
+                          const SizedBox(height: 16),
+                          SegmentedButton<String>(
+                            segments: const [
+                              ButtonSegment(
+                                value: 'grouped',
+                                label: Text('Groupée'),
+                                icon: Icon(Icons.groups_outlined),
+                              ),
+                              ButtonSegment(
+                                value: 'individual',
+                                label: Text('Individuelle'),
+                                icon: Icon(Icons.person_outline),
+                              ),
+                            ],
+                            selected: {_billingMode},
+                            onSelectionChanged: _isBusy
+                                ? null
+                                : (selection) {
+                                    final nextMode = selection.first;
+                                    final nextInvoiceId =
+                                        _invoiceIdForBillingMode(nextMode);
+                                    setState(() {
+                                      _billingMode = nextMode;
+                                      if (nextInvoiceId != null) {
+                                        _selectedInvoiceId = nextInvoiceId;
+                                      }
+                                    });
+                                    if (nextInvoiceId != null) {
+                                      _fetchFolio(invoiceId: nextInvoiceId);
+                                    }
+                                  },
+                          ),
+                          if (_availableInvoices.isNotEmpty) ...[
+                            const SizedBox(height: 16),
+                            DropdownButtonFormField<int>(
+                              initialValue: _invoiceId,
+                              decoration: const InputDecoration(
+                                labelText: 'Facture affichée',
+                                border: OutlineInputBorder(),
+                              ),
+                              items: _availableInvoices.map((invoice) {
+                                final invoiceKind =
+                                    invoice['invoice_kind']?.toString() ??
+                                    'master';
+                                final bookingRoomId = _asInt(
+                                  invoice['booking_room_id'],
+                                );
+                                final roomLabel = bookingRoomId > 0
+                                    ? _roomLabelForBooking(
+                                        bookingRoomId,
+                                        roomBookings,
+                                      )
+                                    : null;
+                                final label = invoiceKind == 'master'
+                                    ? 'Résumé général'
+                                    : roomLabel ?? 'Chambre';
+                                final subtitle = invoice['invoice_number']
+                                    ?.toString();
+                                return DropdownMenuItem<int>(
+                                  value: _asInt(invoice['id']),
+                                  child: Text(
+                                    subtitle == null || subtitle.isEmpty
+                                        ? label
+                                        : '$label - $subtitle',
+                                  ),
+                                );
+                              }).toList(),
+                              onChanged: _isBusy
+                                  ? null
+                                  : (value) {
+                                      if (value == null) return;
+                                      setState(() {
+                                        _selectedInvoiceId = value;
+                                        final selectedInvoice =
+                                            _availableInvoices.firstWhere(
+                                              (invoice) =>
+                                                  _asInt(invoice['id']) ==
+                                                  value,
+                                              orElse: () => const {},
+                                            );
+                                        _billingMode =
+                                            (selectedInvoice['invoice_kind']
+                                                        ?.toString() ??
+                                                    'master') ==
+                                                'master'
+                                            ? 'grouped'
+                                            : 'individual';
+                                      });
+                                      _fetchFolio(invoiceId: value);
+                                    },
+                            ),
+                          ],
                           const SizedBox(height: 16),
                           if (widget.role != 'receptionist') ...[
                             _DiscountCard(
@@ -781,8 +920,7 @@ class _FolioPageState extends State<FolioPage> {
                           ],
                           const SizedBox(height: 12),
                           ElevatedButton.icon(
-                            onPressed:
-                                _isBusy || _documentType != 'facture'
+                            onPressed: _isBusy || _documentType != 'facture'
                                 ? null
                                 : _generatePdf,
                             icon: const Icon(Icons.picture_as_pdf_outlined),
@@ -829,6 +967,23 @@ class _FolioPageState extends State<FolioPage> {
             ),
     );
   }
+}
+
+String? _roomLabelForBooking(
+  int bookingRoomId,
+  List<Map<String, dynamic>> roomBookings,
+) {
+  for (final room in roomBookings) {
+    final roomId = int.tryParse(room['id']?.toString() ?? '') ?? 0;
+    if (roomId == bookingRoomId) {
+      final roomNumber = room['room_number']?.toString() ?? '';
+      final type = room['type']?.toString() ?? '';
+      if (roomNumber.isEmpty) return type;
+      if (type.isEmpty) return roomNumber;
+      return '$roomNumber - $type';
+    }
+  }
+  return null;
 }
 
 class _DiscountCard extends StatelessWidget {
@@ -935,10 +1090,21 @@ class _SummaryPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final status = folio['status']?.toString() ?? 'open';
     final guest = folio['guest'];
+    final bookingType =
+        (folio['booking_type'] ?? reservation['booking_type'] ?? 'individual')
+            .toString();
+    final organization = reservation['organization'];
+    final organizationName = organization is Map
+        ? (organization['name'] ?? '').toString().trim()
+        : '';
     final loyaltyCount = guest is Map ? _asInt(guest['loyalty_count']) : 0;
     final guestName = guest is Map
         ? (guest['full_name'] ?? guest['first_name'] ?? '').toString().trim()
         : '';
+    final clientName =
+        bookingType == 'organization' && organizationName.isNotEmpty
+        ? organizationName
+        : guestName;
     final hasLoyaltyInfo = guest is Map;
     final contact = _formatContact(reservation);
     final depositAmount = _asInt(folio['deposit_amount_ariary']);
@@ -994,6 +1160,13 @@ class _SummaryPanel extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
+          ],
+          if (bookingType == 'organization' && clientName.isNotEmpty) ...[
+            Text(
+              'Client : $clientName',
+              style: const TextStyle(color: _ink, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
           ],
           if (contact.isNotEmpty) ...[
             Text(

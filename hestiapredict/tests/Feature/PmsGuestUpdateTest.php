@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Models\Guest;
+use App\Models\Reservation;
+use App\Models\Room;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -159,6 +161,81 @@ class PmsGuestUpdateTest extends TestCase
         $this->assertSame('1985-05-05', $guest->date_of_birth->toDateString());
         $this->assertSame('Homme', $guest->sex);
         $this->assertSame('CIN', $guest->id_type);
+    }
+
+    public function test_individual_checkin_applies_one_identity_to_all_rooms(): void
+    {
+        $user = User::create([
+            'name' => 'Reception Test',
+            'email' => 'reception-multi-room@example.com',
+            'password' => 'password',
+            'role' => 'receptionist',
+            'is_blacklisted' => false,
+        ]);
+
+        $room1 = Room::create([
+            'room_number' => '801',
+            'type' => 'Chambre Double',
+            'model' => 'Standard',
+            'base_price_ariary' => 110000,
+            'is_fixed_price' => false,
+        ]);
+
+        $room2 = Room::create([
+            'room_number' => '802',
+            'type' => 'Chambre Double',
+            'model' => 'Standard',
+            'base_price_ariary' => 110000,
+            'is_fixed_price' => false,
+        ]);
+
+        $reservation = Reservation::create([
+            'user_id' => $user->id,
+            'client_name' => 'Famille Rakoto',
+            'client_phone' => '0341000099',
+            'customer_phone' => '0341000099',
+            'customer_email' => 'famille@example.com',
+            'booking_reference' => 'BR-' . uniqid(),
+            'booking_type' => 'individual',
+            'billing_mode' => 'grouped',
+            'source' => 'Appel',
+            'check_in_date' => '2026-06-20',
+            'check_out_date' => '2026-06-22',
+            'status' => 'en_attente',
+            'payment_status' => 'unbilled',
+            'extra_beds' => 0,
+            'extra_mattresses' => 0,
+        ]);
+
+        $reservation->rooms()->attach($room1->id, [
+            'price_snapshot_ariary' => 110000,
+        ]);
+        $reservation->rooms()->attach($room2->id, [
+            'price_snapshot_ariary' => 110000,
+        ]);
+
+        $response = $this->postJson("/api/reservations/{$reservation->id}/checkin", [
+            'full_name' => 'Famille Rakoto',
+            'first_name' => 'Famille',
+            'last_name' => 'Rakoto',
+            'customer_phone' => '0341000099',
+            'phone_number' => '0341000099',
+            'date_of_birth' => '1984-04-04',
+            'sex' => 'Femme',
+            'id_type' => 'CIN',
+            'id_number' => 'CIN-ONE-ROOMS-001',
+            'id_document_number' => 'CIN-ONE-ROOMS-001',
+            'checked_in_by_name' => 'Reception Test',
+            'checked_in_by_role' => 'receptionist',
+        ]);
+
+        $response->assertOk();
+
+        $reservation->refresh()->load('rooms');
+        foreach ($reservation->rooms as $room) {
+            $this->assertSame('Famille Rakoto', $room->pivot->occupant_name);
+            $this->assertSame('CIN-ONE-ROOMS-001', $room->pivot->occupant_id_number);
+        }
     }
 
     private function createReservation(int $userId): int

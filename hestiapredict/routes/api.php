@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\HotelManagementController;
 use App\Http\Controllers\ClientController;
+use App\Http\Controllers\OrganizationController;
 use App\Http\Controllers\PMSController;
 use Illuminate\Support\Facades\Route;
 
@@ -17,6 +18,7 @@ Route::middleware('throttle:120,1')->group(function () {
     Route::get('/reservations/all', [HotelManagementController::class, 'getAllReservations']);
     Route::get('/active-reservations', [HotelManagementController::class, 'getActiveReservations']);
     Route::get('/clients/search', [ClientController::class, 'search']);
+    Route::get('/organizations/search', [OrganizationController::class, 'search']);
     Route::get('/reservations/{id}/folio', [PMSController::class, 'getFolio']);
     Route::get('/invoices/{id}/pdf', [PMSController::class, 'downloadPdf']);
     Route::get('/users', [HotelManagementController::class, 'getUsers']);

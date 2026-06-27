@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
@@ -31,6 +33,7 @@ class _CheckInPageState extends State<CheckInPage> {
   final _lastNameController = TextEditingController();
   final _contactController = TextEditingController();
   final _idNumberController = TextEditingController();
+  final List<_RoomOccupantDraft> _roomOccupants = [];
 
   DateTime? _dateOfBirth;
   DateTime? _passportValidFrom;
@@ -50,16 +53,117 @@ class _CheckInPageState extends State<CheckInPage> {
     _firstNameController.text = split.$1;
     _lastNameController.text = split.$2;
     _contactController.text = widget.reservation.phone;
+    _initRoomOccupants();
     _hydrateClient();
   }
 
   @override
   void dispose() {
+    for (final draft in _roomOccupants) {
+      draft.dispose();
+    }
     _firstNameController.dispose();
     _lastNameController.dispose();
     _contactController.dispose();
     _idNumberController.dispose();
     super.dispose();
+  }
+
+  bool get _isOrganizationReservation =>
+      widget.reservation.bookingType.trim().toLowerCase() == 'organization';
+
+  bool get _needsRoomOccupants => _isOrganizationReservation;
+
+  void _initRoomOccupants() {
+    _roomOccupants.clear();
+
+    if (!_isOrganizationReservation) return;
+
+    final roomDetails = widget.reservation.roomDetails.isNotEmpty
+        ? widget.reservation.roomDetails
+        : widget.reservation.roomIds
+              .map(
+                (roomId) => <String, dynamic>{
+                  'room_id': roomId,
+                  'room_number': roomId.toString(),
+                  'type': '',
+                  'model': '',
+                },
+              )
+              .toList();
+
+    for (var index = 0; index < roomDetails.length; index++) {
+      final room = roomDetails[index];
+      final roomLabel = _roomLabel(room);
+      final occupant = _RoomOccupantDraft(
+        roomId: _asInt(room['room_id'] ?? room['id']),
+        roomLabel: roomLabel,
+      );
+
+      final defaultName = _isOrganizationReservation
+          ? widget.reservation.clientName
+          : (index == 0 ? _fullName : '');
+      occupant.nameController.text = (room['occupant_name'] ?? defaultName)
+          .toString()
+          .trim();
+      occupant.phoneController.text =
+          (room['occupant_phone'] ?? _contactController.text).toString().trim();
+      occupant.emailController.text = (room['occupant_email'] ?? '')
+          .toString()
+          .trim();
+      occupant.idType = (room['occupant_id_type'] ?? 'CIN').toString();
+      occupant.idNumberController.text =
+          (room['occupant_id_number'] ?? _idNumberController.text)
+              .toString()
+              .trim();
+      occupant.sex = (room['occupant_sex'] ?? _sex).toString();
+      occupant.dateOfBirth =
+          _parseIsoDate(room['occupant_date_of_birth']) ?? _dateOfBirth;
+
+      _roomOccupants.add(occupant);
+    }
+  }
+
+  String _roomLabel(Map<String, dynamic> room) {
+    final roomNumber = (room['room_number'] ?? room['number'] ?? room['id'])
+        .toString()
+        .trim();
+    final type = (room['type'] ?? room['model'] ?? '').toString().trim();
+    if (roomNumber.isEmpty) return type;
+    if (type.isEmpty) return roomNumber;
+    return '$roomNumber - $type';
+  }
+
+  DateTime? _parseIsoDate(dynamic value) {
+    final text = value?.toString().trim();
+    if (text == null || text.isEmpty || text == 'null') return null;
+    return DateTime.tryParse(text);
+  }
+
+  int _asInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  List<Map<String, dynamic>> _roomCheckinsPayload() {
+    return _roomOccupants.map((draft) {
+      return {
+        'room_id': draft.roomId,
+        'occupant_name': draft.nameController.text.trim(),
+        'occupant_phone': draft.phoneController.text.trim(),
+        'occupant_email': draft.emailController.text.trim().isEmpty
+            ? null
+            : draft.emailController.text.trim(),
+        'occupant_date_of_birth': draft.dateOfBirth
+            ?.toIso8601String()
+            .split('T')
+            .first,
+        'occupant_sex': draft.sex,
+        'occupant_id_type': draft.idType,
+        'occupant_id_number': draft.idNumberController.text.trim(),
+      };
+    }).toList();
   }
 
   Future<void> _hydrateClient() async {
@@ -82,6 +186,8 @@ class _CheckInPageState extends State<CheckInPage> {
   }
 
   Future<void> _prefillMissingClientData() async {
+    if (_isOrganizationReservation) return;
+
     final needsClientLookup =
         _dateOfBirth == null ||
         _idNumberController.text.trim().isEmpty ||
@@ -179,6 +285,21 @@ class _CheckInPageState extends State<CheckInPage> {
     });
   }
 
+  void _applyOccupantClient(_RoomOccupantDraft draft, ClientProfile client) {
+    setState(() {
+      draft.nameController.text = client.displayName;
+      draft.phoneController.text = client.phoneNumber?.trim() ?? '';
+      draft.emailController.text = '';
+      draft.idNumberController.text = client.displayDocumentNumber;
+      if (client.dateOfBirth != null) {
+        draft.dateOfBirth = client.dateOfBirth;
+      }
+      if (client.sex?.trim().isNotEmpty == true) {
+        draft.sex = client.sex!.trim();
+      }
+    });
+  }
+
   (String, String) _splitName(String rawName) {
     final normalized = rawName.trim().replaceAll(RegExp(r'\s+'), ' ');
     if (normalized.isEmpty) return ('', '');
@@ -230,7 +351,7 @@ class _CheckInPageState extends State<CheckInPage> {
     await _prefillMissingClientData();
 
     if (!_formKey.currentState!.validate()) return;
-    if (_dateOfBirth == null) {
+    if (!_isOrganizationReservation && _dateOfBirth == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -241,7 +362,8 @@ class _CheckInPageState extends State<CheckInPage> {
       return;
     }
 
-    if (_idType == 'Passeport' &&
+    if (!_isOrganizationReservation &&
+        _idType == 'Passeport' &&
         (_passportValidFrom == null || _passportValidUntil == null)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -251,7 +373,8 @@ class _CheckInPageState extends State<CheckInPage> {
       return;
     }
 
-    if (_idType == 'Passeport' &&
+    if (!_isOrganizationReservation &&
+        _idType == 'Passeport' &&
         _passportValidFrom != null &&
         _passportValidUntil != null &&
         _passportValidFrom!.isAfter(_passportValidUntil!)) {
@@ -265,15 +388,67 @@ class _CheckInPageState extends State<CheckInPage> {
       return;
     }
 
-    final fullName = _fullName;
-    if (fullName.isEmpty) {
+    if (_isOrganizationReservation && _roomOccupants.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Veuillez renseigner le prénom et le nom'),
+          content: Text('Veuillez renseigner les occupants des chambres'),
         ),
       );
       return;
     }
+
+    final mainOccupant = _isOrganizationReservation && _roomOccupants.isNotEmpty
+        ? _roomOccupants.first
+        : null;
+    final fullName = _isOrganizationReservation
+        ? (mainOccupant?.nameController.text.trim() ??
+            widget.reservation.clientName.trim())
+        : _fullName;
+    if (fullName.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Veuillez renseigner le nom de l’occupant principal'),
+        ),
+      );
+      return;
+    }
+
+    final dateOfBirth = _isOrganizationReservation
+        ? mainOccupant?.dateOfBirth
+        : _dateOfBirth;
+    if (_isOrganizationReservation && dateOfBirth == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Veuillez renseigner la date de naissance de l’occupant principal',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final idNumber = _isOrganizationReservation
+        ? mainOccupant?.idNumberController.text.trim() ?? ''
+        : _idNumberController.text.trim();
+    if (_isOrganizationReservation && idNumber.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Veuillez renseigner la pièce de l’occupant principal'),
+        ),
+      );
+      return;
+    }
+
+    final contactPhone = _isOrganizationReservation
+        ? mainOccupant?.phoneController.text.trim() ?? _contactController.text.trim()
+        : _contactController.text.trim();
+    final contactEmail = _isOrganizationReservation
+        ? mainOccupant?.emailController.text.trim() ?? ''
+        : '';
+    final sex = _isOrganizationReservation ? mainOccupant?.sex ?? _sex : _sex;
+    final idType = _isOrganizationReservation
+        ? mainOccupant?.idType ?? _idType
+        : _idType;
 
     setState(() => _isLoading = true);
 
@@ -286,19 +461,29 @@ class _CheckInPageState extends State<CheckInPage> {
       request.headers['Accept'] = 'application/json';
 
       request.fields['full_name'] = fullName;
-      request.fields['first_name'] = _firstNameController.text.trim();
-      request.fields['last_name'] = _lastNameController.text.trim();
-      request.fields['customer_phone'] = _contactController.text.trim();
-      request.fields['phone_number'] = _contactController.text.trim();
+      request.fields['first_name'] = _isOrganizationReservation
+          ? fullName
+          : _firstNameController.text.trim();
+      request.fields['last_name'] = _isOrganizationReservation
+          ? ''
+          : _lastNameController.text.trim();
+      request.fields['customer_phone'] = contactPhone;
+      request.fields['phone_number'] = contactPhone;
+      if (_isOrganizationReservation && contactEmail.isNotEmpty) {
+        request.fields['customer_email'] = contactEmail;
+      }
       if (_selectedClient != null) {
         request.fields['loyalty_count'] = _selectedClient!.loyaltyCount
             .toString();
       }
-      request.fields['date_of_birth'] = _dateOfBirth!.toIso8601String().split(
+      request.fields['date_of_birth'] = dateOfBirth!.toIso8601String().split(
         'T',
       )[0];
-      request.fields['sex'] = _sex;
-      if (_idType == 'Passeport') {
+      request.fields['sex'] = sex;
+      if (idType == 'Passeport' &&
+          !_isOrganizationReservation &&
+          _passportValidFrom != null &&
+          _passportValidUntil != null) {
         request.fields['passport_valid_from'] = _passportValidFrom!
             .toIso8601String()
             .split('T')[0];
@@ -306,11 +491,14 @@ class _CheckInPageState extends State<CheckInPage> {
             .toIso8601String()
             .split('T')[0];
       }
-      request.fields['id_type'] = _idType;
-      request.fields['id_number'] = _idNumberController.text.trim();
-      request.fields['id_document_number'] = _idNumberController.text.trim();
+      request.fields['id_type'] = idType;
+      request.fields['id_number'] = idNumber;
+      request.fields['id_document_number'] = idNumber;
       request.fields['checked_in_by_name'] = widget.userName;
       request.fields['checked_in_by_role'] = widget.role;
+      if (_needsRoomOccupants) {
+        request.fields['room_checkins'] = jsonEncode(_roomCheckinsPayload());
+      }
 
       final streamedResponse = await request.send().timeout(
         const Duration(seconds: 8),
@@ -334,6 +522,127 @@ class _CheckInPageState extends State<CheckInPage> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  Widget _buildRoomOccupantCard(_RoomOccupantDraft draft, int index) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Chambre ${index + 1} - ${draft.roomLabel}',
+              style: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 12),
+            ClientAutocompleteField(
+              controller: draft.nameController,
+              labelText: 'Nom de l’occupant',
+              prefixIcon: Icons.person_outline,
+              keyboardType: TextInputType.name,
+              textInputAction: TextInputAction.next,
+              valueBuilder: (client) => client.displayName,
+              onSelected: (client) => _applyOccupantClient(draft, client),
+              showLoyalty: widget.role != 'receptionist',
+              validator: (value) {
+                if (!_needsRoomOccupants) return null;
+                return value == null || value.trim().isEmpty
+                    ? 'L’occupant de cette chambre est requis'
+                    : null;
+              },
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: draft.phoneController,
+              decoration: const InputDecoration(
+                labelText: 'Téléphone',
+                prefixIcon: Icon(Icons.phone),
+              ),
+              keyboardType: TextInputType.phone,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: draft.emailController,
+              decoration: const InputDecoration(
+                labelText: 'Email',
+                prefixIcon: Icon(Icons.mail_outline),
+              ),
+              keyboardType: TextInputType.emailAddress,
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              initialValue: draft.sex,
+              decoration: const InputDecoration(
+                labelText: 'Sexe',
+                border: OutlineInputBorder(),
+              ),
+              items: _sexes
+                  .map((sex) => DropdownMenuItem(value: sex, child: Text(sex)))
+                  .toList(),
+              onChanged: (value) {
+                if (value != null) {
+                  setState(() => draft.sex = value);
+                }
+              },
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              initialValue: draft.idType,
+              decoration: const InputDecoration(
+                labelText: 'Type de pièce d\'identité',
+                border: OutlineInputBorder(),
+              ),
+              items: _idTypes
+                  .map(
+                    (type) => DropdownMenuItem(value: type, child: Text(type)),
+                  )
+                  .toList(),
+              onChanged: (value) {
+                if (value != null) {
+                  setState(() => draft.idType = value);
+                }
+              },
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: draft.idNumberController,
+              decoration: const InputDecoration(
+                labelText: 'Numéro de pièce',
+                prefixIcon: Icon(Icons.badge_outlined),
+              ),
+              validator: (value) {
+                if (!_needsRoomOccupants) return null;
+                return value == null || value.trim().isEmpty
+                    ? 'Le numéro de pièce est requis'
+                    : null;
+              },
+            ),
+            const SizedBox(height: 12),
+            ListTile(
+              title: Text(
+                draft.dateOfBirth == null
+                    ? 'Sélectionner la date de naissance'
+                    : 'Date de naissance : ${draft.dateOfBirth!.toIso8601String().split('T')[0]}',
+              ),
+              trailing: const Icon(Icons.calendar_month),
+              onTap: () async {
+                final picked = await showDatePicker(
+                  context: context,
+                  initialDate: draft.dateOfBirth ?? DateTime(2000),
+                  firstDate: DateTime(1900),
+                  lastDate: DateTime.now(),
+                );
+                if (picked != null) {
+                  setState(() => draft.dateOfBirth = picked);
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _loyaltyBanner() {
@@ -381,186 +690,203 @@ class _CheckInPageState extends State<CheckInPage> {
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: 16),
-              ClientAutocompleteField(
-                controller: _firstNameController,
-                labelText: 'Prénom',
-                prefixIcon: Icons.person_outline,
-                keyboardType: TextInputType.name,
-                textInputAction: TextInputAction.next,
-                validator: (val) => val == null || val.trim().isEmpty
-                    ? 'Le prénom est requis'
-                    : null,
-                valueBuilder: (client) {
-                  final split = _splitName(client.displayName);
-                  return client.firstName?.trim().isNotEmpty == true
-                      ? client.firstName!.trim()
-                      : split.$1;
-                },
-                onSelected: _applyClient,
-                showLoyalty: widget.role != 'receptionist',
-              ),
-              const SizedBox(height: 16),
-              ClientAutocompleteField(
-                controller: _lastNameController,
-                labelText: 'Nom',
-                prefixIcon: Icons.badge_outlined,
-                keyboardType: TextInputType.name,
-                textInputAction: TextInputAction.next,
-                validator: (val) => val == null || val.trim().isEmpty
-                    ? 'Le nom est requis'
-                    : null,
-                valueBuilder: (client) {
-                  final split = _splitName(client.displayName);
-                  return client.lastName?.trim().isNotEmpty == true
-                      ? client.lastName!.trim()
-                      : split.$2;
-                },
-                onSelected: _applyClient,
-                showLoyalty: widget.role != 'receptionist',
-              ),
-              const SizedBox(height: 16),
-              ClientAutocompleteField(
-                controller: _contactController,
-                labelText: 'Téléphone',
-                prefixIcon: Icons.phone,
-                keyboardType: TextInputType.phone,
-                textInputAction: TextInputAction.next,
-                valueBuilder: (client) => client.phoneNumber?.trim() ?? '',
-                onSelected: _applyClient,
-                showLoyalty: widget.role != 'receptionist',
-              ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                initialValue: _sex,
-                decoration: const InputDecoration(
-                  labelText: 'Sexe',
-                  border: OutlineInputBorder(),
+              if (!_isOrganizationReservation) ...[
+                ClientAutocompleteField(
+                  controller: _firstNameController,
+                  labelText: 'Prénom',
+                  prefixIcon: Icons.person_outline,
+                  keyboardType: TextInputType.name,
+                  textInputAction: TextInputAction.next,
+                  validator: (val) => val == null || val.trim().isEmpty
+                      ? 'Le prénom est requis'
+                      : null,
+                  valueBuilder: (client) {
+                    final split = _splitName(client.displayName);
+                    return client.firstName?.trim().isNotEmpty == true
+                        ? client.firstName!.trim()
+                        : split.$1;
+                  },
+                  onSelected: _applyClient,
+                  showLoyalty: widget.role != 'receptionist',
                 ),
-                items: _sexes
-                    .map(
-                      (sex) => DropdownMenuItem(value: sex, child: Text(sex)),
-                    )
-                    .toList(),
-                validator: (val) => val == null || val.trim().isEmpty
-                    ? 'Le sexe est requis'
-                    : null,
-                onChanged: (val) {
-                  if (val != null) {
-                    setState(() => _sex = val);
-                  }
-                },
-              ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                initialValue: _idType,
-                decoration: const InputDecoration(
-                  labelText: 'Type de Pièce d\'Identité',
-                  border: OutlineInputBorder(),
-                ),
-                items: _idTypes
-                    .map(
-                      (type) =>
-                          DropdownMenuItem(value: type, child: Text(type)),
-                    )
-                    .toList(),
-                onChanged: (val) {
-                  if (val == null) return;
-                  setState(() {
-                    _idType = val;
-                    if (_idType != 'Passeport') {
-                      _passportValidFrom = null;
-                      _passportValidUntil = null;
-                    } else if (_selectedClient?.passportValidFrom != null ||
-                        _selectedClient?.passportValidUntil != null) {
-                      _passportValidFrom = _selectedClient!.passportValidFrom;
-                      _passportValidUntil = _selectedClient!.passportValidUntil;
-                    }
-                  });
-                },
-              ),
-              const SizedBox(height: 24),
-              ClientAutocompleteField(
-                controller: _idNumberController,
-                labelText: 'Numéro de pièce d\'identité',
-                prefixIcon: Icons.badge,
-                keyboardType: TextInputType.text,
-                textInputAction: TextInputAction.next,
-                validator: (val) => val == null || val.trim().isEmpty
-                    ? 'Le numéro est requis'
-                    : null,
-                valueBuilder: (client) => client.displayDocumentNumber,
-                onSelected: _applyClient,
-                showLoyalty: widget.role != 'receptionist',
-              ),
-              const SizedBox(height: 16),
-              if (widget.role != 'receptionist') ...[
-                _loyaltyBanner(),
                 const SizedBox(height: 16),
-              ],
-              ListTile(
-                title: Text(
-                  _dateOfBirth == null
-                      ? 'Sélectionner la date de naissance'
-                      : 'Date de naissance : ${_dateOfBirth!.toIso8601String().split('T')[0]}',
+                ClientAutocompleteField(
+                  controller: _lastNameController,
+                  labelText: 'Nom',
+                  prefixIcon: Icons.badge_outlined,
+                  keyboardType: TextInputType.name,
+                  textInputAction: TextInputAction.next,
+                  validator: (val) => val == null || val.trim().isEmpty
+                      ? 'Le nom est requis'
+                      : null,
+                  valueBuilder: (client) {
+                    final split = _splitName(client.displayName);
+                    return client.lastName?.trim().isNotEmpty == true
+                        ? client.lastName!.trim()
+                        : split.$2;
+                  },
+                  onSelected: _applyClient,
+                  showLoyalty: widget.role != 'receptionist',
                 ),
-                trailing: const Icon(Icons.calendar_today),
-                shape: RoundedRectangleBorder(
-                  side: const BorderSide(color: Colors.grey),
-                  borderRadius: BorderRadius.circular(4),
+                const SizedBox(height: 16),
+                ClientAutocompleteField(
+                  controller: _contactController,
+                  labelText: 'Téléphone',
+                  prefixIcon: Icons.phone,
+                  keyboardType: TextInputType.phone,
+                  textInputAction: TextInputAction.next,
+                  valueBuilder: (client) => client.phoneNumber?.trim() ?? '',
+                  onSelected: _applyClient,
+                  showLoyalty: widget.role != 'receptionist',
                 ),
-                onTap: _selectDate,
-              ),
-              const SizedBox(height: 16),
-              if (_idType == 'Passeport') ...[
-                ListTile(
-                  title: Text(
-                    _passportValidFrom == null
-                        ? 'Sélectionner la date de début du passeport'
-                        : 'Passeport valable du : ${_passportValidFrom!.toIso8601String().split('T')[0]}',
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  initialValue: _sex,
+                  decoration: const InputDecoration(
+                    labelText: 'Sexe',
+                    border: OutlineInputBorder(),
                   ),
-                  trailing: const Icon(Icons.badge_outlined),
-                  shape: RoundedRectangleBorder(
-                    side: const BorderSide(color: Colors.grey),
-                    borderRadius: BorderRadius.circular(4),
+                  items: _sexes
+                      .map(
+                        (sex) => DropdownMenuItem(value: sex, child: Text(sex)),
+                      )
+                      .toList(),
+                  validator: (val) => val == null || val.trim().isEmpty
+                      ? 'Le sexe est requis'
+                      : null,
+                  onChanged: (val) {
+                    if (val != null) {
+                      setState(() => _sex = val);
+                    }
+                  },
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  initialValue: _idType,
+                  decoration: const InputDecoration(
+                    labelText: 'Type de Pièce d\'Identité',
+                    border: OutlineInputBorder(),
                   ),
-                  onTap: () async {
-                    final initial =
-                        _passportValidFrom ??
-                        _passportValidUntil ??
-                        DateTime.now();
-                    final picked = await showDatePicker(
-                      context: context,
-                      initialDate: initial,
-                      firstDate: DateTime(1900),
-                      lastDate: DateTime(2050),
-                    );
-                    if (picked == null) return;
+                  items: _idTypes
+                      .map(
+                        (type) =>
+                            DropdownMenuItem(value: type, child: Text(type)),
+                      )
+                      .toList(),
+                  onChanged: (val) {
+                    if (val == null) return;
                     setState(() {
-                      _passportValidFrom = picked;
-                      if (_passportValidUntil != null &&
-                          _passportValidUntil!.isBefore(picked)) {
-                        _passportValidUntil = picked;
+                      _idType = val;
+                      if (_idType != 'Passeport') {
+                        _passportValidFrom = null;
+                        _passportValidUntil = null;
+                      } else if (_selectedClient?.passportValidFrom != null ||
+                          _selectedClient?.passportValidUntil != null) {
+                        _passportValidFrom = _selectedClient!.passportValidFrom;
+                        _passportValidUntil =
+                            _selectedClient!.passportValidUntil;
                       }
                     });
                   },
                 ),
+                const SizedBox(height: 24),
+                ClientAutocompleteField(
+                  controller: _idNumberController,
+                  labelText: 'Numéro de pièce d\'identité',
+                  prefixIcon: Icons.badge,
+                  keyboardType: TextInputType.text,
+                  textInputAction: TextInputAction.next,
+                  validator: (val) => val == null || val.trim().isEmpty
+                      ? 'Le numéro est requis'
+                      : null,
+                  valueBuilder: (client) => client.displayDocumentNumber,
+                  onSelected: _applyClient,
+                  showLoyalty: widget.role != 'receptionist',
+                ),
                 const SizedBox(height: 16),
+                if (widget.role != 'receptionist') ...[
+                  _loyaltyBanner(),
+                  const SizedBox(height: 16),
+                ],
                 ListTile(
                   title: Text(
-                    _passportValidUntil == null
-                        ? 'Sélectionner la date de fin du passeport'
-                        : 'Passeport valable au : ${_passportValidUntil!.toIso8601String().split('T')[0]}',
+                    _dateOfBirth == null
+                        ? 'Sélectionner la date de naissance'
+                        : 'Date de naissance : ${_dateOfBirth!.toIso8601String().split('T')[0]}',
                   ),
-                  trailing: const Icon(Icons.event_available_outlined),
+                  trailing: const Icon(Icons.calendar_today),
                   shape: RoundedRectangleBorder(
                     side: const BorderSide(color: Colors.grey),
                     borderRadius: BorderRadius.circular(4),
                   ),
-                  onTap: _selectPassportValidity,
+                  onTap: _selectDate,
                 ),
                 const SizedBox(height: 16),
-              ],
-              if (_dateOfBirth != null)
+                if (_idType == 'Passeport') ...[
+                  ListTile(
+                    title: Text(
+                      _passportValidFrom == null
+                          ? 'Sélectionner la date de début du passeport'
+                          : 'Passeport valable du : ${_passportValidFrom!.toIso8601String().split('T')[0]}',
+                    ),
+                    trailing: const Icon(Icons.badge_outlined),
+                    shape: RoundedRectangleBorder(
+                      side: const BorderSide(color: Colors.grey),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    onTap: () async {
+                      final initial =
+                          _passportValidFrom ??
+                          _passportValidUntil ??
+                          DateTime.now();
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: initial,
+                        firstDate: DateTime(1900),
+                        lastDate: DateTime(2050),
+                      );
+                      if (picked == null) return;
+                      setState(() {
+                        _passportValidFrom = picked;
+                        if (_passportValidUntil != null &&
+                            _passportValidUntil!.isBefore(picked)) {
+                          _passportValidUntil = picked;
+                        }
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  ListTile(
+                    title: Text(
+                      _passportValidUntil == null
+                          ? 'Sélectionner la date de fin du passeport'
+                          : 'Passeport valable au : ${_passportValidUntil!.toIso8601String().split('T')[0]}',
+                    ),
+                    trailing: const Icon(Icons.event_available_outlined),
+                    shape: RoundedRectangleBorder(
+                      side: const BorderSide(color: Colors.grey),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    onTap: _selectPassportValidity,
+                  ),
+                  const SizedBox(height: 16),
+                ],
+                if (_dateOfBirth != null)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: Text(
+                      'Date de naissance auto-remplie : ${_dateOfBirth!.toIso8601String().split('T')[0]}',
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                if (_dateOfBirth != null) const SizedBox(height: 12),
+              ] else ...[
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(14),
@@ -569,12 +895,24 @@ class _CheckInPageState extends State<CheckInPage> {
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: const Color(0xFFE2E8F0)),
                   ),
-                  child: Text(
-                    'Date de naissance auto-remplie : ${_dateOfBirth!.toIso8601String().split('T')[0]}',
-                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  child: const Text(
+                    'Renseigne les occupants dans chaque chambre. L’identité principale sera prise sur la première chambre.',
+                    style: TextStyle(fontWeight: FontWeight.w700),
                   ),
                 ),
-              if (_dateOfBirth != null) const SizedBox(height: 12),
+                const SizedBox(height: 16),
+              ],
+              if (_needsRoomOccupants) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Occupants par chambre',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 12),
+                ..._roomOccupants.asMap().entries.map(
+                  (entry) => _buildRoomOccupantCard(entry.value, entry.key),
+                ),
+              ],
               const SizedBox(height: 32),
               ElevatedButton(
                 onPressed: _isLoading ? null : _submit,
@@ -590,5 +928,26 @@ class _CheckInPageState extends State<CheckInPage> {
         ),
       ),
     );
+  }
+}
+
+class _RoomOccupantDraft {
+  _RoomOccupantDraft({required this.roomId, required this.roomLabel});
+
+  final int roomId;
+  final String roomLabel;
+  final TextEditingController nameController = TextEditingController();
+  final TextEditingController phoneController = TextEditingController();
+  final TextEditingController emailController = TextEditingController();
+  final TextEditingController idNumberController = TextEditingController();
+  DateTime? dateOfBirth;
+  String sex = 'Homme';
+  String idType = 'CIN';
+
+  void dispose() {
+    nameController.dispose();
+    phoneController.dispose();
+    emailController.dispose();
+    idNumberController.dispose();
   }
 }

@@ -10,12 +10,14 @@ import 'package:url_launcher/url_launcher.dart';
 import 'core/app_config.dart';
 import 'core/formatters.dart';
 import 'models/client_profile.dart';
+import 'models/organization_profile.dart';
 import 'models/app_user.dart';
 import 'screens/admin_users_page.dart';
 import 'screens/reservations_list_page.dart';
 import 'services/session_service.dart';
 import 'widgets/availability_card.dart';
 import 'widgets/client_autocomplete_field.dart';
+import 'widgets/organization_autocomplete_field.dart';
 
 const String baseUrl = AppConfig.apiBaseUrl;
 const Color _primary = Color(0xFF0F766E);
@@ -1571,15 +1573,27 @@ class _NewBookingPageState extends State<NewBookingPage> {
   bool _loadingRooms = false;
   bool _savingBooking = false;
   bool _isBookingCom = false;
+  bool _isOrganizationBooking = false;
   ClientProfile? _selectedClient;
+  OrganizationProfile? _selectedOrganization;
   bool _suppressSelectedClientReset = false;
+  final _organizationContactNameController = TextEditingController();
+  final _organizationContactPhoneController = TextEditingController();
+  final _organizationEmailController = TextEditingController();
+  final _organizationBillingAddressController = TextEditingController();
+  final _organizationNifController = TextEditingController();
+  final _organizationStatController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _nameController.addListener(_handleClientTextChanged);
     _phoneController.addListener(_handleClientTextChanged);
-    _fetchData();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _showReservationTypeDialog();
+      }
+    });
   }
 
   @override
@@ -1589,11 +1603,81 @@ class _NewBookingPageState extends State<NewBookingPage> {
     _nameController.dispose();
     _phoneController.dispose();
     _emailController.dispose();
+    _organizationContactNameController.dispose();
+    _organizationContactPhoneController.dispose();
+    _organizationEmailController.dispose();
+    _organizationBillingAddressController.dispose();
+    _organizationNifController.dispose();
+    _organizationStatController.dispose();
     super.dispose();
   }
 
   String _clientName() {
     return _nameController.text.trim();
+  }
+
+  String get _reservationNameLabel =>
+      _isOrganizationBooking ? 'Nom de l’organisme' : 'Nom du client';
+
+  Future<void> _showReservationTypeDialog() async {
+    if (_selectedClient != null || _selectedOrganization != null) return;
+
+    String choice = 'individual';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Type de réservation'),
+        content: const Text(
+          'Choisis si cette nouvelle réservation concerne un particulier ou un organisme.',
+        ),
+        actions: [
+          StatefulBuilder(
+            builder: (context, setDialogState) => Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                RadioListTile<String>(
+                  title: const Text('Particulier'),
+                  value: 'individual',
+                  groupValue: choice,
+                  onChanged: (value) {
+                    if (value != null) {
+                      setDialogState(() => choice = value);
+                    }
+                  },
+                ),
+                RadioListTile<String>(
+                  title: const Text('Organisme'),
+                  value: 'organization',
+                  groupValue: choice,
+                  onChanged: (value) {
+                    if (value != null) {
+                      setDialogState(() => choice = value);
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Valider'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted || confirmed != true) return;
+    setState(() {
+      _isOrganizationBooking = choice == 'organization';
+      _selectedClient = null;
+      _selectedOrganization = null;
+    });
+    await _fetchData();
   }
 
   void _applyClient(ClientProfile client) {
@@ -1607,13 +1691,42 @@ class _NewBookingPageState extends State<NewBookingPage> {
     _warnIfClientAlreadyBooked(client);
   }
 
+  void _applyOrganization(OrganizationProfile organization) {
+    setState(() {
+      _selectedOrganization = organization;
+      _nameController.text = organization.name;
+      _organizationContactNameController.text =
+          organization.contactName?.trim() ?? '';
+      _organizationContactPhoneController.text =
+          organization.phone?.trim() ?? '';
+      _organizationEmailController.text = organization.email?.trim() ?? '';
+      _organizationBillingAddressController.text =
+          organization.billingAddress?.trim() ?? '';
+      _organizationNifController.text = organization.nif?.trim() ?? '';
+      _organizationStatController.text = organization.stat?.trim() ?? '';
+      _emailController.text =
+          organization.contactEmail?.trim().isNotEmpty == true
+          ? organization.contactEmail!.trim()
+          : (organization.email?.trim() ?? '');
+    });
+  }
+
   void _handleClientTextChanged() {
     if (_suppressSelectedClientReset) return;
     final selected = _selectedClient;
-    if (selected == null) return;
+    final selectedOrganization = _selectedOrganization;
+    if (selected == null && selectedOrganization == null) return;
 
     final currentName = _nameController.text.trim();
     final currentPhone = _phoneController.text.trim();
+    if (selectedOrganization != null &&
+        (_isOrganizationBooking &&
+            currentName != selectedOrganization.name.trim())) {
+      setState(() => _selectedOrganization = null);
+    }
+
+    if (selected == null) return;
+
     final selectedName = selected.displayName.trim();
     final selectedPhone = selected.phoneNumber?.trim() ?? '';
 
@@ -1783,6 +1896,11 @@ class _NewBookingPageState extends State<NewBookingPage> {
   Future<void> _saveBooking() async {
     if (_savingBooking) return;
 
+    final effectivePhone = _isOrganizationBooking
+        ? _phoneController.text.trim()
+        : _phoneController.text.trim();
+    final effectiveEmail = _emailController.text.trim();
+
     if (_clientName().isEmpty || _selectedRooms.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -1794,8 +1912,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
       return;
     }
 
-    if (_phoneController.text.trim().isEmpty &&
-        _emailController.text.trim().isEmpty) {
+    if (effectivePhone.isEmpty && effectiveEmail.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -1818,9 +1935,36 @@ class _NewBookingPageState extends State<NewBookingPage> {
             headers: {'Content-Type': 'application/json'},
             body: json.encode({
               'client_name': _clientName(),
-              'customer_phone': _phoneController.text.trim(),
-              'customer_email': _emailController.text.trim(),
-              'phone_number': _phoneController.text.trim(),
+              'customer_phone': effectivePhone,
+              'customer_email': effectiveEmail,
+              'phone_number': effectivePhone,
+              'organization_name': _isOrganizationBooking
+                  ? _clientName()
+                  : null,
+              'organization_phone': _isOrganizationBooking
+                  ? _organizationContactPhoneController.text.trim()
+                  : null,
+              'organization_contact_name': _isOrganizationBooking
+                  ? _organizationContactNameController.text.trim()
+                  : null,
+              'organization_contact_phone': _isOrganizationBooking
+                  ? effectivePhone
+                  : null,
+              'organization_contact_email': _isOrganizationBooking
+                  ? _emailController.text.trim()
+                  : null,
+              'organization_email': _isOrganizationBooking
+                  ? _organizationEmailController.text.trim()
+                  : null,
+              'organization_billing_address': _isOrganizationBooking
+                  ? _organizationBillingAddressController.text.trim()
+                  : null,
+              'organization_nif': _isOrganizationBooking
+                  ? _organizationNifController.text.trim()
+                  : null,
+              'organization_stat': _isOrganizationBooking
+                  ? _organizationStatController.text.trim()
+                  : null,
               'check_in': _checkIn.toIso8601String().substring(0, 10),
               'check_out': _checkOut.toIso8601String().substring(0, 10),
               'room_ids': _selectedRooms.map((r) => r['id']).toList(),
@@ -1831,9 +1975,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
               'extra_mattresses': _extraMattresses,
               'source': _isBookingCom
                   ? 'Booking'
-                  : (_phoneController.text.trim().isNotEmpty
-                        ? 'Appel'
-                        : 'Mail'),
+                  : (effectivePhone.isNotEmpty ? 'Appel' : 'Mail'),
               'receptionist_name': widget.userName,
             }),
           )
@@ -1876,10 +2018,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
             ? 'La création a pris trop de temps. Vérifie si la réservation a bien été enregistrée avant de réessayer.'
             : 'Impossible de contacter le serveur.';
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(message),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text(message), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -2005,35 +2144,118 @@ class _NewBookingPageState extends State<NewBookingPage> {
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 children: [
-                  ClientAutocompleteField(
-                    controller: _nameController,
-                    labelText: 'Nom du client',
-                    prefixIcon: Icons.person_outline,
-                    keyboardType: TextInputType.name,
-                    textInputAction: TextInputAction.next,
-                    valueBuilder: (client) => client.displayName,
-                    onSelected: _applyClient,
-                    showLoyalty: widget.role != 'receptionist',
-                  ),
+                  if (_isOrganizationBooking)
+                    OrganizationAutocompleteField(
+                      controller: _nameController,
+                      labelText: 'Nom de l’organisme',
+                      prefixIcon: Icons.apartment_outlined,
+                      keyboardType: TextInputType.name,
+                      textInputAction: TextInputAction.next,
+                      onSelected: _applyOrganization,
+                    )
+                  else
+                    ClientAutocompleteField(
+                      controller: _nameController,
+                      labelText: _reservationNameLabel,
+                      prefixIcon: Icons.person_outline,
+                      keyboardType: TextInputType.name,
+                      textInputAction: TextInputAction.next,
+                      valueBuilder: (client) => client.displayName,
+                      onSelected: _applyClient,
+                      showLoyalty: widget.role != 'receptionist',
+                    ),
                   const SizedBox(height: 12),
-                  ClientAutocompleteField(
-                    controller: _phoneController,
-                    labelText: 'Téléphone',
-                    prefixIcon: Icons.phone,
-                    keyboardType: TextInputType.phone,
-                    textInputAction: TextInputAction.next,
-                    valueBuilder: (client) => client.phoneNumber?.trim() ?? '',
-                    onSelected: _applyClient,
-                    showLoyalty: widget.role != 'receptionist',
-                  ),
+                  if (_isOrganizationBooking) ...[
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _organizationContactNameController,
+                      decoration: const InputDecoration(
+                        labelText: 'Contact organisme',
+                        prefixIcon: Icon(Icons.badge_outlined),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _organizationEmailController,
+                      keyboardType: TextInputType.emailAddress,
+                      decoration: const InputDecoration(
+                        labelText: 'Email de l’organisme',
+                        prefixIcon: Icon(Icons.email_outlined),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _organizationContactPhoneController,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(
+                        labelText: 'Téléphone du siège',
+                        prefixIcon: Icon(Icons.business_outlined),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _organizationBillingAddressController,
+                      decoration: const InputDecoration(
+                        labelText: 'Adresse de facturation',
+                        prefixIcon: Icon(Icons.location_on_outlined),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _organizationNifController,
+                      decoration: const InputDecoration(
+                        labelText: 'NIF',
+                        prefixIcon: Icon(Icons.receipt_long_outlined),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _organizationStatController,
+                      decoration: const InputDecoration(
+                        labelText: 'STAT',
+                        prefixIcon: Icon(Icons.account_balance_outlined),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  if (_isOrganizationBooking)
+                    TextField(
+                      controller: _phoneController,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(
+                        labelText: 'Numéro de la personne à contacter',
+                        prefixIcon: Icon(Icons.phone),
+                        border: OutlineInputBorder(),
+                      ),
+                    )
+                  else
+                    ClientAutocompleteField(
+                      controller: _phoneController,
+                      labelText: 'Téléphone',
+                      prefixIcon: Icons.phone,
+                      keyboardType: TextInputType.phone,
+                      textInputAction: TextInputAction.next,
+                      valueBuilder: (client) =>
+                          client.phoneNumber?.trim() ?? '',
+                      onSelected: _applyClient,
+                      showLoyalty: widget.role != 'receptionist',
+                    ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: _emailController,
-                    keyboardType: TextInputType.text, // Format libre
-                    decoration: const InputDecoration(
-                      labelText: 'Email / Autre contact (Requis si pas de tel)',
-                      prefixIcon: Icon(Icons.contact_mail),
-                      border: OutlineInputBorder(),
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: InputDecoration(
+                      labelText: _isOrganizationBooking
+                          ? 'Email contact'
+                          : 'Email / Autre contact (Requis si pas de tel)',
+                      prefixIcon: const Icon(Icons.contact_mail),
+                      border: const OutlineInputBorder(),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -2056,20 +2278,22 @@ class _NewBookingPageState extends State<NewBookingPage> {
                     ),
                   if (_selectedClient != null && widget.role != 'receptionist')
                     const SizedBox(height: 12),
-                  SwitchListTile(
-                    activeThumbColor: _primary,
-                    title: const Text(
-                      'Réservation via Booking.com',
-                      style: TextStyle(fontWeight: FontWeight.bold),
+                  if (!_isOrganizationBooking)
+                    SwitchListTile(
+                      activeThumbColor: _primary,
+                      title: const Text(
+                        'Réservation via Booking.com',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      value: _isBookingCom,
+                      onChanged: (val) {
+                        setState(() {
+                          _isBookingCom = val;
+                          _selectedRooms
+                              .clear(); // Clear selection when toggling
+                        });
+                      },
                     ),
-                    value: _isBookingCom,
-                    onChanged: (val) {
-                      setState(() {
-                        _isBookingCom = val;
-                        _selectedRooms.clear(); // Clear selection when toggling
-                      });
-                    },
-                  ),
                   const Divider(),
                   ListTile(
                     title: Text(
@@ -2179,19 +2403,19 @@ class _NewBookingPageState extends State<NewBookingPage> {
                     ),
                   ),
                   const SizedBox(height: 20),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: _savingBooking ? null : _saveBooking,
-                        child: _savingBooking
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Text('Enregistrer la réservation'),
-                      ),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: _savingBooking ? null : _saveBooking,
+                      child: _savingBooking
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('Enregistrer la réservation'),
                     ),
+                  ),
                 ],
               ),
             ),
@@ -2275,14 +2499,15 @@ class _NewBookingPageState extends State<NewBookingPage> {
                                       fontWeight: FontWeight.w900,
                                     ),
                                   ),
-                                  Text(
-                                    'Prix ajusté (IA) : ${formatPrice(aiPrice)} Ar / nuit${isFixedPrice ? ' (non ajustable)' : ''}',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      color: _muted,
-                                      fontStyle: FontStyle.italic,
+                                  if (!_isOrganizationBooking)
+                                    Text(
+                                      'Prix ajusté (IA) : ${formatPrice(aiPrice)} Ar / nuit${isFixedPrice ? ' (non ajustable)' : ''}',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        color: _muted,
+                                        fontStyle: FontStyle.italic,
+                                      ),
                                     ),
-                                  ),
                                 ],
                               ),
                             ),
