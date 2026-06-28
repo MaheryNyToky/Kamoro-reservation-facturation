@@ -178,6 +178,31 @@ function Open-AppUrl {
     Start-Process $Url | Out-Null
 }
 
+function Stop-ExistingComposeStack {
+    param([string]$DockerExe)
+
+    Write-Log "Arret de l'ancienne pile Docker..."
+    $StopProcess = Start-Process -FilePath $DockerExe -ArgumentList @(
+        "compose",
+        "down",
+        "--remove-orphans"
+    ) -WorkingDirectory $ProjectRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $StdOutLog -RedirectStandardError $StdErrLog
+
+    if (-not $StopProcess.WaitForExit(5 * 60 * 1000)) {
+        try {
+            $StopProcess.Kill()
+        } catch {
+            # Ignore les erreurs de terminaison forcee.
+        }
+
+        throw "docker compose down n'a pas termine dans le delai imparti."
+    }
+
+    if ($StopProcess.ExitCode -ne 0) {
+        Write-Log "docker compose down a retourne le code $($StopProcess.ExitCode). On poursuit quand meme."
+    }
+}
+
 function Wait-ForAppPort {
     param(
         [int]$TimeoutSeconds = 120,
@@ -232,33 +257,16 @@ try {
     $OwnsMutex = $true
 
     if (Test-AppPortOpen) {
-        $DockerDetails = ""
-        if (Test-DockerEngineReady -DockerExe (Get-DockerExecutable) -Details ([ref]$DockerDetails)) {
-            Write-Log "L'application est deja disponible sur 127.0.0.1:8080 et Docker repond deja correctement. Ouverture directe."
-            Open-AppUrl -Url $AppUrl
-            return
-        }
-
-        if ($DockerDetails) {
-            Write-Log "L'application repond deja, mais Docker n'est pas stable: $DockerDetails"
-        } else {
-            Write-Log "L'application repond deja, mais Docker n'est pas stable."
-        }
+        Write-Log "Une instance repond deja sur 127.0.0.1:8080. Le lanceur va la remplacer par la version locale courante."
     }
 
-    Write-Log "Mise a jour du depot local..."
-    $gitUpdate = Invoke-GitPullWithTimeout -TimeoutSeconds 3
-    if ($gitUpdate.TimedOut) {
-        Write-Log "Timeout git apres 3 secondes. On continue avec le depot local courant."
-    } elseif ($gitUpdate.ExitCode -ne 0) {
-        Write-Log "Echec du git pull avec le code $($gitUpdate.ExitCode). On continue avec le depot local courant."
-    } else {
-        Write-Log "Depot local mis a jour depuis origin/main."
-    }
+    Write-Log "Utilisation du depot local courant. Aucune mise a jour Git automatique n'est effectuee par le lanceur."
 
     Write-Log "Attente de Docker Desktop..."
     $DockerExe = Get-DockerExecutable
     Wait-ForDocker
+
+    Stop-ExistingComposeStack -DockerExe $DockerExe
 
     Write-Log "Lancement de docker compose..."
     $ComposeProcess = Start-Process -FilePath $DockerExe -ArgumentList @(
@@ -268,6 +276,7 @@ try {
         "up",
         "-d",
         "--build",
+        "--force-recreate",
         "--remove-orphans"
     ) -WorkingDirectory $ProjectRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $StdOutLog -RedirectStandardError $StdErrLog
 

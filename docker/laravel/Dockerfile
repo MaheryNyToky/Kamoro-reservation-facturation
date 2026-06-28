@@ -28,4 +28,4 @@ RUN composer dump-autoload --optimize \
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "mkdir -p storage/logs storage/framework/cache storage/framework/sessions storage/framework/views bootstrap/cache && chmod -R 775 storage bootstrap/cache && php artisan package:discover --ansi && php artisan migrate --force && php artisan db:seed --force --class='Database\\Seeders\\KamoroHotelSeeder' && php artisan serve --host=0.0.0.0 --port=8000"]
+CMD ["sh", "-c", "mkdir -p storage/logs storage/framework/cache storage/framework/sessions storage/framework/views bootstrap/cache && chmod -R 775 storage bootstrap/cache && php artisan optimize:clear && php artisan package:discover --ansi && php artisan migrate --force && php artisan db:seed --force --class='Database\\Seeders\\KamoroHotelSeeder' && php artisan serve --host=0.0.0.0 --port=8000"]
