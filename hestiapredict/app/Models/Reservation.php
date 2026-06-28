@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 class Reservation extends Model
 {
     public const ACTIVE_STATUSES = ['en_attente', 'arrive'];
+    public const MANUAL_CHECKOUT_STATUS = 'check_out_manuel';
 
     protected $fillable = [
         'client_name',

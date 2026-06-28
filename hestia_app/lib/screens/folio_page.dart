@@ -38,6 +38,7 @@ class FolioPage extends StatefulWidget {
 }
 
 class _FolioPageState extends State<FolioPage> {
+  late Map<String, dynamic> _reservation;
   Map<String, dynamic>? _folio;
   bool _isLoading = true;
   bool _isBusy = false;
@@ -47,7 +48,9 @@ class _FolioPageState extends State<FolioPage> {
   int? _selectedInvoiceId;
   final Set<int> _selectedInvoiceIds = {};
 
-  int get _reservationId => _asInt(widget.reservation['id']);
+  Map<String, dynamic> get _reservationData => _reservation;
+
+  int get _reservationId => _asInt(_reservationData['id']);
   int get _invoiceId => _selectedInvoiceId ?? _asInt(_folio?['id']);
   bool get _isFinalized => _folio?['status'] == 'finalized';
   bool get _hasPdf => (_folio?['pdf_url'] ?? '').toString().isNotEmpty;
@@ -57,8 +60,8 @@ class _FolioPageState extends State<FolioPage> {
       _asInt(_folio?['payment_modification_count']);
   bool get _isBookingReservation {
     final folioFlag = _folio?['is_booking'];
-    final reservationFlag = widget.reservation['is_booking'];
-    final source = widget.reservation['source']?.toString();
+    final reservationFlag = _reservationData['is_booking'];
+    final source = _reservationData['source']?.toString();
 
     return folioFlag == true || reservationFlag == true || source == 'Booking';
   }
@@ -66,8 +69,8 @@ class _FolioPageState extends State<FolioPage> {
   bool get _isOrganizationReservation {
     final folioBookingType = _folio?['booking_type']?.toString();
     final reservationBookingType =
-        widget.reservation['booking_type']?.toString() ??
-        widget.reservation['bookingType']?.toString();
+        _reservationData['booking_type']?.toString() ??
+        _reservationData['bookingType']?.toString();
 
     return folioBookingType == 'organization' ||
         reservationBookingType == 'organization';
@@ -315,12 +318,12 @@ class _FolioPageState extends State<FolioPage> {
   int _stayNights() {
     final rawCheckIn =
         _folio?['check_in']?.toString() ??
-        widget.reservation['check_in']?.toString() ??
-        widget.reservation['check_in_date']?.toString();
+        _reservationData['check_in']?.toString() ??
+        _reservationData['check_in_date']?.toString();
     final rawCheckOut =
         _folio?['check_out']?.toString() ??
-        widget.reservation['check_out']?.toString() ??
-        widget.reservation['check_out_date']?.toString();
+        _reservationData['check_out']?.toString() ??
+        _reservationData['check_out_date']?.toString();
 
     final checkIn = DateTime.tryParse(rawCheckIn ?? '');
     final checkOut = DateTime.tryParse(rawCheckOut ?? '');
@@ -332,11 +335,12 @@ class _FolioPageState extends State<FolioPage> {
 
   bool get _canAccess =>
       widget.role != 'receptionist' ||
-      widget.reservation['status']?.toString() == 'arrive';
+      _reservationData['status']?.toString() == 'arrive';
 
   @override
   void initState() {
     super.initState();
+    _reservation = Map<String, dynamic>.from(widget.reservation);
     _fetchFolio();
   }
 
@@ -592,6 +596,13 @@ class _FolioPageState extends State<FolioPage> {
           ? json.decode(response.body)
           : null;
       if (response.statusCode >= 200 && response.statusCode < 300) {
+        if (decoded is Map && decoded['reservation'] is Map) {
+          setState(() {
+            _reservation = Map<String, dynamic>.from(
+              decoded['reservation'] as Map,
+            );
+          });
+        }
         if (decoded is Map && decoded['invoice'] is Map) {
           _applyFolioPayload(
             Map<String, dynamic>.from(decoded['invoice'] as Map),
@@ -611,6 +622,45 @@ class _FolioPageState extends State<FolioPage> {
     } finally {
       if (mounted) setState(() => _isBusy = false);
     }
+  }
+
+  Future<void> _manualCheckout() async {
+    if (_isBusy) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Confirmer le check-out manuel'),
+        content: const Text(
+          'Cette action libère immédiatement la chambre sans modifier la facture. Continuer ?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Non'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Oui'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    await _sendJson(
+      'POST',
+      '/api/reservations/$_reservationId/manual-checkout',
+      {
+        'checked_out_by_name': widget.userName,
+        'checked_out_by_role': widget.role,
+      },
+      successMessage: 'Check-out manuel enregistré.',
+    );
+
+    if (!mounted) return;
+    Navigator.of(context).pop(true);
   }
 
   Future<Uint8List> _downloadPdfBytes() async {
@@ -956,7 +1006,7 @@ class _FolioPageState extends State<FolioPage> {
                         children: [
                           _SummaryPanel(
                             folio: _folio!,
-                            reservation: widget.reservation,
+                            reservation: _reservationData,
                             showLoyalty: widget.role != 'receptionist',
                           ),
                           const SizedBox(height: 16),
@@ -1125,6 +1175,19 @@ class _FolioPageState extends State<FolioPage> {
                               item: Map<String, dynamic>.from(item as Map),
                             ),
                           ),
+                          if (_reservationData['status']?.toString() ==
+                              'arrive') ...[
+                            const SizedBox(height: 16),
+                            OutlinedButton.icon(
+                              onPressed: _isBusy ? null : _manualCheckout,
+                              icon: const Icon(Icons.logout_outlined),
+                              label: const Text('Check-out manuel'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: _rose,
+                                side: const BorderSide(color: _rose),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),

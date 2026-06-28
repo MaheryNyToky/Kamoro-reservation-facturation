@@ -109,6 +109,34 @@ class ReservationListingOptimizationTest extends TestCase
         $response->assertJsonFragment(['client_name' => 'Paid Before Checkin']);
     }
 
+    public function test_reservations_all_filters_paid_status_includes_manual_checkout_reservations(): void
+    {
+        $user = User::create([
+            'name' => 'Reception Test',
+            'email' => 'reservation-listing-manual-checkout@example.com',
+            'password' => 'password',
+            'role' => 'receptionist',
+            'is_blacklisted' => false,
+        ]);
+
+        $manualCheckout = $this->createReservation(
+            $user->id,
+            'Manual Checkout Paid Client',
+            'check_out_manuel',
+            'paid',
+        );
+        $manualCheckout->rooms()->attach(
+            $this->createRoom('904')->id,
+            ['price_snapshot_ariary' => 50000],
+        );
+        $this->createPaidInvoice($manualCheckout, 50000);
+
+        $response = $this->getJson('/api/reservations/all?date=2026-06-20&status=paid');
+
+        $response->assertOk();
+        $response->assertJsonFragment(['client_name' => 'Manual Checkout Paid Client']);
+    }
+
     public function test_reservations_all_includes_checkout_date_for_one_night_stays(): void
     {
         $user = User::create([

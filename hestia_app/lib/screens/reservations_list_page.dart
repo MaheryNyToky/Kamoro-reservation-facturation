@@ -1430,11 +1430,7 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
 
   bool _shouldShowStatusControls(Map<String, dynamic> reservation) {
     final status = (reservation['status'] ?? '').toString();
-    if (status == 'arrive') {
-      return _canCancelReservation(reservation);
-    }
-
-    return status != 'annule';
+    return status == 'en_attente' || status == 'arrive';
   }
 
   Future<void> _openEditReservation(Map<String, dynamic> reservation) async {
@@ -2030,7 +2026,8 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                       );
                       final canEdit = _canEditReservation(res);
                       final status = (res['status'] ?? '').toString();
-                      final isPostCheckIn = status == 'arrive';
+                      final isPostCheckIn =
+                          status == 'arrive' || status == 'check_out_manuel';
                       final showStatusControls = _shouldShowStatusControls(res);
                       final paymentStatus =
                           (res['payment_status'] ?? 'unbilled').toString();
@@ -2398,11 +2395,13 @@ class _StatusChip extends StatelessWidget {
     final value = status?.toString() ?? '';
     final label = switch (value) {
       'arrive' => 'Check-in',
+      'check_out_manuel' => 'Check-out manuel',
       'annule' => 'Annulé',
       _ => 'En attente',
     };
     final color = switch (value) {
       'arrive' => const Color(0xFF047857),
+      'check_out_manuel' => const Color(0xFFD97706),
       'annule' => const Color(0xFFBE123C),
       _ => const Color(0xFF0369A1),
     };
@@ -2474,6 +2473,7 @@ class _ReservationStatusPills extends StatelessWidget {
     String normalized = status;
     if (normalized != 'en_attente' &&
         normalized != 'arrive' &&
+        normalized != 'check_out_manuel' &&
         normalized != 'annule') {
       normalized = 'en_attente';
     }

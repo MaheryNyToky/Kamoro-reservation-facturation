@@ -30,6 +30,7 @@ Route::post('/bookings/update-status', [HotelManagementController::class, 'updat
 Route::put('/reservations/{id}', [HotelManagementController::class, 'updateReservation']);
 Route::patch('/reservations/{id}', [HotelManagementController::class, 'updateReservation']);
 Route::post('/reservations/{id}/checkin', [PMSController::class, 'checkIn']);
+Route::post('/reservations/{id}/manual-checkout', [PMSController::class, 'manualCheckout']);
 Route::post('/reservations/{id}/deposit', [PMSController::class, 'addDeposit']);
 Route::post('/invoices/{id}/items', [PMSController::class, 'addInvoiceItem']);
 Route::post('/invoices/{id}/payments', [PMSController::class, 'addPayment']);

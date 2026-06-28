@@ -269,6 +269,58 @@ class PMSController extends Controller
         return response()->json($this->folioPayload($invoice));
     }
 
+    public function manualCheckout(Request $request, int $id): JsonResponse
+    {
+        $validated = $request->validate([
+            'checked_out_by_name' => 'nullable|string|max:120',
+            'checked_out_by_role' => 'nullable|string|in:admin,receptionist,superadmin',
+        ]);
+
+        $result = DB::transaction(function () use ($validated, $id) {
+            $reservation = Reservation::query()
+                ->with(['invoice', 'audits'])
+                ->lockForUpdate()
+                ->findOrFail($id);
+
+            if ($reservation->status !== 'arrive') {
+                throw ValidationException::withMessages([
+                    'reservation' => 'Le check-out manuel est disponible uniquement après le check-in.',
+                ]);
+            }
+
+            $reservation->update([
+                'status' => Reservation::MANUAL_CHECKOUT_STATUS,
+            ]);
+
+            ReservationAudit::create([
+                'reservation_id' => $reservation->id,
+                'action' => 'manual_check_out',
+                'actor_name' => $validated['checked_out_by_name'] ?? null,
+                'actor_role' => $validated['checked_out_by_role'] ?? null,
+                'details' => [
+                    'status' => Reservation::MANUAL_CHECKOUT_STATUS,
+                ],
+            ]);
+
+            return [
+                'reservation' => [
+                    'id' => $reservation->id,
+                    'status' => Reservation::MANUAL_CHECKOUT_STATUS,
+                    'checked_out_by_name' => $validated['checked_out_by_name'] ?? null,
+                    'checked_out_by_role' => $validated['checked_out_by_role'] ?? null,
+                    'checked_out_at' => now()->toDateTimeString(),
+                ],
+            ];
+        });
+
+        $this->availabilityService->invalidateCaches();
+
+        return response()->json([
+            'message' => 'Check-out manuel enregistré',
+            ...$result,
+        ]);
+    }
+
     public function addInvoiceItem(Request $request, int $id): JsonResponse
     {
         $validated = $request->validate([

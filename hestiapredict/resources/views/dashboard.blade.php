@@ -917,6 +917,10 @@
                 const title = processedByName ? ` title="Par ${processedByName}"` : '';
                 return `<span class="inline-flex rounded-full bg-white/75 px-3 py-1 text-xs font-black text-emerald-700"${title}>${paymentLabel}</span>`;
             }
+            if (normalizedStatus === 'check_out_manuel') {
+                const title = processedByName ? ` title="Par ${processedByName}"` : '';
+                return `<span class="inline-flex rounded-full bg-white/75 px-3 py-1 text-xs font-black text-amber-700"${title}>Check-out manuel</span>`;
+            }
             if (normalizedStatus === 'annule') {
                 const title = cancelledByName ? ` title="Par ${cancelledByName}"` : '';
                 return `<span class="inline-flex rounded-full bg-white/75 px-3 py-1 text-xs font-black text-rose-700"${title}>Annulé</span>`;
