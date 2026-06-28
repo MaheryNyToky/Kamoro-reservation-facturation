@@ -5,7 +5,7 @@ cd /d "%~dp0"
 
 echo.
 echo Lancement de Kamoro Reservation Facturation...
-echo Le lanceur attend jusqu'a 3 secondes pour joindre le depot distant.
+echo Le lanceur attend jusqu'a 15 secondes pour joindre le depot distant.
 echo Si le depot n'est pas joignable, il continue avec la copie locale actuelle.
 echo.
 

@@ -23,39 +23,27 @@ function Write-Log {
 
 function Invoke-GitPullWithTimeout {
     param(
-        [int]$TimeoutSeconds = 3
+        [int]$TimeoutSeconds = 15
     )
 
-    $git = Get-Command git -ErrorAction SilentlyContinue
-    if (-not $git) {
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
         throw "Git n'est pas disponible dans le PATH."
     }
 
-    $gitProcess = Start-Process -FilePath $git.Path -ArgumentList @(
-        "-C",
-        $ProjectRoot,
-        "pull",
-        "--ff-only",
-        "origin",
-        "main"
-    ) -PassThru -WindowStyle Hidden -RedirectStandardOutput $StdOutLog -RedirectStandardError $StdErrLog
+    $PreviousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
 
-    if (-not $gitProcess.WaitForExit($TimeoutSeconds * 1000)) {
-        try {
-            $gitProcess.Kill()
-        } catch {
-            # Ignore les erreurs de terminaison forcée.
-        }
-
-        return @{
-            TimedOut = $true
-            ExitCode = $null
-        }
+    try {
+        $Output = & git pull --autostash --ff-only origin main 2>&1 | Out-String
+        $ExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $PreviousErrorActionPreference
     }
 
-    return @{
+    return [pscustomobject]@{
         TimedOut = $false
-        ExitCode = $gitProcess.ExitCode
+        ExitCode = $ExitCode
+        Output = $Output.Trim()
     }
 }
 
@@ -256,17 +244,44 @@ try {
 
     $OwnsMutex = $true
 
+    Write-Log "Mise a jour du depot local..."
+    try {
+        $PullResult = Invoke-GitPullWithTimeout -TimeoutSeconds 15
+        if ($PullResult.TimedOut) {
+            Write-Log "Timeout git apres 15 secondes. On continue avec le depot local courant."
+        } elseif ($PullResult.ExitCode -eq 0) {
+            Write-Log "Depot local synchronise avec origin/main."
+        } else {
+            Write-Log "Echec du git pull avec le code $($PullResult.ExitCode). On continue avec le depot local courant."
+        }
+    } catch {
+        Write-Log "Impossible de mettre a jour le depot local: $($_.Exception.Message). On continue avec le depot local courant."
+    }
+
     if (Test-AppPortOpen) {
         Write-Log "Une instance repond deja sur 127.0.0.1:8080. Le lanceur va la remplacer par la version locale courante."
     }
 
-    Write-Log "Utilisation du depot local courant. Aucune mise a jour Git automatique n'est effectuee par le lanceur."
+    Write-Log "Le lanceur tente une courte mise a jour Git au demarrage, puis continue avec la copie locale si besoin."
 
     Write-Log "Attente de Docker Desktop..."
     $DockerExe = Get-DockerExecutable
     Wait-ForDocker
 
     Stop-ExistingComposeStack -DockerExe $DockerExe
+
+    try {
+        $SourceRevision = (& git rev-parse --short HEAD 2>$null | Select-Object -First 1).Trim()
+    } catch {
+        $SourceRevision = ""
+    }
+
+    if (-not $SourceRevision) {
+        $SourceRevision = (Get-Date).ToString("yyyyMMddHHmmss")
+    }
+
+    $env:KAMORO_SOURCE_REV = $SourceRevision
+    Write-Log "Revision source utilisee pour le build Docker: $SourceRevision"
 
     Write-Log "Lancement de docker compose..."
     $ComposeProcess = Start-Process -FilePath $DockerExe -ArgumentList @(
@@ -322,3 +337,5 @@ try {
         $LauncherMutex.Dispose()
     }
 }
+
+
