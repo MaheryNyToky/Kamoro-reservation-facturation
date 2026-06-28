@@ -68,6 +68,7 @@ class Reservation {
     required List<int> roomIds,
     int extraBeds = 0,
     int extraMattresses = 0,
+    List<Map<String, dynamic>> roomSegments = const [],
     String? modifiedByName,
     String? modifiedByRole,
   }) {
@@ -81,6 +82,10 @@ class Reservation {
       'extra_beds': extraBeds,
       'extra_mattresses': extraMattresses,
     };
+
+    if (roomSegments.isNotEmpty) {
+      payload['room_segments'] = roomSegments;
+    }
 
     if (modifiedByName != null && modifiedByName.trim().isNotEmpty) {
       payload['modified_by_name'] = modifiedByName.trim();
@@ -122,10 +127,24 @@ class Reservation {
 
   static List<Map<String, dynamic>> _parseRoomDetails(dynamic value) {
     if (value is Iterable) {
-      return value
-          .whereType<Map>()
-          .map((room) => Map<String, dynamic>.from(room))
-          .toList();
+      return value.whereType<Map>().map((room) {
+        final parsed = Map<String, dynamic>.from(room);
+        final segmentStart = _parseDate(parsed['segment_start_date']);
+        final segmentEnd = _parseDate(parsed['segment_end_date']);
+        if (segmentStart != null) {
+          parsed['segment_start_date'] = segmentStart
+              .toIso8601String()
+              .split('T')
+              .first;
+        }
+        if (segmentEnd != null) {
+          parsed['segment_end_date'] = segmentEnd
+              .toIso8601String()
+              .split('T')
+              .first;
+        }
+        return parsed;
+      }).toList();
     }
 
     return const [];

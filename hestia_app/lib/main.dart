@@ -183,6 +183,24 @@ class KamoroApp extends StatelessWidget {
   }
 }
 
+class _RoomSegmentDraft {
+  _RoomSegmentDraft({
+    required this.roomId,
+    required this.roomLabel,
+    required this.startDate,
+    required this.endDate,
+    required this.extraBeds,
+    required this.extraMattresses,
+  });
+
+  int roomId;
+  String roomLabel;
+  DateTime startDate;
+  DateTime endDate;
+  int extraBeds;
+  int extraMattresses;
+}
+
 Route<T> _softRoute<T>(Widget page) {
   return PageRouteBuilder<T>(
     pageBuilder: (_, _, _) => page,
@@ -1565,9 +1583,9 @@ class _NewBookingPageState extends State<NewBookingPage> {
   List<dynamic> _allAvailableRooms = [];
   Map<String, dynamic> _aiPredictions = {};
   final List<dynamic> _selectedRooms = [];
+  final List<_RoomSegmentDraft> _segmentDrafts = [];
   String _roomSearchQuery = '';
-  int _extraBeds = 0;
-  int _extraMattresses = 0;
+  bool _showRoomsNeedingSplit = false;
   int _remainingExtraBeds = 6;
   int _remainingExtraMattresses = 6;
   bool _loadingRooms = false;
@@ -1618,6 +1636,413 @@ class _NewBookingPageState extends State<NewBookingPage> {
 
   String get _reservationNameLabel =>
       _isOrganizationBooking ? 'Nom de l’organisme' : 'Nom du client';
+
+  int _asInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  DateTime _dateOnly(DateTime date) =>
+      DateTime(date.year, date.month, date.day);
+
+  String _formatShortDate(DateTime date) {
+    final normalized = _dateOnly(date);
+    return '${normalized.day.toString().padLeft(2, '0')}/${normalized.month.toString().padLeft(2, '0')}';
+  }
+
+  String _roomLabel(dynamic room) {
+    final roomNumber = (room['room_number'] ?? room['number'] ?? room['id'])
+        .toString()
+        .trim();
+    final type = (room['type'] ?? '').toString().trim();
+    final model = (room['model'] ?? '').toString().trim();
+    final base = roomNumber.isEmpty
+        ? [type, model].where((value) => value.isNotEmpty).join(' - ')
+        : (type.isEmpty ? roomNumber : '$roomNumber - $type');
+    if (base.isEmpty) return 'Chambre';
+    return model.isEmpty ? base : '$base ($model)';
+  }
+
+  String _roomCategory(dynamic room) {
+    final raw = [room['type'], room['model'], room['room_number']]
+        .where((value) => value != null)
+        .map((value) => value.toString())
+        .join(' ')
+        .toLowerCase();
+    if (raw.contains('standard') || raw.contains('standart')) return 'standard';
+    if (raw.contains('supérieure') ||
+        raw.contains('superieure') ||
+        raw.contains('superior')) {
+      return 'superior';
+    }
+    if (raw.contains('famil')) return 'family';
+    if (raw.contains('suite')) return 'suite';
+    return raw.trim().isEmpty ? 'other' : raw.trim();
+  }
+
+  int _roomCategoryRank(dynamic room) {
+    switch (_roomCategory(room)) {
+      case 'standard':
+        return 0;
+      case 'superior':
+        return 1;
+      case 'family':
+        return 2;
+      case 'suite':
+        return 3;
+      default:
+        return 4;
+    }
+  }
+
+  bool _roomCoversRange(dynamic room, DateTime start, DateTime end) {
+    final normalizedStart = _dateOnly(start);
+    final normalizedEnd = _dateOnly(end);
+    if (!normalizedEnd.isAfter(normalizedStart)) return false;
+
+    for (final segment in _roomAvailabilitySegments(room)) {
+      final segmentStart = DateTime.tryParse(
+        segment['segment_start_date']?.toString() ?? '',
+      );
+      final segmentEnd = DateTime.tryParse(
+        segment['segment_end_date']?.toString() ?? '',
+      );
+      if (segmentStart == null || segmentEnd == null) continue;
+      final freeStart = _dateOnly(segmentStart);
+      final freeEnd = _dateOnly(segmentEnd);
+      if (!normalizedStart.isBefore(freeStart) &&
+          !normalizedEnd.isAfter(freeEnd)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  int _coverageNights(dynamic room) {
+    var nights = 0;
+    final start = _dateOnly(_checkIn);
+    final end = _dateOnly(_checkOut);
+    var cursor = start;
+    while (cursor.isBefore(end)) {
+      if (_roomCoversRange(room, cursor, cursor.add(const Duration(days: 1)))) {
+        nights++;
+      }
+      cursor = cursor.add(const Duration(days: 1));
+    }
+    return nights;
+  }
+
+  bool _wasOccupiedPreviousNight(dynamic room) {
+    return room is Map && room['occupied_previous_night'] == true;
+  }
+
+  int _compareFallbackRooms(
+    Map<String, dynamic> a,
+    Map<String, dynamic> b,
+    Map<String, dynamic> preferredRoom,
+  ) {
+    final previousNight = (_wasOccupiedPreviousNight(a) ? 1 : 0).compareTo(
+      _wasOccupiedPreviousNight(b) ? 1 : 0,
+    );
+    if (previousNight != 0) return previousNight;
+
+    final preferredCategory = _roomCategory(preferredRoom);
+    final aSameCategory = _roomCategory(a) == preferredCategory;
+    final bSameCategory = _roomCategory(b) == preferredCategory;
+    if (aSameCategory != bSameCategory) return aSameCategory ? -1 : 1;
+
+    final aCategory = _roomCategoryRank(a);
+    final bCategory = _roomCategoryRank(b);
+    if (aCategory != bCategory) return aCategory.compareTo(bCategory);
+
+    final aScore = _coverageNights(a);
+    final bScore = _coverageNights(b);
+    if (aScore != bScore) return aScore.compareTo(bScore);
+
+    return _roomLabel(a).compareTo(_roomLabel(b));
+  }
+
+  bool _shouldDisplayRoom(dynamic room) {
+    final isSelected = _selectedRooms.any(
+      (selected) => _asInt(selected['id']) == _asInt(room['id']),
+    );
+    if (isSelected) return true;
+    if (room['is_fully_available'] == true) return true;
+    return _showRoomsNeedingSplit && _roomAvailabilitySegments(room).isNotEmpty;
+  }
+
+  List<DateTime> _stayNightsList() {
+    final nights = <DateTime>[];
+    var cursor = _dateOnly(_checkIn);
+    final end = _dateOnly(_checkOut);
+    while (cursor.isBefore(end)) {
+      nights.add(cursor);
+      cursor = cursor.add(const Duration(days: 1));
+    }
+    return nights;
+  }
+
+  List<_RoomSegmentDraft> _buildAutoSegmentDrafts() {
+    if (_selectedRooms.isEmpty) return [];
+
+    final selectedRooms = _selectedRooms
+        .map(
+          (room) => room is Map<String, dynamic>
+              ? room
+              : Map<String, dynamic>.from(room as Map),
+        )
+        .toList();
+
+    final fallbackRooms = _allAvailableRooms
+        .where(
+          (room) => !selectedRooms.any(
+            (selected) => _asInt(selected['id']) == _asInt(room['id']),
+          ),
+        )
+        .map(
+          (room) => room is Map<String, dynamic>
+              ? room
+              : Map<String, dynamic>.from(room as Map),
+        )
+        .toList();
+    final allSelectedCoverFullStay = selectedRooms.every(
+      (room) => _roomCoversRange(room, _checkIn, _checkOut),
+    );
+    if (allSelectedCoverFullStay) {
+      return selectedRooms
+          .map(
+            (room) => _RoomSegmentDraft(
+              roomId: _asInt(room['id']),
+              roomLabel: _roomLabel(room),
+              startDate: _checkIn,
+              endDate: _checkOut,
+              extraBeds: 0,
+              extraMattresses: 0,
+            ),
+          )
+          .toList();
+    }
+
+    final nights = _stayNightsList();
+    final slotCount = selectedRooms.length;
+    final slotCurrentRooms = List<Map<String, dynamic>?>.filled(
+      slotCount,
+      null,
+      growable: false,
+    );
+    final slotCurrentStarts = List<DateTime?>.filled(
+      slotCount,
+      null,
+      growable: false,
+    );
+    final segments = <_RoomSegmentDraft>[];
+
+    for (final night in nights) {
+      final usedThisNight = <int>{};
+      for (var slotIndex = 0; slotIndex < slotCount; slotIndex++) {
+        final preferredRoom = selectedRooms[slotIndex];
+        final preferredId = _asInt(preferredRoom['id']);
+        final currentRoom = slotCurrentRooms[slotIndex];
+        final currentRoomId = currentRoom == null
+            ? 0
+            : _asInt(currentRoom['id']);
+        final currentRoomIsFallback =
+            currentRoom != null &&
+            !selectedRooms.any((room) => _asInt(room['id']) == currentRoomId);
+
+        late Map<String, dynamic> chosenRoom;
+        var hasChosenRoom = false;
+        if (_roomCoversRange(
+              preferredRoom,
+              night,
+              night.add(const Duration(days: 1)),
+            ) &&
+            !usedThisNight.contains(preferredId)) {
+          chosenRoom = preferredRoom;
+          hasChosenRoom = true;
+        } else if (currentRoomIsFallback &&
+            _roomCoversRange(
+              currentRoom,
+              night,
+              night.add(const Duration(days: 1)),
+            ) &&
+            !usedThisNight.contains(currentRoomId)) {
+          chosenRoom = currentRoom;
+          hasChosenRoom = true;
+        } else {
+          final candidates = fallbackRooms
+              .where(
+                (room) =>
+                    !usedThisNight.contains(_asInt(room['id'])) &&
+                    _roomCoversRange(
+                      room,
+                      night,
+                      night.add(const Duration(days: 1)),
+                    ),
+              )
+              .toList();
+          if (candidates.isEmpty) {
+            return [];
+          }
+          candidates.sort((a, b) => _compareFallbackRooms(a, b, preferredRoom));
+          chosenRoom = candidates.first;
+          hasChosenRoom = true;
+        }
+
+        if (!hasChosenRoom) {
+          return [];
+        }
+
+        final chosenId = _asInt(chosenRoom['id']);
+        if (slotCurrentRooms[slotIndex] == null ||
+            _asInt(slotCurrentRooms[slotIndex]!['id']) != chosenId) {
+          if (slotCurrentRooms[slotIndex] != null &&
+              slotCurrentStarts[slotIndex] != null) {
+            segments.add(
+              _RoomSegmentDraft(
+                roomId: _asInt(slotCurrentRooms[slotIndex]!['id']),
+                roomLabel: _roomLabel(slotCurrentRooms[slotIndex]!),
+                startDate: slotCurrentStarts[slotIndex]!,
+                endDate: night,
+                extraBeds: 0,
+                extraMattresses: 0,
+              ),
+            );
+          }
+          slotCurrentRooms[slotIndex] = chosenRoom;
+          slotCurrentStarts[slotIndex] = night;
+        }
+
+        usedThisNight.add(chosenId);
+      }
+    }
+
+    for (var slotIndex = 0; slotIndex < slotCount; slotIndex++) {
+      final room = slotCurrentRooms[slotIndex];
+      final start = slotCurrentStarts[slotIndex];
+      if (room != null && start != null) {
+        segments.add(
+          _RoomSegmentDraft(
+            roomId: _asInt(room['id']),
+            roomLabel: _roomLabel(room),
+            startDate: start,
+            endDate: _checkOut,
+            extraBeds: 0,
+            extraMattresses: 0,
+          ),
+        );
+      }
+    }
+
+    return segments;
+  }
+
+  void _rebuildSegmentDraftsFromSelection() {
+    _segmentDrafts
+      ..clear()
+      ..addAll(_buildAutoSegmentDrafts());
+  }
+
+  void _syncSelectionFromDrafts() {
+    final seen = <int>{};
+    final nextSelected = <dynamic>[];
+    for (final draft in _segmentDrafts) {
+      if (!seen.add(draft.roomId)) continue;
+      final room = _roomById(draft.roomId);
+      if (room != null) {
+        nextSelected.add(room);
+      }
+    }
+    _selectedRooms
+      ..clear()
+      ..addAll(nextSelected);
+  }
+
+  List<Map<String, dynamic>> _compatibleRoomsForDraft(_RoomSegmentDraft draft) {
+    final rooms = _allAvailableRooms
+        .where((room) => _roomCoversRange(room, draft.startDate, draft.endDate))
+        .map(
+          (room) => room is Map<String, dynamic>
+              ? room
+              : Map<String, dynamic>.from(room as Map),
+        )
+        .toList();
+    rooms.sort((a, b) {
+      final rank = _roomCategoryRank(a).compareTo(_roomCategoryRank(b));
+      if (rank != 0) return rank;
+      return _roomLabel(a).compareTo(_roomLabel(b));
+    });
+    return rooms;
+  }
+
+  void _updateDraftRoom(_RoomSegmentDraft draft, int roomId) {
+    final room = _roomById(roomId);
+    if (room == null) return;
+    setState(() {
+      draft.roomId = roomId;
+      draft.roomLabel = _roomLabel(room);
+      _syncSelectionFromDrafts();
+    });
+  }
+
+  void _updateDraftStartDate(_RoomSegmentDraft draft, DateTime value) {
+    setState(() {
+      draft.startDate = _dateOnly(value);
+      if (!draft.endDate.isAfter(draft.startDate)) {
+        draft.endDate = draft.startDate.add(const Duration(days: 1));
+      }
+      _syncSelectionFromDrafts();
+    });
+  }
+
+  void _updateDraftEndDate(_RoomSegmentDraft draft, DateTime value) {
+    setState(() {
+      draft.endDate = _dateOnly(value);
+      if (!draft.endDate.isAfter(draft.startDate)) {
+        draft.endDate = draft.startDate.add(const Duration(days: 1));
+      }
+      _syncSelectionFromDrafts();
+    });
+  }
+
+  int _segmentNightCount(_RoomSegmentDraft draft) {
+    final nights = draft.endDate.difference(draft.startDate).inDays;
+    return nights < 1 ? 1 : nights;
+  }
+
+  int _segmentRoomNightPrice(_RoomSegmentDraft draft) {
+    final room = _roomById(draft.roomId);
+    return room == null ? 0 : _getSuggestedPrice(room);
+  }
+
+  int _segmentExtrasNightPrice(_RoomSegmentDraft draft) {
+    return (draft.extraBeds * 50000) + (draft.extraMattresses * 30000);
+  }
+
+  List<_RoomSegmentDraft> _currentSegmentDrafts() {
+    if (_segmentDrafts.isNotEmpty) return _segmentDrafts;
+    return _buildAutoSegmentDrafts();
+  }
+
+  bool _coversWholeStay(List<_RoomSegmentDraft> drafts) {
+    final covered = <String>{};
+    for (final draft in drafts) {
+      var cursor = _dateOnly(draft.startDate);
+      final end = _dateOnly(draft.endDate);
+      while (cursor.isBefore(end)) {
+        covered.add(cursor.toIso8601String().substring(0, 10));
+        cursor = cursor.add(const Duration(days: 1));
+      }
+    }
+
+    for (final night in _stayNightsList()) {
+      final key = night.toIso8601String().substring(0, 10);
+      if (!covered.contains(key)) return false;
+    }
+    return true;
+  }
 
   Future<void> _showReservationTypeDialog() async {
     if (_selectedClient != null || _selectedOrganization != null) return;
@@ -1797,6 +2222,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
     setState(() {
       _loadingRooms = true;
       _selectedRooms.clear();
+      _segmentDrafts.clear();
     });
 
     final prefs = await SharedPreferences.getInstance();
@@ -1808,7 +2234,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
       final roomsResp = await http
           .get(
             Uri.parse(
-              '$baseUrl/api/available-rooms?check_in=${_checkIn.toIso8601String().substring(0, 10)}&check_out=${_checkOut.toIso8601String().substring(0, 10)}',
+              '$baseUrl/api/available-room-suggestions?check_in=${_checkIn.toIso8601String().substring(0, 10)}&check_out=${_checkOut.toIso8601String().substring(0, 10)}',
             ),
           )
           .timeout(const Duration(seconds: 5));
@@ -1816,17 +2242,11 @@ class _NewBookingPageState extends State<NewBookingPage> {
         _allAvailableRooms = json.decode(roomsResp.body);
         await prefs.setString(roomsCacheKey, json.encode(_allAvailableRooms));
       } else {
-        final cachedRooms = prefs.getString(roomsCacheKey);
-        if (cachedRooms != null) {
-          _allAvailableRooms = json.decode(cachedRooms);
-        }
+        await _loadFallbackRoomsFromCache(prefs, roomsCacheKey);
       }
     } catch (e) {
       debugPrint("Rooms fetch error: $e");
-      final cachedRooms = prefs.getString(roomsCacheKey);
-      if (cachedRooms != null) {
-        _allAvailableRooms = json.decode(cachedRooms);
-      }
+      await _loadFallbackRoomsFromCache(prefs, roomsCacheKey);
     }
 
     try {
@@ -1881,15 +2301,48 @@ class _NewBookingPageState extends State<NewBookingPage> {
         _remainingExtraMattresses = remainingMattresses is num
             ? remainingMattresses.toInt()
             : 6;
-        if (_extraBeds > _remainingExtraBeds) {
-          _extraBeds = _remainingExtraBeds;
-        }
-        if (_extraMattresses > _remainingExtraMattresses) {
-          _extraMattresses = _remainingExtraMattresses;
-        }
       });
     } catch (e) {
       debugPrint("Extra capacity fetch error: $e");
+    }
+  }
+
+  Future<void> _loadFallbackRoomsFromCache(
+    SharedPreferences prefs,
+    String roomsCacheKey,
+  ) async {
+    final cachedRooms = prefs.getString(roomsCacheKey);
+    if (cachedRooms != null) {
+      _allAvailableRooms = json.decode(cachedRooms);
+      return;
+    }
+
+    try {
+      final legacyResp = await http
+          .get(
+            Uri.parse(
+              '$baseUrl/api/available-rooms?check_in=${_checkIn.toIso8601String().substring(0, 10)}&check_out=${_checkOut.toIso8601String().substring(0, 10)}',
+            ),
+          )
+          .timeout(const Duration(seconds: 4));
+      if (legacyResp.statusCode == 200) {
+        final rooms = json.decode(legacyResp.body) as List<dynamic>;
+        _allAvailableRooms = rooms.map((room) {
+          final parsed = Map<String, dynamic>.from(room as Map);
+          parsed['availability_segments'] = [
+            {
+              'segment_start_date': _checkIn.toIso8601String().substring(0, 10),
+              'segment_end_date': _checkOut.toIso8601String().substring(0, 10),
+            },
+          ];
+          parsed['is_fully_available'] = true;
+          parsed['has_partial_availability'] = false;
+          return parsed;
+        }).toList();
+        await prefs.setString(roomsCacheKey, json.encode(_allAvailableRooms));
+      }
+    } catch (e) {
+      debugPrint("Legacy rooms fetch error: $e");
     }
   }
 
@@ -1900,8 +2353,58 @@ class _NewBookingPageState extends State<NewBookingPage> {
         ? _phoneController.text.trim()
         : _phoneController.text.trim();
     final effectiveEmail = _emailController.text.trim();
+    final currentDrafts = _currentSegmentDrafts();
+    if (currentDrafts.any((draft) {
+      final room = _roomById(draft.roomId);
+      return room == null ||
+          !_roomCoversRange(room, draft.startDate, draft.endDate);
+    })) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Un des segments n’est plus compatible avec la chambre choisie.',
+          ),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
 
-    if (_clientName().isEmpty || _selectedRooms.isEmpty) {
+    if (!_coversWholeStay(currentDrafts)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'La réservation ne couvre pas tout le séjour avec les chambres choisies. Ajoute une chambre libre pour compléter.',
+          ),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    final roomSegments = currentDrafts
+        .map(
+          (draft) => {
+            'room_id': draft.roomId,
+            'segment_start_date': draft.startDate
+                .toIso8601String()
+                .split('T')
+                .first,
+            'segment_end_date': draft.endDate
+                .toIso8601String()
+                .split('T')
+                .first,
+            'segment_extra_beds': draft.extraBeds,
+            'segment_extra_mattresses': draft.extraMattresses,
+          },
+        )
+        .toList();
+    final roomIds = roomSegments
+        .map((segment) => _asInt(segment['room_id']))
+        .toSet()
+        .toList();
+
+    if (_clientName().isEmpty || roomSegments.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -1915,9 +2418,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
     if (effectivePhone.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'Veuillez renseigner un numéro de téléphone.',
-          ),
+          content: Text('Veuillez renseigner un numéro de téléphone.'),
           backgroundColor: Colors.orange,
         ),
       );
@@ -1967,12 +2468,25 @@ class _NewBookingPageState extends State<NewBookingPage> {
                   : null,
               'check_in': _checkIn.toIso8601String().substring(0, 10),
               'check_out': _checkOut.toIso8601String().substring(0, 10),
-              'room_ids': _selectedRooms.map((r) => r['id']).toList(),
-              'room_prices': _selectedRooms
-                  .map((r) => {'id': r['id'], 'price': _getSuggestedPrice(r)})
-                  .toList(),
-              'extra_beds': _extraBeds,
-              'extra_mattresses': _extraMattresses,
+              'room_ids': roomIds,
+              'room_segments': roomSegments,
+              'room_prices': roomIds.map((id) {
+                final room = _roomById(id);
+                return {
+                  'id': id,
+                  'price': room != null ? _getSuggestedPrice(room) : 0,
+                };
+              }).toList(),
+              'extra_beds': roomSegments.fold<int>(
+                0,
+                (total, segment) =>
+                    total + _asInt(segment['segment_extra_beds']),
+              ),
+              'extra_mattresses': roomSegments.fold<int>(
+                0,
+                (total, segment) =>
+                    total + _asInt(segment['segment_extra_mattresses']),
+              ),
               'source': _isBookingCom
                   ? 'Booking'
                   : (effectivePhone.isNotEmpty ? 'Appel' : 'Mail'),
@@ -2077,11 +2591,45 @@ class _NewBookingPageState extends State<NewBookingPage> {
     return basePrice as int? ?? 0;
   }
 
-  int _stayNights() {
-    final start = DateTime(_checkIn.year, _checkIn.month, _checkIn.day);
-    final end = DateTime(_checkOut.year, _checkOut.month, _checkOut.day);
-    final nights = end.difference(start).inDays;
-    return nights < 1 ? 1 : nights;
+  Map<String, dynamic>? _roomById(int roomId) {
+    for (final room in _allAvailableRooms) {
+      if (_asInt(room['id']) == roomId) {
+        return room is Map<String, dynamic>
+            ? room
+            : Map<String, dynamic>.from(room as Map);
+      }
+    }
+    for (final room in _selectedRooms) {
+      if (_asInt(room['id']) == roomId) {
+        return room is Map<String, dynamic>
+            ? room
+            : Map<String, dynamic>.from(room as Map);
+      }
+    }
+    return null;
+  }
+
+  List<Map<String, dynamic>> _roomAvailabilitySegments(dynamic room) {
+    final raw = room['availability_segments'];
+    if (raw is! Iterable) {
+      return [
+        {
+          'segment_start_date': _checkIn.toIso8601String().substring(0, 10),
+          'segment_end_date': _checkOut.toIso8601String().substring(0, 10),
+        },
+      ];
+    }
+
+    return raw.whereType<Map>().map((segment) {
+      final parsed = Map<String, dynamic>.from(segment);
+      final start = parsed['segment_start_date']?.toString();
+      final end = parsed['segment_end_date']?.toString();
+      return {
+        'segment_start_date':
+            start ?? _checkIn.toIso8601String().substring(0, 10),
+        'segment_end_date': end ?? _checkOut.toIso8601String().substring(0, 10),
+      };
+    }).toList();
   }
 
   int _calculateTotalPrice() {
@@ -2089,23 +2637,61 @@ class _NewBookingPageState extends State<NewBookingPage> {
   }
 
   int _calculateRoomNightPrice() {
-    int total = 0;
-    for (var room in _selectedRooms) {
-      total += _getSuggestedPrice(room);
-    }
-    return total;
+    final drafts = _currentSegmentDrafts();
+    if (drafts.isEmpty) return 0;
+    final firstNight = _dateOnly(_checkIn);
+    return drafts.fold<int>(0, (total, draft) {
+      final coversFirstNight =
+          !_dateOnly(draft.startDate).isAfter(firstNight) &&
+          firstNight.isBefore(_dateOnly(draft.endDate));
+      return coversFirstNight ? total + _segmentRoomNightPrice(draft) : total;
+    });
   }
 
   int _calculateRoomPrice() {
-    return _calculateRoomNightPrice() * _stayNights();
+    final drafts = _currentSegmentDrafts();
+    if (drafts.isEmpty) return 0;
+    final nights = _stayNightsList();
+    return nights.fold<int>(0, (total, night) {
+      final nightTotal = drafts.fold<int>(0, (nightSum, draft) {
+        final coversNight =
+            !_dateOnly(draft.startDate).isAfter(night) &&
+            night.isBefore(_dateOnly(draft.endDate));
+        return coversNight
+            ? nightSum + _segmentRoomNightPrice(draft)
+            : nightSum;
+      });
+      return total + nightTotal;
+    });
   }
 
   int _calculateExtrasNightPrice() {
-    return (_extraBeds * 50000) + (_extraMattresses * 30000);
+    final drafts = _currentSegmentDrafts();
+    if (drafts.isEmpty) return 0;
+    final firstNight = _dateOnly(_checkIn);
+    return drafts.fold<int>(0, (total, draft) {
+      final coversFirstNight =
+          !_dateOnly(draft.startDate).isAfter(firstNight) &&
+          firstNight.isBefore(_dateOnly(draft.endDate));
+      return coversFirstNight ? total + _segmentExtrasNightPrice(draft) : total;
+    });
   }
 
   int _calculateExtrasPrice() {
-    return _calculateExtrasNightPrice() * _stayNights();
+    final drafts = _currentSegmentDrafts();
+    if (drafts.isEmpty) return 0;
+    final nights = _stayNightsList();
+    return nights.fold<int>(0, (total, night) {
+      final nightTotal = drafts.fold<int>(0, (nightSum, draft) {
+        final coversNight =
+            !_dateOnly(draft.startDate).isAfter(night) &&
+            night.isBefore(_dateOnly(draft.endDate));
+        return coversNight
+            ? nightSum + _segmentExtrasNightPrice(draft)
+            : nightSum;
+      });
+      return total + nightTotal;
+    });
   }
 
   bool _matchesRoomSearch(dynamic room) {
@@ -2120,8 +2706,181 @@ class _NewBookingPageState extends State<NewBookingPage> {
         model.contains(query);
   }
 
+  Widget _buildSegmentDraftCard(_RoomSegmentDraft draft) {
+    final compatibleRooms = _compatibleRoomsForDraft(draft);
+    final currentRoom = _roomById(draft.roomId);
+    final currentRoomIncluded =
+        currentRoom != null &&
+        compatibleRooms.any((room) => _asInt(room['id']) == draft.roomId);
+    final roomOptions = [
+      if (currentRoom != null && !currentRoomIncluded) currentRoom,
+      ...compatibleRooms,
+    ];
+    final uniqueRoomOptions = <int, Map<String, dynamic>>{};
+    for (final room in roomOptions) {
+      uniqueRoomOptions[_asInt(room['id'])] = room;
+    }
+    final displayRooms = uniqueRoomOptions.values.toList();
+    final roomCountLabel = displayRooms.length == 1
+        ? '1 chambre possible'
+        : '${displayRooms.length} chambres possibles';
+    final nights = _segmentNightCount(draft);
+    final roomPrice = _segmentRoomNightPrice(draft);
+    final extrasNightPrice = _segmentExtrasNightPrice(draft);
+    final segmentTotal = (roomPrice + extrasNightPrice) * nights;
+
+    return Card(
+      elevation: 0,
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: _border),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              draft.roomLabel,
+              style: const TextStyle(fontWeight: FontWeight.w900, color: _ink),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '$roomCountLabel • $nights nuit${nights > 1 ? 's' : ''}',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: _muted,
+              ),
+            ),
+            const SizedBox(height: 10),
+            DropdownButtonFormField<int>(
+              value: draft.roomId,
+              decoration: const InputDecoration(
+                labelText: 'Chambre du segment',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              items: displayRooms.map((room) {
+                final roomId = _asInt(room['id']);
+                final available = _roomCoversRange(
+                  room,
+                  draft.startDate,
+                  draft.endDate,
+                );
+                final label = _roomLabel(room);
+                return DropdownMenuItem<int>(
+                  value: roomId,
+                  child: Text(
+                    available ? label : '$label (indisponible)',
+                    style: TextStyle(color: available ? _ink : _rose),
+                  ),
+                );
+              }).toList(),
+              onChanged: displayRooms.isEmpty
+                  ? null
+                  : (value) {
+                      if (value != null) _updateDraftRoom(draft, value);
+                    },
+            ),
+            const SizedBox(height: 10),
+            ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.login),
+              title: Text('Début: ${_formatShortDate(draft.startDate)}'),
+              trailing: const Icon(Icons.calendar_today_outlined),
+              onTap: () async {
+                final minDate = _dateOnly(_checkIn);
+                final picked = await showDatePicker(
+                  context: context,
+                  initialDate: draft.startDate.isBefore(minDate)
+                      ? minDate
+                      : draft.startDate,
+                  firstDate: minDate,
+                  lastDate: _dateOnly(_checkOut),
+                );
+                if (picked == null) return;
+                _updateDraftStartDate(draft, picked);
+              },
+            ),
+            ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.logout),
+              title: Text('Fin: ${_formatShortDate(draft.endDate)}'),
+              trailing: const Icon(Icons.calendar_today_outlined),
+              onTap: () async {
+                final minDate = draft.startDate.add(const Duration(days: 1));
+                final picked = await showDatePicker(
+                  context: context,
+                  initialDate: draft.endDate.isAfter(minDate)
+                      ? draft.endDate
+                      : minDate,
+                  firstDate: minDate,
+                  lastDate: _dateOnly(_checkOut),
+                );
+                if (picked == null) return;
+                _updateDraftEndDate(draft, picked);
+              },
+            ),
+            if (!currentRoomIncluded && currentRoom != null) ...[
+              const SizedBox(height: 4),
+              const Text(
+                'La chambre actuelle ne couvre plus ce segment. Choisis une chambre compatible.',
+                style: TextStyle(color: _rose, fontWeight: FontWeight.w700),
+              ),
+            ],
+            const SizedBox(height: 10),
+            _QuantitySelector(
+              icon: Icons.bed_outlined,
+              label: 'Lit supplémentaire',
+              unitPrice: 50000,
+              stayNights: nights,
+              value: draft.extraBeds,
+              maxValue: _remainingExtraBeds,
+              onChanged: (value) => setState(() => draft.extraBeds = value),
+            ),
+            const SizedBox(height: 8),
+            _QuantitySelector(
+              icon: Icons.airline_seat_individual_suite_outlined,
+              label: 'Matelas supplémentaire',
+              unitPrice: 30000,
+              stayNights: nights,
+              value: draft.extraMattresses,
+              maxValue: _remainingExtraMattresses,
+              onChanged: (value) =>
+                  setState(() => draft.extraMattresses = value),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Chambre : ${formatPrice(roomPrice)} Ar / nuit • Extras : ${formatPrice(extrasNightPrice)} Ar / nuit • Segment : ${formatPrice(segmentTotal)} Ar',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: _muted,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  bool _hasMeaningfulRoomSplit(List<_RoomSegmentDraft> drafts) {
+    if (drafts.isEmpty) return false;
+    return drafts.any(
+      (draft) =>
+          _dateOnly(draft.startDate) != _dateOnly(_checkIn) ||
+          _dateOnly(draft.endDate) != _dateOnly(_checkOut),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final plannedSegments = _currentSegmentDrafts();
+    final showEditableSplit = _hasMeaningfulRoomSplit(plannedSegments);
     List<dynamic> filteredRooms = _allAvailableRooms;
     if (_isBookingCom) {
       filteredRooms = _allAvailableRooms
@@ -2132,7 +2891,10 @@ class _NewBookingPageState extends State<NewBookingPage> {
           )
           .toList();
     }
-    filteredRooms = filteredRooms.where(_matchesRoomSearch).toList();
+    filteredRooms = filteredRooms
+        .where(_shouldDisplayRoom)
+        .where(_matchesRoomSearch)
+        .toList();
 
     return Scaffold(
       appBar: AppBar(title: const Text('Nouvelle réservation')),
@@ -2289,8 +3051,8 @@ class _NewBookingPageState extends State<NewBookingPage> {
                       onChanged: (val) {
                         setState(() {
                           _isBookingCom = val;
-                          _selectedRooms
-                              .clear(); // Clear selection when toggling
+                          _selectedRooms.clear();
+                          _segmentDrafts.clear();
                         });
                       },
                     ),
@@ -2338,27 +3100,6 @@ class _NewBookingPageState extends State<NewBookingPage> {
                       }
                     },
                   ),
-                  const SizedBox(height: 12),
-                  _QuantitySelector(
-                    icon: Icons.bed_outlined,
-                    label: 'Lit supplémentaire',
-                    unitPrice: 50000,
-                    stayNights: _stayNights(),
-                    value: _extraBeds,
-                    maxValue: _remainingExtraBeds,
-                    onChanged: (value) => setState(() => _extraBeds = value),
-                  ),
-                  const SizedBox(height: 10),
-                  _QuantitySelector(
-                    icon: Icons.airline_seat_individual_suite_outlined,
-                    label: 'Matelas supplémentaire',
-                    unitPrice: 30000,
-                    stayNights: _stayNights(),
-                    value: _extraMattresses,
-                    maxValue: _remainingExtraMattresses,
-                    onChanged: (value) =>
-                        setState(() => _extraMattresses = value),
-                  ),
                   const SizedBox(height: 20),
                   Container(
                     padding: const EdgeInsets.all(12),
@@ -2399,6 +3140,34 @@ class _NewBookingPageState extends State<NewBookingPage> {
                           value: '${formatPrice(_calculateTotalPrice())} Ar',
                           emphasized: true,
                         ),
+                        if (showEditableSplit) ...[
+                          const Divider(height: 20),
+                          const Text(
+                            'Découpage proposé modifiable',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w900,
+                              color: _primaryDark,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          ...plannedSegments.map(
+                            (draft) => Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: _buildSegmentDraftCard(draft),
+                            ),
+                          ),
+                        ] else if (_selectedRooms.isEmpty) ...[
+                          const Divider(height: 20),
+                          const Text(
+                            'Sélectionne au moins une chambre pour générer un découpage modifiable.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: _muted,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -2455,6 +3224,77 @@ class _NewBookingPageState extends State<NewBookingPage> {
                       prefixIcon: Icon(Icons.search),
                     ),
                   ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () =>
+                              setState(() => _showRoomsNeedingSplit = false),
+                          icon: Icon(
+                            Icons.event_available_outlined,
+                            color: _showRoomsNeedingSplit
+                                ? _muted
+                                : _primaryDark,
+                          ),
+                          label: const Text('Séjour complet'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: _showRoomsNeedingSplit
+                                ? _muted
+                                : _primaryDark,
+                            side: BorderSide(
+                              color: _showRoomsNeedingSplit
+                                  ? _border
+                                  : _primary,
+                            ),
+                            backgroundColor: _showRoomsNeedingSplit
+                                ? Colors.white
+                                : _primary.withValues(alpha: 0.08),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () =>
+                              setState(() => _showRoomsNeedingSplit = true),
+                          icon: Icon(
+                            Icons.call_split_outlined,
+                            color: _showRoomsNeedingSplit
+                                ? _primaryDark
+                                : _muted,
+                          ),
+                          label: const Text('Avec découpage'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: _showRoomsNeedingSplit
+                                ? _primaryDark
+                                : _muted,
+                            side: BorderSide(
+                              color: _showRoomsNeedingSplit
+                                  ? _primary
+                                  : _border,
+                            ),
+                            backgroundColor: _showRoomsNeedingSplit
+                                ? _primary.withValues(alpha: 0.08)
+                                : Colors.white,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      _showRoomsNeedingSplit
+                          ? 'Affiche aussi les chambres libres seulement une partie du séjour.'
+                          : 'Affiche uniquement les chambres libres sur tout le séjour.',
+                      style: const TextStyle(
+                        color: _muted,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
                   const SizedBox(height: 12),
                   if (_loadingRooms)
                     const Center(child: CircularProgressIndicator()),
@@ -2464,8 +3304,9 @@ class _NewBookingPageState extends State<NewBookingPage> {
                         itemCount: filteredRooms.length,
                         itemBuilder: (context, index) {
                           final room = filteredRooms[index];
+                          final roomId = _asInt(room['id']);
                           final isSelected = _selectedRooms.any(
-                            (r) => r['id'] == room['id'],
+                            (r) => _asInt(r['id']) == roomId,
                           );
                           String roomLabel =
                               'Chambre ${room['room_number']} — ${room['type']} (${room['model']})';
@@ -2474,6 +3315,20 @@ class _NewBookingPageState extends State<NewBookingPage> {
                           final aiPrice = _isBookingCom
                               ? 162500
                               : _getSuggestedPrice(room);
+                          final segments = _roomAvailabilitySegments(room);
+                          final hasAvailability = segments.isNotEmpty;
+                          final availabilityLabel = segments.isEmpty
+                              ? 'Indisponible sur la période'
+                              : (room['is_fully_available'] == true
+                                    ? 'Disponible sur tout le séjour'
+                                    : 'Libre: ${segments.map((segment) {
+                                        final start = DateTime.tryParse(segment['segment_start_date']?.toString() ?? '');
+                                        final end = DateTime.tryParse(segment['segment_end_date']?.toString() ?? '');
+                                        if (start == null || end == null) {
+                                          return '';
+                                        }
+                                        return '${_formatShortDate(start)} → ${_formatShortDate(end)}';
+                                      }).where((label) => label.isNotEmpty).join(' • ')}');
 
                           return CheckboxListTile(
                             title: Text(
@@ -2492,6 +3347,16 @@ class _NewBookingPageState extends State<NewBookingPage> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
+                                  Text(
+                                    availabilityLabel,
+                                    style: TextStyle(
+                                      color: hasAvailability
+                                          ? _primaryDark
+                                          : _rose,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
                                   Text(
                                     'Prix fixe : ${formatPrice(fixedPrice)} Ar / nuit',
                                     style: const TextStyle(
@@ -2512,15 +3377,21 @@ class _NewBookingPageState extends State<NewBookingPage> {
                               ),
                             ),
                             value: isSelected,
+                            enabled: hasAvailability,
                             onChanged: (val) {
                               setState(() {
                                 if (val == true) {
-                                  _selectedRooms.add(room);
+                                  if (_selectedRooms.every(
+                                    (r) => _asInt(r['id']) != roomId,
+                                  )) {
+                                    _selectedRooms.add(room);
+                                  }
                                 } else {
                                   _selectedRooms.removeWhere(
-                                    (r) => r['id'] == room['id'],
+                                    (r) => _asInt(r['id']) == roomId,
                                   );
                                 }
+                                _rebuildSegmentDraftsFromSelection();
                               });
                             },
                           );

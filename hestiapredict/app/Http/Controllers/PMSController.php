@@ -619,13 +619,11 @@ class PMSController extends Controller
             }
 
             if ($invoice->status !== 'finalized' && $invoice->reservation) {
-                $this->syncReservationExtras($invoice, $invoice->reservation);
-                $this->syncRoomItemDescriptions($invoice, $invoice->reservation);
-                $this->recalculateInvoice($invoice->refresh());
+                $this->syncInvoiceForReservation($invoice, $invoice->reservation);
             }
 
             if ($reservation && ($reservation->billing_mode ?? 'grouped') === 'per_room') {
-                $this->ensureRoomInvoices($reservation->refresh()->load('rooms'), $invoice->refresh());
+                $this->syncRoomInvoicesForReservation($reservation->refresh()->load('rooms'), $invoice->refresh());
             }
 
             $invoice->update([
@@ -702,7 +700,7 @@ class PMSController extends Controller
         $this->syncRoomItemDescriptions($invoice, $reservation);
 
         if (($reservation->billing_mode ?? 'grouped') === 'per_room') {
-            $this->ensureRoomInvoices($reservation, $invoice);
+            $this->syncRoomInvoicesForReservation($reservation, $invoice);
         }
 
         $this->recalculateInvoice($invoice);
@@ -741,7 +739,7 @@ class PMSController extends Controller
             ]);
 
             if ($childInvoice->items()->where('type', 'room')->doesntExist()) {
-                $nights = $this->reservationNights($reservation);
+                $nights = $this->bookingRoomNights($room, $reservation);
                 $pricePerNight = (int) ($room->pivot->price_snapshot_ariary ?? $room->base_price_ariary);
 
                 InvoiceItem::create([
@@ -754,15 +752,84 @@ class PMSController extends Controller
                 ]);
             }
 
+            $this->syncRoomSpecificExtras($childInvoice, $reservation, $room);
+            $this->recalculateInvoice($childInvoice->refresh());
+        }
+    }
+
+    private function syncInvoiceForReservation(Invoice $invoice, Reservation $reservation): void
+    {
+        if ($invoice->status === 'finalized') {
+            return;
+        }
+
+        if (($invoice->invoice_kind ?? 'master') === 'master') {
+            $invoice->items()->where('type', 'room')->delete();
+            $this->seedRoomItems($invoice, $reservation);
+            $this->syncReservationExtras($invoice, $reservation);
+            $this->syncRoomItemDescriptions($invoice, $reservation);
+            $this->recalculateInvoice($invoice->refresh());
+            return;
+        }
+
+        $this->syncRoomItemDescriptions($invoice, $reservation);
+    }
+
+    private function syncRoomInvoicesForReservation(Reservation $reservation, Invoice $masterInvoice): void
+    {
+        $reservation->loadMissing('rooms');
+
+        foreach ($reservation->rooms as $room) {
+            $roomBookingId = $room->pivot->id ?? null;
+            if (!$roomBookingId) {
+                continue;
+            }
+
+            $childInvoice = Invoice::query()
+                ->where('reservation_id', $reservation->id)
+                ->where('invoice_kind', 'room')
+                ->where('booking_room_id', $roomBookingId)
+                ->first();
+
+            if (!$childInvoice) {
+                $childInvoice = Invoice::create([
+                    'reservation_id' => $reservation->id,
+                    'invoice_kind' => 'room',
+                    'booking_room_id' => $roomBookingId,
+                    'status' => 'open',
+                    'billing_mode' => 'per_room',
+                    'organization_id' => $reservation->organization_id,
+                    'parent_invoice_id' => $masterInvoice->id,
+                ]);
+            }
+
+            $childInvoice->update([
+                'billing_mode' => 'per_room',
+                'organization_id' => $reservation->organization_id,
+                'parent_invoice_id' => $masterInvoice->id,
+            ]);
+
+            $childInvoice->items()->where('type', 'room')->delete();
+            $nights = $this->bookingRoomNights($room, $reservation);
+            $pricePerNight = (int) ($room->pivot->price_snapshot_ariary ?? $room->base_price_ariary);
+            InvoiceItem::create([
+                'invoice_id' => $childInvoice->id,
+                'booking_room_id' => $roomBookingId,
+                'description' => $this->roomInvoiceDescription($room, $nights),
+                'type' => 'room',
+                'amount_ariary' => $pricePerNight,
+                'quantity' => $nights,
+            ]);
+
+            $this->syncRoomSpecificExtras($childInvoice, $reservation, $room);
             $this->recalculateInvoice($childInvoice->refresh());
         }
     }
 
     private function seedRoomItems(Invoice $invoice, Reservation $reservation): void
     {
-        $nights = $this->reservationNights($reservation);
-
         foreach ($reservation->rooms as $room) {
+            $nights = $this->bookingRoomNights($room, $reservation);
             $pricePerNight = (int) ($room->pivot->price_snapshot_ariary ?? $room->base_price_ariary);
 
             InvoiceItem::create([
@@ -778,12 +845,22 @@ class PMSController extends Controller
 
     private function syncReservationExtras(Invoice $invoice, Reservation $reservation): void
     {
+        $reservation->loadMissing('rooms');
+        $invoice->items()->where('type', 'extra')->delete();
+
+        $hasSegmentExtras = $reservation->rooms->contains(function (Room $room) {
+            return (int) ($room->pivot->segment_extra_beds ?? 0) > 0
+                || (int) ($room->pivot->segment_extra_mattresses ?? 0) > 0;
+        });
+
+        if ($hasSegmentExtras) {
+            foreach ($reservation->rooms as $room) {
+                $this->syncRoomSpecificExtras($invoice, $reservation, $room);
+            }
+            return;
+        }
+
         $nights = $this->reservationNights($reservation);
-
-        $invoice->items()
-            ->whereIn('description', ['Lit supplémentaire', 'Matelas supplémentaire'])
-            ->delete();
-
         if ((int) $reservation->extra_beds > 0) {
             InvoiceItem::create([
                 'invoice_id' => $invoice->id,
@@ -819,7 +896,7 @@ class PMSController extends Controller
 
             $item->update([
                 'booking_room_id' => $room->pivot->id ?? $item->booking_room_id,
-                'description' => $this->roomInvoiceDescription($room, (int) $item->quantity),
+                'description' => $this->roomInvoiceDescription($room, $this->bookingRoomNights($room, $reservation)),
             ]);
         }
     }
@@ -833,7 +910,51 @@ class PMSController extends Controller
             $base .= " - {$occupantName}";
         }
 
-        return "{$base} - {$nights} nuit(s)";
+        return $base . ' - ' . $nights . ' ' . ($nights > 1 ? 'nuits' : 'nuit');
+    }
+
+    private function segmentExtraDescription(string $label, Room $room, Reservation $reservation): string
+    {
+        return $label . ' - ' . $this->roomInvoiceDescription($room, $this->bookingRoomNights($room, $reservation));
+    }
+
+    private function syncRoomSpecificExtras(Invoice $invoice, Reservation $reservation, Room $room): void
+    {
+        $extrasQuery = $invoice->items()->where('type', 'extra');
+        if (($invoice->invoice_kind ?? 'master') === 'room') {
+            $extrasQuery->delete();
+        } else {
+            $extrasQuery
+                ->where('booking_room_id', $room->pivot->id ?? null)
+                ->delete();
+        }
+
+        $nights = $this->bookingRoomNights($room, $reservation);
+        $beds = (int) ($room->pivot->segment_extra_beds ?? 0);
+        $mattresses = (int) ($room->pivot->segment_extra_mattresses ?? 0);
+        $bookingRoomId = $room->pivot->id ?? null;
+
+        if ($beds > 0) {
+            InvoiceItem::create([
+                'invoice_id' => $invoice->id,
+                'booking_room_id' => $bookingRoomId,
+                'description' => $this->segmentExtraDescription('Lit supplémentaire', $room, $reservation),
+                'type' => 'extra',
+                'amount_ariary' => self::EXTRA_BED_PRICE_ARIARY,
+                'quantity' => $beds * $nights,
+            ]);
+        }
+
+        if ($mattresses > 0) {
+            InvoiceItem::create([
+                'invoice_id' => $invoice->id,
+                'booking_room_id' => $bookingRoomId,
+                'description' => $this->segmentExtraDescription('Matelas supplémentaire', $room, $reservation),
+                'type' => 'extra',
+                'amount_ariary' => self::EXTRA_MATTRESS_PRICE_ARIARY,
+                'quantity' => $mattresses * $nights,
+            ]);
+        }
     }
 
     private function reservationNights(Reservation $reservation): int
@@ -842,6 +963,41 @@ class PMSController extends Controller
         $checkOut = Carbon::parse($reservation->check_out_date);
 
         return max(1, $checkIn->diffInDays($checkOut));
+    }
+
+    private function bookingRoomNights(Room $room, Reservation $reservation): int
+    {
+        $start = $room->pivot->segment_start_date ?? $reservation->check_in_date;
+        $end = $room->pivot->segment_end_date ?? $reservation->check_out_date;
+
+        return max(1, Carbon::parse($start)->diffInDays(Carbon::parse($end)));
+    }
+
+    private function bookingRoomDateRange(Room $room, Reservation $reservation): string
+    {
+        $start = Carbon::parse($room->pivot->segment_start_date ?? $reservation->check_in_date)->format('d/m/Y');
+        $end = Carbon::parse($room->pivot->segment_end_date ?? $reservation->check_out_date)->format('d/m/Y');
+
+        return "{$start} → {$end}";
+    }
+
+    private function hasSegmentedRoomDates(Reservation $reservation): bool
+    {
+        $reservation->loadMissing('rooms');
+
+        foreach ($reservation->rooms as $room) {
+            $segmentStart = optional($room->pivot->segment_start_date)->toDateString();
+            $segmentEnd = optional($room->pivot->segment_end_date)->toDateString();
+
+            if (
+                ($segmentStart && $segmentStart !== optional($reservation->check_in_date)->toDateString())
+                || ($segmentEnd && $segmentEnd !== optional($reservation->check_out_date)->toDateString())
+            ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function recalculateInvoice(Invoice $invoice): void
@@ -906,6 +1062,10 @@ class PMSController extends Controller
             'type' => $room->type,
             'model' => $room->model,
             'price_snapshot_ariary' => (int) ($room->pivot->price_snapshot_ariary ?? $room->base_price_ariary),
+            'segment_start_date' => optional($room->pivot->segment_start_date)->toDateString(),
+            'segment_end_date' => optional($room->pivot->segment_end_date)->toDateString(),
+            'segment_extra_beds' => (int) ($room->pivot->segment_extra_beds ?? 0),
+            'segment_extra_mattresses' => (int) ($room->pivot->segment_extra_mattresses ?? 0),
             'occupant_name' => $room->pivot->occupant_name,
             'occupant_phone' => $room->pivot->occupant_phone,
             'occupant_email' => $room->pivot->occupant_email,
@@ -1011,7 +1171,7 @@ class PMSController extends Controller
             $invoice = $reservation->invoices->firstWhere('id', $invoiceId);
             if ($invoice) {
                 $invoice->load(['items', 'payments', 'reservation.guest', 'reservation.rooms', 'reservation.organization', 'reservation.invoices.items', 'reservation.invoices.payments']);
-                $this->syncRoomItemDescriptions($invoice, $reservation);
+                $this->syncInvoiceForReservation($invoice, $reservation);
                 return $invoice;
             }
         }
@@ -1026,13 +1186,13 @@ class PMSController extends Controller
                 ->first();
             if ($firstChild) {
                 $firstChild->load(['items', 'payments', 'reservation.guest', 'reservation.rooms', 'reservation.organization', 'reservation.invoices.items', 'reservation.invoices.payments']);
-                $this->syncRoomItemDescriptions($firstChild, $reservation);
+                $this->syncInvoiceForReservation($firstChild, $reservation);
                 return $firstChild;
             }
         }
 
         $masterInvoice->load(['items', 'payments', 'reservation.guest', 'reservation.rooms', 'reservation.organization', 'reservation.invoices.items', 'reservation.invoices.payments']);
-        $this->syncRoomItemDescriptions($masterInvoice, $reservation);
+        $this->syncInvoiceForReservation($masterInvoice, $reservation);
 
         return $masterInvoice;
     }
@@ -1097,19 +1257,26 @@ class PMSController extends Controller
         $roomBookById = $reservation->rooms->mapWithKeys(
             fn (Room $room) => [($room->pivot->id ?? $room->id) => $room]
         );
+        $showSegmentDates = $this->hasSegmentedRoomDates($reservation);
 
         foreach ($visibleItems as $item) {
             $unitAmount = $showEuro ? $this->invoiceItemUnitAmountInEuro($item) : (float) $item->amount_ariary;
             $lineTotal = $item->quantity * $unitAmount;
             $description = $item->description;
+            $segmentDateRange = '';
             if ($item->type === 'room' && $item->booking_room_id) {
                 $room = $roomBookById->get($item->booking_room_id);
                 if ($room instanceof Room) {
-                    $description = $this->roomInvoiceDescription($room, (int) $item->quantity);
+                    $nights = $this->bookingRoomNights($room, $reservation);
+                    $description = $this->roomInvoiceDescription($room, $nights);
+                    if ($showSegmentDates) {
+                        $segmentDateRange = $this->bookingRoomDateRange($room, $reservation);
+                    }
                 }
             }
             $rows .= '<tr>'
                 . '<td>' . e($description) . '</td>'
+                . ($showSegmentDates ? '<td>' . e($segmentDateRange) . '</td>' : '')
                 . '<td>' . $item->quantity . '</td>'
                 . '<td>' . $this->formatMoney($unitAmount, $currencyLabel, false) . '</td>'
                 . '<td>' . $this->formatMoney($lineTotal, $currencyLabel, false) . '</td>'
@@ -1226,7 +1393,7 @@ class PMSController extends Controller
                 </table>
                 <table class='lines'>
                     <thead>
-                        <tr><th>Description</th><th class='num'>Qté</th><th class='num'>{$unitHeader}</th><th class='num'>{$totalHeader}</th></tr>
+                        <tr><th>Chambre</th>" . ($showSegmentDates ? "<th>Dates</th>" : "") . "<th class='num'>Qté</th><th class='num'>{$unitHeader}</th><th class='num'>{$totalHeader}</th></tr>
                     </thead>
                     <tbody>{$rows}</tbody>
                 </table>

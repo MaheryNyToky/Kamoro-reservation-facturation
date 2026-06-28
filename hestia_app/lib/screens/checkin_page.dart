@@ -201,24 +201,29 @@ class _CheckInPageState extends State<CheckInPage> {
 
       final drafts = roomBookings
           .map(
-            (room) => _RoomOccupantDraft(
-              roomId: _asInt(room['room_id'] ?? room['id']),
-              roomLabel: _roomLabel(room),
-            )
-              ..nameController.text =
-                  (room['occupant_name'] ?? widget.reservation.clientName)
+            (room) =>
+                _RoomOccupantDraft(
+                    roomId: _asInt(room['room_id'] ?? room['id']),
+                    roomLabel: _roomLabel(room),
+                  )
+                  ..nameController.text =
+                      (room['occupant_name'] ?? widget.reservation.clientName)
+                          .toString()
+                          .trim()
+                  ..idType = (room['occupant_id_type'] ?? 'CIN').toString()
+                  ..idNumberController.text = (room['occupant_id_number'] ?? '')
                       .toString()
                       .trim()
-              ..idType = (room['occupant_id_type'] ?? 'CIN').toString()
-              ..idNumberController.text =
-                  (room['occupant_id_number'] ?? '').toString().trim()
-              ..passportValidFrom =
-                  _parseIsoDate(room['occupant_passport_valid_from'])
-              ..passportValidUntil =
-                  _parseIsoDate(room['occupant_passport_valid_until'])
-              ..sex = (room['occupant_sex'] ?? _sex).toString()
-              ..dateOfBirth =
-                  _parseIsoDate(room['occupant_date_of_birth']) ?? _dateOfBirth,
+                  ..passportValidFrom = _parseIsoDate(
+                    room['occupant_passport_valid_from'],
+                  )
+                  ..passportValidUntil = _parseIsoDate(
+                    room['occupant_passport_valid_until'],
+                  )
+                  ..sex = (room['occupant_sex'] ?? _sex).toString()
+                  ..dateOfBirth =
+                      _parseIsoDate(room['occupant_date_of_birth']) ??
+                      _dateOfBirth,
           )
           .toList();
 
@@ -238,9 +243,37 @@ class _CheckInPageState extends State<CheckInPage> {
         .toString()
         .trim();
     final type = (room['type'] ?? room['model'] ?? '').toString().trim();
-    if (roomNumber.isEmpty) return type;
-    if (type.isEmpty) return roomNumber;
-    return '$roomNumber - $type';
+    final segmentLabel = _segmentLabel(room);
+    final baseLabel = roomNumber.isEmpty
+        ? type
+        : (type.isEmpty ? roomNumber : '$roomNumber - $type');
+    if (segmentLabel.isEmpty) return baseLabel;
+    if (baseLabel.isEmpty) return segmentLabel;
+    return '$baseLabel • $segmentLabel';
+  }
+
+  String _segmentLabel(Map<String, dynamic> room) {
+    final start = _parseIsoDate(room['segment_start_date']);
+    final end = _parseIsoDate(room['segment_end_date']);
+    final reservationStart = widget.reservation.checkIn;
+    final reservationEnd = widget.reservation.checkOut;
+
+    if (start == null && end == null) return '';
+    final startText = _dateLabel(start ?? reservationStart);
+    final endText = _dateLabel(end ?? reservationEnd);
+    if (startText.isEmpty || endText.isEmpty) return '';
+    if (startText == _dateLabel(reservationStart) &&
+        endText == _dateLabel(reservationEnd)) {
+      return '';
+    }
+    return '$startText -> $endText';
+  }
+
+  String _dateLabel(DateTime value) {
+    final day = value.day.toString().padLeft(2, '0');
+    final month = value.month.toString().padLeft(2, '0');
+    final year = value.year.toString();
+    return '$day/$month/$year';
   }
 
   DateTime? _parseIsoDate(dynamic value) {

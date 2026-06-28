@@ -13,6 +13,10 @@ class ReservationRoom extends Pivot
         'reservation_id',
         'room_id',
         'price_snapshot_ariary',
+        'segment_start_date',
+        'segment_end_date',
+        'segment_extra_beds',
+        'segment_extra_mattresses',
         'occupant_name',
         'occupant_phone',
         'occupant_email',
@@ -30,6 +34,10 @@ class ReservationRoom extends Pivot
 
     protected $casts = [
         'price_snapshot_ariary' => 'integer',
+        'segment_start_date' => 'date:Y-m-d',
+        'segment_end_date' => 'date:Y-m-d',
+        'segment_extra_beds' => 'integer',
+        'segment_extra_mattresses' => 'integer',
         'occupant_date_of_birth' => 'date:Y-m-d',
         'occupant_passport_valid_from' => 'date:Y-m-d',
         'occupant_passport_valid_until' => 'date:Y-m-d',

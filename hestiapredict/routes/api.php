@@ -15,6 +15,7 @@ Route::middleware('throttle:120,1')->group(function () {
     Route::get('/dashboard/reservation-status-summary', [HotelManagementController::class, 'reservationStatusSummary']);
     Route::get('/live-availability', [HotelManagementController::class, 'getLiveAvailability']);
     Route::get('/available-rooms', [HotelManagementController::class, 'getAvailableRoomsForDates']);
+    Route::get('/available-room-suggestions', [HotelManagementController::class, 'getAvailableRoomSuggestions']);
     Route::get('/reservations/all', [HotelManagementController::class, 'getAllReservations']);
     Route::get('/active-reservations', [HotelManagementController::class, 'getActiveReservations']);
     Route::get('/clients/search', [ClientController::class, 'search']);

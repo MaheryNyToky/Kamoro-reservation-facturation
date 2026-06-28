@@ -27,6 +27,10 @@ class Room extends Model
             ->withPivot(
                 'id',
                 'price_snapshot_ariary',
+                'segment_start_date',
+                'segment_end_date',
+                'segment_extra_beds',
+                'segment_extra_mattresses',
                 'occupant_name',
                 'occupant_phone',
                 'occupant_email',

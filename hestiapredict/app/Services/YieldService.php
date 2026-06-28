@@ -8,6 +8,7 @@ use Carbon\Carbon;
 use Carbon\CarbonPeriod;
 use GuzzleHttp\Client;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 class YieldService
 {
@@ -59,12 +60,12 @@ class YieldService
 
         $dailyCaOfficial = $this->revenueForDate($date, ['arrive']);
         $dailyCaPending = $this->revenueForDate($date, ['en_attente']);
-        $totalCA = Reservation::query()
-            ->where('check_in_date', '<=', $date)
-            ->where('status', 'arrive')
-            ->with('rooms')
-            ->get()
-            ->sum(fn (Reservation $reservation) => $reservation->rooms->sum(fn (Room $room) => (int) $room->pivot->price_snapshot_ariary));
+        $totalCA = (int) DB::table('booking_room')
+            ->join('reservations', 'reservations.id', '=', 'booking_room.reservation_id')
+            ->where('reservations.status', 'arrive')
+            ->whereRaw('COALESCE(booking_room.segment_start_date, reservations.check_in_date) <= ?', [$date])
+            ->whereRaw('COALESCE(booking_room.segment_end_date, reservations.check_out_date) > ?', [$date])
+            ->sum('booking_room.price_snapshot_ariary');
 
         return [
             'status' => 'success',
@@ -129,24 +130,31 @@ class YieldService
 
     private function historyData(): array
     {
-        return Reservation::query()
-            ->select(['id', 'check_in_date', 'check_out_date', 'status'])
-            ->with('rooms:id,type,model')
-            ->whereIn('status', Reservation::ACTIVE_STATUSES)
+        return DB::table('booking_room')
+            ->join('reservations', 'reservations.id', '=', 'booking_room.reservation_id')
+            ->join('rooms', 'rooms.id', '=', 'booking_room.room_id')
+            ->whereIn('reservations.status', Reservation::ACTIVE_STATUSES)
+            ->select([
+                'booking_room.id as booking_room_id',
+                'booking_room.room_id',
+                'rooms.type as room_type',
+                'rooms.model as room_model',
+                DB::raw('COALESCE(booking_room.segment_start_date, reservations.check_in_date) as segment_start_date'),
+                DB::raw('COALESCE(booking_room.segment_end_date, reservations.check_out_date) as segment_end_date'),
+            ])
             ->get()
-            ->flatMap(function (Reservation $reservation) {
+            ->flatMap(function ($bookingRoom) {
                 $rows = [];
-                $start = Carbon::parse($reservation->check_in_date)->startOfDay();
-                $end = Carbon::parse($reservation->check_out_date)->startOfDay();
+                $start = Carbon::parse($bookingRoom->segment_start_date)->startOfDay();
+                $end = Carbon::parse($bookingRoom->segment_end_date)->startOfDay();
+                $roomType = trim(($bookingRoom->room_type ?? '') . ' - ' . ($bookingRoom->room_model ?? ''));
 
                 foreach (CarbonPeriod::create($start, $end->copy()->subDay()) as $date) {
-                    foreach ($reservation->rooms as $room) {
-                        $rows[] = [
-                            'date' => $date->toDateString(),
-                            'room_type' => $room->identifier,
-                            'room_id' => $room->id,
-                        ];
-                    }
+                    $rows[] = [
+                        'date' => $date->toDateString(),
+                        'room_type' => $roomType,
+                        'room_id' => (int) $bookingRoom->room_id,
+                    ];
                 }
 
                 return $rows;
@@ -338,12 +346,11 @@ class YieldService
 
     private function revenueForDate(string $date, array $statuses): int
     {
-        return Reservation::query()
-            ->where('check_in_date', '<=', $date)
-            ->where('check_out_date', '>', $date)
-            ->whereIn('status', $statuses)
-            ->with('rooms')
-            ->get()
-            ->sum(fn (Reservation $reservation) => $reservation->rooms->sum(fn (Room $room) => (int) $room->pivot->price_snapshot_ariary));
+        return (int) DB::table('booking_room')
+            ->join('reservations', 'reservations.id', '=', 'booking_room.reservation_id')
+            ->whereIn('reservations.status', $statuses)
+            ->whereRaw('COALESCE(booking_room.segment_start_date, reservations.check_in_date) <= ?', [$date])
+            ->whereRaw('COALESCE(booking_room.segment_end_date, reservations.check_out_date) > ?', [$date])
+            ->sum('booking_room.price_snapshot_ariary');
     }
 }

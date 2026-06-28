@@ -176,6 +176,44 @@ class YieldServiceTest extends TestCase
         );
     }
 
+    public function test_history_data_uses_segment_dates_when_present(): void
+    {
+        $room = Room::query()->create([
+            'room_number' => '104',
+            'type' => 'Chambre Double',
+            'model' => 'Supérieure',
+            'base_price_ariary' => 125000,
+            'is_fixed_price' => false,
+        ]);
+
+        $reservation = Reservation::query()->create([
+            'client_name' => 'Client Segmenté',
+            'client_phone' => '0340000002',
+            'check_in_date' => '2026-07-01',
+            'check_out_date' => '2026-07-05',
+            'status' => 'arrive',
+            'source' => 'direct',
+        ]);
+        $reservation->rooms()->attach($room->id, [
+            'price_snapshot_ariary' => 125000,
+            'segment_start_date' => '2026-07-02',
+            'segment_end_date' => '2026-07-04',
+        ]);
+
+        $history = $this->invokePrivate(
+            new YieldService(new AvailabilityService()),
+            'historyData',
+        );
+
+        $rows = array_values(array_filter($history, fn (array $row) => $row['room_type'] === 'Chambre Double - Supérieure'));
+
+        $this->assertCount(2, $rows);
+        $this->assertSame(
+            ['2026-07-02', '2026-07-03'],
+            array_column($rows, 'date'),
+        );
+    }
+
     private function invokePrivate(object $object, string $method, mixed ...$arguments): mixed
     {
         $reflection = new ReflectionMethod($object, $method);

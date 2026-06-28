@@ -8,6 +8,7 @@ use Carbon\Carbon;
 use Carbon\CarbonPeriod;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 class AvailabilityService
 {
@@ -32,10 +33,14 @@ class AvailabilityService
     public function occupiedRoomIdsForDate(string $date, array $statuses = Reservation::ACTIVE_STATUSES): Collection
     {
         return Room::query()
-            ->whereHas('reservations', function ($query) use ($date, $statuses) {
-                $query->whereIn('reservations.status', $statuses)
-                    ->where('reservations.check_in_date', '<=', $date)
-                    ->where('reservations.check_out_date', '>', $date);
+            ->whereExists(function ($query) use ($date, $statuses) {
+                $query->selectRaw('1')
+                    ->from('booking_room')
+                    ->join('reservations', 'reservations.id', '=', 'booking_room.reservation_id')
+                    ->whereColumn('booking_room.room_id', 'rooms.id')
+                    ->whereIn('reservations.status', $statuses)
+                    ->whereRaw('COALESCE(booking_room.segment_start_date, reservations.check_in_date) <= ?', [$date])
+                    ->whereRaw('COALESCE(booking_room.segment_end_date, reservations.check_out_date) > ?', [$date]);
             })
             ->pluck('id');
     }
@@ -48,10 +53,14 @@ class AvailabilityService
     ): Collection
     {
         return Room::query()
-            ->whereHas('reservations', function ($query) use ($checkIn, $checkOut, $statuses, $excludeReservationId) {
-                $query->whereIn('reservations.status', $statuses)
-                    ->where('reservations.check_in_date', '<', $checkOut)
-                    ->where('reservations.check_out_date', '>', $checkIn)
+            ->whereExists(function ($query) use ($checkIn, $checkOut, $statuses, $excludeReservationId) {
+                $query->selectRaw('1')
+                    ->from('booking_room')
+                    ->join('reservations', 'reservations.id', '=', 'booking_room.reservation_id')
+                    ->whereColumn('booking_room.room_id', 'rooms.id')
+                    ->whereIn('reservations.status', $statuses)
+                    ->whereRaw('COALESCE(booking_room.segment_start_date, reservations.check_in_date) < ?', [$checkOut])
+                    ->whereRaw('COALESCE(booking_room.segment_end_date, reservations.check_out_date) > ?', [$checkIn])
                     ->when($excludeReservationId, fn ($query) => $query->where('reservations.id', '!=', $excludeReservationId));
             })
             ->pluck('id');
@@ -121,6 +130,128 @@ class AvailabilityService
         });
     }
 
+    /**
+     * Retourne toutes les chambres avec leurs créneaux libres sur une période donnée.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function roomAvailabilitySuggestions(string $checkIn, string $checkOut, ?int $excludeReservationId = null): array
+    {
+        $cacheVersion = $this->cacheVersion();
+        $cacheKey = sprintf(
+            'dashboard:room-availability-suggestions:%s:%s:%s:%d',
+            $checkIn,
+            $checkOut,
+            $excludeReservationId ?? 'none',
+            $cacheVersion
+        );
+
+        return Cache::remember($cacheKey, now()->addSeconds(45), function () use ($checkIn, $checkOut, $excludeReservationId) {
+            $rooms = Room::query()
+                ->orderBy('room_number')
+                ->get();
+
+            $periodStart = Carbon::parse($checkIn)->startOfDay();
+            $periodEnd = Carbon::parse($checkOut)->startOfDay();
+            $previousNightStart = $periodStart->copy()->subDay()->toDateString();
+            $occupiedPreviousNightIds = $this
+                ->busyRoomIdsForPeriod(
+                    $previousNightStart,
+                    $periodStart->toDateString(),
+                    Reservation::ACTIVE_STATUSES,
+                    $excludeReservationId,
+                )
+                ->map(fn ($id) => (int) $id)
+                ->all();
+
+            $occupancies = DB::table('booking_room')
+                ->join('reservations', 'reservations.id', '=', 'booking_room.reservation_id')
+                ->select([
+                    'booking_room.room_id',
+                    DB::raw('COALESCE(booking_room.segment_start_date, reservations.check_in_date) as segment_start_date'),
+                    DB::raw('COALESCE(booking_room.segment_end_date, reservations.check_out_date) as segment_end_date'),
+                ])
+                ->whereIn('reservations.status', Reservation::ACTIVE_STATUSES)
+                ->whereRaw('COALESCE(booking_room.segment_start_date, reservations.check_in_date) < ?', [$checkOut])
+                ->whereRaw('COALESCE(booking_room.segment_end_date, reservations.check_out_date) > ?', [$checkIn])
+                ->when($excludeReservationId, fn ($query) => $query->where('reservations.id', '!=', $excludeReservationId))
+                ->orderBy('segment_start_date')
+                ->get()
+                ->groupBy('room_id');
+
+            return $rooms->map(function (Room $room) use ($occupancies, $periodStart, $periodEnd, $occupiedPreviousNightIds) {
+                $roomOccupancies = collect($occupancies->get($room->id, collect()))
+                    ->map(function ($row) use ($periodStart, $periodEnd) {
+                        $start = Carbon::parse($row->segment_start_date)->startOfDay();
+                        $end = Carbon::parse($row->segment_end_date)->startOfDay();
+
+                        if ($start->lt($periodStart)) {
+                            $start = $periodStart->copy();
+                        }
+                        if ($end->gt($periodEnd)) {
+                            $end = $periodEnd->copy();
+                        }
+
+                        return [
+                            'start' => $start,
+                            'end' => $end,
+                        ];
+                    })
+                    ->filter(fn (array $interval) => $interval['start']->lt($interval['end']))
+                    ->sortBy('start')
+                    ->values();
+
+                $freeSegments = [];
+                $cursor = $periodStart->copy();
+
+                foreach ($roomOccupancies as $interval) {
+                    if ($cursor->lt($interval['start'])) {
+                        $freeSegments[] = [
+                            'segment_start_date' => $cursor->toDateString(),
+                            'segment_end_date' => $interval['start']->toDateString(),
+                        ];
+                    }
+
+                    if ($cursor->lt($interval['end'])) {
+                        $cursor = $interval['end']->copy();
+                    }
+                }
+
+                if ($cursor->lt($periodEnd)) {
+                    $freeSegments[] = [
+                        'segment_start_date' => $cursor->toDateString(),
+                        'segment_end_date' => $periodEnd->toDateString(),
+                    ];
+                }
+
+                $freeSegments = array_values(array_filter($freeSegments, function (array $segment) {
+                    return Carbon::parse($segment['segment_start_date'])->lt(Carbon::parse($segment['segment_end_date']));
+                }));
+
+                return [
+                    'id' => $room->id,
+                    'room_number' => $room->room_number,
+                    'type' => $room->type,
+                    'model' => $room->model,
+                    'base_price_ariary' => $room->base_price_ariary,
+                    'fixed_price_ariary' => $room->base_price_ariary,
+                    'is_fixed_price' => $room->is_fixed_price,
+                    'availability_segments' => $freeSegments,
+                    'occupied_previous_night' => in_array((int) $room->id, $occupiedPreviousNightIds, true),
+                    'is_fully_available' => count($freeSegments) === 1
+                        && ($freeSegments[0]['segment_start_date'] ?? null) === $periodStart->toDateString()
+                        && ($freeSegments[0]['segment_end_date'] ?? null) === $periodEnd->toDateString(),
+                    'has_partial_availability' => !empty($freeSegments)
+                        && !(
+                            count($freeSegments) === 1
+                            && ($freeSegments[0]['segment_start_date'] ?? null) === $periodStart->toDateString()
+                            && ($freeSegments[0]['segment_end_date'] ?? null) === $periodEnd->toDateString()
+                        ),
+                ];
+            })->values()->all();
+        });
+    }
+
     public function occupiedRoomCount(string $date, array $statuses = Reservation::ACTIVE_STATUSES): int
     {
         return $this->occupiedRoomIdsForDate($date, $statuses)->count();
@@ -131,10 +262,14 @@ class AvailabilityService
         return Room::query()
             ->where('type', $type)
             ->where('model', $model)
-            ->whereHas('reservations', function ($query) use ($date) {
-                $query->whereIn('reservations.status', Reservation::ACTIVE_STATUSES)
-                    ->where('reservations.check_in_date', '<=', $date)
-                    ->where('reservations.check_out_date', '>', $date);
+            ->whereExists(function ($query) use ($date) {
+                $query->selectRaw('1')
+                    ->from('booking_room')
+                    ->join('reservations', 'reservations.id', '=', 'booking_room.reservation_id')
+                    ->whereColumn('booking_room.room_id', 'rooms.id')
+                    ->whereIn('reservations.status', Reservation::ACTIVE_STATUSES)
+                    ->whereRaw('COALESCE(booking_room.segment_start_date, reservations.check_in_date) <= ?', [$date])
+                    ->whereRaw('COALESCE(booking_room.segment_end_date, reservations.check_out_date) > ?', [$date]);
             })
             ->count();
     }

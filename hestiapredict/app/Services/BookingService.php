@@ -67,17 +67,11 @@ class BookingService
                 ->map(fn ($roomId) => (int) $roomId)
                 ->filter(fn (int $roomId) => $roomId > 0)
                 ->values();
+            $roomSegments = $this->normalizeRoomSegments($data, $data['check_in'], $data['check_out'], $roomIds);
+            $hasCustomSegments = filled($data['room_segments'] ?? null);
 
-            $busyRoomIds = $this->availabilityService->busyRoomIdsForPeriod(
-                $data['check_in'],
-                $data['check_out'],
-                Reservation::ACTIVE_STATUSES,
-            );
-
-            $conflictingRoomNumbers = Room::query()
-                ->whereIn('id', $roomIds->intersect($busyRoomIds)->values())
-                ->orderBy('room_number')
-                ->pluck('room_number');
+            $this->assertSegmentsDoNotOverlap($roomSegments);
+            $conflictingRoomNumbers = $this->conflictingRoomNumbersForSegments($roomSegments);
 
             if ($conflictingRoomNumbers->isNotEmpty()) {
                 throw ValidationException::withMessages([
@@ -87,7 +81,7 @@ class BookingService
 
             if ($source === 'Booking') {
                 $invalidBookingRoomNumbers = Room::query()
-                    ->whereIn('id', $roomIds)
+                    ->whereIn('id', $roomSegments->pluck('room_id')->unique()->values())
                     ->where(function ($query) {
                         $query
                             ->where('type', '!=', 'Chambre Double')
@@ -106,8 +100,12 @@ class BookingService
             $this->assertExtraCapacityWithinLimit(
                 $data['check_in'],
                 $data['check_out'],
-                (int) ($data['extra_beds'] ?? 0),
-                (int) ($data['extra_mattresses'] ?? 0),
+                $hasCustomSegments
+                    ? $roomSegments->sum(fn (array $segment) => (int) ($segment['segment_extra_beds'] ?? 0))
+                    : (int) ($data['extra_beds'] ?? 0),
+                $hasCustomSegments
+                    ? $roomSegments->sum(fn (array $segment) => (int) ($segment['segment_extra_mattresses'] ?? 0))
+                    : (int) ($data['extra_mattresses'] ?? 0),
             );
 
             $reservation = Reservation::query()->create([
@@ -126,17 +124,22 @@ class BookingService
                 'status' => 'en_attente',
                 'payment_status' => 'unbilled',
                 'user_id' => $userId,
-                'extra_beds' => (int) ($data['extra_beds'] ?? 0),
-                'extra_mattresses' => (int) ($data['extra_mattresses'] ?? 0),
+                'extra_beds' => $hasCustomSegments
+                    ? $roomSegments->sum(fn (array $segment) => (int) ($segment['segment_extra_beds'] ?? 0))
+                    : (int) ($data['extra_beds'] ?? 0),
+                'extra_mattresses' => $hasCustomSegments
+                    ? $roomSegments->sum(fn (array $segment) => (int) ($segment['segment_extra_mattresses'] ?? 0))
+                    : (int) ($data['extra_mattresses'] ?? 0),
             ]);
 
             $providedPrices = collect($data['room_prices'] ?? [])
                 ->mapWithKeys(fn (array $roomPrice) => [$roomPrice['id'] => $roomPrice['price']]);
 
             Room::query()
-                ->whereIn('id', $roomIds)
+                ->whereIn('id', $roomSegments->pluck('room_id')->unique()->values())
                 ->get()
-                ->each(function (Room $room) use ($reservation, $providedPrices, $source) {
+                ->each(function (Room $room) use ($reservation, $providedPrices, $source, $roomSegments) {
+                    $segment = $roomSegments->firstWhere('room_id', $room->id);
                     $price = $source === 'Booking'
                         ? self::BOOKING_ROOM_PRICE_ARIARY
                         : ($room->is_fixed_price
@@ -145,6 +148,10 @@ class BookingService
 
                     $reservation->rooms()->attach($room->id, [
                         'price_snapshot_ariary' => $price,
+                        'segment_start_date' => $segment['segment_start_date'] ?? $reservation->check_in_date,
+                        'segment_end_date' => $segment['segment_end_date'] ?? $reservation->check_out_date,
+                        'segment_extra_beds' => (int) ($segment['segment_extra_beds'] ?? 0),
+                        'segment_extra_mattresses' => (int) ($segment['segment_extra_mattresses'] ?? 0),
                     ]);
                 });
 
@@ -154,7 +161,8 @@ class BookingService
                 'actor_name' => $data['receptionist_name'] ?? null,
                 'actor_role' => 'receptionist',
                 'details' => [
-                    'room_ids' => $roomIds->all(),
+                    'room_ids' => $roomSegments->pluck('room_id')->all(),
+                    'room_segments' => $roomSegments->values()->all(),
                     'check_in' => $data['check_in'],
                     'check_out' => $data['check_out'],
                     'source' => $source,
@@ -252,6 +260,8 @@ class BookingService
             ? Carbon::parse($reservation->check_out_date)->toDateString()
             : $data['check_out'];
         $roomIds = collect($data['room_ids'])->map(fn ($roomId) => (int) $roomId)->values();
+        $roomSegments = $this->normalizeRoomSegments($data, $checkIn, $checkOut, $roomIds);
+        $hasCustomSegments = filled($data['room_segments'] ?? null);
 
         if ($isCheckedIn) {
             $submittedName = trim((string) ($data['client_name'] ?? ''));
@@ -283,16 +293,11 @@ class BookingService
             }
         }
 
-        $conflictingRoomNumbers = Room::query()
-            ->whereIn('id', $roomIds)
-            ->whereHas('reservations', function ($query) use ($reservation, $checkIn, $checkOut) {
-                $query->where('reservations.id', '!=', $reservation->id)
-                    ->whereIn('reservations.status', Reservation::ACTIVE_STATUSES)
-                    ->where('reservations.check_in_date', '<', $checkOut)
-                    ->where('reservations.check_out_date', '>', $checkIn);
-            })
-            ->orderBy('room_number')
-            ->pluck('room_number');
+        $this->assertSegmentsDoNotOverlap($roomSegments);
+        $conflictingRoomNumbers = $this->conflictingRoomNumbersForSegments(
+            $roomSegments,
+            $reservation->id
+        );
 
         if ($conflictingRoomNumbers->isNotEmpty()) {
             throw ValidationException::withMessages([
@@ -318,20 +323,26 @@ class BookingService
             }
         }
 
+        $segmentBeds = $hasCustomSegments
+            ? $roomSegments->sum(fn (array $segment) => (int) ($segment['segment_extra_beds'] ?? 0))
+            : (int) ($data['extra_beds'] ?? 0);
+        $segmentMattresses = $hasCustomSegments
+            ? $roomSegments->sum(fn (array $segment) => (int) ($segment['segment_extra_mattresses'] ?? 0))
+            : (int) ($data['extra_mattresses'] ?? 0);
         $this->assertExtraCapacityWithinLimit(
             $checkIn,
             $checkOut,
-            (int) ($data['extra_beds'] ?? 0),
-            (int) ($data['extra_mattresses'] ?? 0),
+            $segmentBeds,
+            $segmentMattresses,
             $reservation->id,
         );
 
-        return DB::transaction(function () use ($reservation, $data, $roomIds, $isCheckedIn) {
+        return DB::transaction(function () use ($reservation, $data, $roomIds, $isCheckedIn, $roomSegments, $hasCustomSegments) {
             $customerPhone = PhoneNumber::normalize($data['customer_phone'] ?? null);
             $previousPrices = $reservation->rooms
                 ->mapWithKeys(fn (Room $room) => [$room->id => (int) $room->pivot->price_snapshot_ariary]);
             $previousRoomIds = $reservation->rooms->pluck('id')->map(fn ($id) => (int) $id)->sort()->values()->all();
-            $newRoomIds = $roomIds->sort()->values()->all();
+            $newRoomIds = $roomSegments->pluck('room_id')->sort()->values()->all();
 
             $changeSet = [];
             $registerChange = function (string $field, mixed $before, mixed $after) use (&$changeSet): void {
@@ -344,8 +355,12 @@ class BookingService
             };
 
             $updateData = [
-                'extra_beds' => (int) ($data['extra_beds'] ?? 0),
-                'extra_mattresses' => (int) ($data['extra_mattresses'] ?? 0),
+                'extra_beds' => $hasCustomSegments
+                    ? $roomSegments->sum(fn (array $segment) => (int) ($segment['segment_extra_beds'] ?? 0))
+                    : (int) ($data['extra_beds'] ?? 0),
+                'extra_mattresses' => $hasCustomSegments
+                    ? $roomSegments->sum(fn (array $segment) => (int) ($segment['segment_extra_mattresses'] ?? 0))
+                    : (int) ($data['extra_mattresses'] ?? 0),
             ];
 
             if (!$isCheckedIn) {
@@ -360,11 +375,11 @@ class BookingService
             }
 
             $registerChange('room_ids', $previousRoomIds, $newRoomIds);
-            $registerChange('extra_beds', (int) $reservation->extra_beds, (int) ($data['extra_beds'] ?? 0));
+            $registerChange('extra_beds', (int) $reservation->extra_beds, $updateData['extra_beds']);
             $registerChange(
                 'extra_mattresses',
                 (int) $reservation->extra_mattresses,
-                (int) ($data['extra_mattresses'] ?? 0)
+                $updateData['extra_mattresses']
             );
 
             if (!$isCheckedIn) {
@@ -384,20 +399,7 @@ class BookingService
             }
 
             $reservation->update($updateData);
-
-            $syncData = Room::query()
-                ->whereIn('id', $roomIds)
-                ->get()
-                ->mapWithKeys(function (Room $room) use ($previousPrices, $reservation) {
-                    $price = $reservation->source === 'Booking'
-                        ? self::BOOKING_ROOM_PRICE_ARIARY
-                        : $previousPrices->get($room->id, $room->base_price_ariary);
-
-                    return [$room->id => ['price_snapshot_ariary' => $price]];
-                })
-                ->all();
-
-            $reservation->rooms()->sync($syncData);
+            $this->syncRoomSegments($reservation, $roomSegments, $previousPrices);
 
             if (!empty($changeSet)) {
                 ReservationAudit::create([
@@ -500,7 +502,7 @@ class BookingService
         }
 
         $reservations = Reservation::query()
-            ->select(['id', 'check_in_date', 'check_out_date', 'extra_beds', 'extra_mattresses'])
+            ->with('rooms')
             ->whereIn('status', Reservation::ACTIVE_STATUSES)
             ->where('check_in_date', '<', $checkOut)
             ->where('check_out_date', '>', $checkIn)
@@ -508,24 +510,59 @@ class BookingService
             ->get();
 
         foreach ($reservations as $reservation) {
-            $reservationStart = Carbon::parse($reservation->check_in_date)->startOfDay();
-            if ($reservationStart->lt($start)) {
-                $reservationStart = $start->copy();
-            }
+            $usesSegmentExtras = $reservation->rooms->contains(function (Room $room) use ($reservation) {
+                $reservationStart = $reservation->check_in_date->toDateString();
+                $reservationEnd = $reservation->check_out_date->toDateString();
+                $segmentStart = optional($room->pivot->segment_start_date)->toDateString();
+                $segmentEnd = optional($room->pivot->segment_end_date)->toDateString();
 
-            $reservationEnd = Carbon::parse($reservation->check_out_date)->startOfDay();
-            if ($reservationEnd->gt($end)) {
-                $reservationEnd = $end->copy();
-            }
+                return (int) ($room->pivot->segment_extra_beds ?? 0) > 0
+                    || (int) ($room->pivot->segment_extra_mattresses ?? 0) > 0
+                    || ($segmentStart && $segmentStart !== $reservationStart)
+                    || ($segmentEnd && $segmentEnd !== $reservationEnd);
+            });
 
-            foreach (CarbonPeriod::create($reservationStart, $reservationEnd->copy()->subDay()) as $date) {
-                $key = $date->toDateString();
-                if (!isset($daily[$key])) {
-                    continue;
+            if ($usesSegmentExtras) {
+                foreach ($reservation->rooms as $room) {
+                    $segmentStart = Carbon::parse($room->pivot->segment_start_date ?? $reservation->check_in_date)->startOfDay();
+                    $segmentEnd = Carbon::parse($room->pivot->segment_end_date ?? $reservation->check_out_date)->startOfDay();
+                    if ($segmentStart->lt($start)) {
+                        $segmentStart = $start->copy();
+                    }
+                    if ($segmentEnd->gt($end)) {
+                        $segmentEnd = $end->copy();
+                    }
+
+                    foreach (CarbonPeriod::create($segmentStart, $segmentEnd->copy()->subDay()) as $date) {
+                        $key = $date->toDateString();
+                        if (!isset($daily[$key])) {
+                            continue;
+                        }
+
+                        $daily[$key]['beds_used'] += (int) ($room->pivot->segment_extra_beds ?? 0);
+                        $daily[$key]['mattresses_used'] += (int) ($room->pivot->segment_extra_mattresses ?? 0);
+                    }
+                }
+            } else {
+                $reservationStart = Carbon::parse($reservation->check_in_date)->startOfDay();
+                if ($reservationStart->lt($start)) {
+                    $reservationStart = $start->copy();
                 }
 
-                $daily[$key]['beds_used'] += (int) ($reservation->extra_beds ?? 0);
-                $daily[$key]['mattresses_used'] += (int) ($reservation->extra_mattresses ?? 0);
+                $reservationEnd = Carbon::parse($reservation->check_out_date)->startOfDay();
+                if ($reservationEnd->gt($end)) {
+                    $reservationEnd = $end->copy();
+                }
+
+                foreach (CarbonPeriod::create($reservationStart, $reservationEnd->copy()->subDay()) as $date) {
+                    $key = $date->toDateString();
+                    if (!isset($daily[$key])) {
+                        continue;
+                    }
+
+                    $daily[$key]['beds_used'] += (int) ($reservation->extra_beds ?? 0);
+                    $daily[$key]['mattresses_used'] += (int) ($reservation->extra_mattresses ?? 0);
+                }
             }
         }
 
@@ -544,6 +581,128 @@ class BookingService
             'remaining_beds' => $remainingBeds,
             'remaining_mattresses' => $remainingMattresses,
         ];
+    }
+
+    private function normalizeRoomSegments(array $data, string $checkIn, string $checkOut, Collection $roomIds): Collection
+    {
+        $segments = collect($data['room_segments'] ?? [])
+            ->filter(fn ($segment) => is_array($segment))
+            ->values();
+
+        if ($segments->isEmpty()) {
+            return $roomIds->map(fn (int $roomId) => [
+                'room_id' => $roomId,
+                'segment_start_date' => $checkIn,
+                'segment_end_date' => $checkOut,
+                'segment_extra_beds' => 0,
+                'segment_extra_mattresses' => 0,
+            ]);
+        }
+
+        return $segments
+            ->map(function (array $segment) use ($checkIn, $checkOut) {
+                $roomId = (int) ($segment['room_id'] ?? 0);
+                if ($roomId <= 0) {
+                    return null;
+                }
+
+                $segmentStart = trim((string) ($segment['segment_start_date'] ?? $checkIn));
+                $segmentEnd = trim((string) ($segment['segment_end_date'] ?? $checkOut));
+
+                return [
+                    'room_id' => $roomId,
+                    'segment_start_date' => $segmentStart !== '' ? $segmentStart : $checkIn,
+                    'segment_end_date' => $segmentEnd !== '' ? $segmentEnd : $checkOut,
+                    'segment_extra_beds' => (int) ($segment['segment_extra_beds'] ?? 0),
+                    'segment_extra_mattresses' => (int) ($segment['segment_extra_mattresses'] ?? 0),
+                ];
+            })
+            ->filter()
+            ->values();
+    }
+
+    private function assertSegmentsDoNotOverlap(Collection $segments): void
+    {
+        $byRoom = $segments->groupBy('room_id');
+
+        foreach ($byRoom as $roomSegments) {
+            $normalized = $roomSegments
+                ->map(fn (array $segment) => [
+                    'start' => Carbon::parse($segment['segment_start_date'])->startOfDay(),
+                    'end' => Carbon::parse($segment['segment_end_date'])->startOfDay(),
+                ])
+                ->sortBy('start')
+                ->values();
+
+            for ($i = 1; $i < $normalized->count(); $i++) {
+                if ($normalized[$i]['start']->lt($normalized[$i - 1]['end'])) {
+                    throw ValidationException::withMessages([
+                        'room_segments' => 'Le découpage contient des segments qui se chevauchent pour une même chambre.',
+                    ]);
+                }
+            }
+        }
+    }
+
+    private function conflictingRoomNumbersForSegments(Collection $segments, ?int $excludeReservationId = null): Collection
+    {
+        $conflicts = collect();
+
+        foreach ($segments as $segment) {
+            $roomId = (int) ($segment['room_id'] ?? 0);
+            if ($roomId <= 0) {
+                continue;
+            }
+
+            $busyRoomIds = $this->availabilityService->busyRoomIdsForPeriod(
+                (string) $segment['segment_start_date'],
+                (string) $segment['segment_end_date'],
+                Reservation::ACTIVE_STATUSES,
+                $excludeReservationId,
+            );
+
+            if ($busyRoomIds->contains($roomId)) {
+                $roomNumber = Room::query()->where('id', $roomId)->value('room_number');
+                if ($roomNumber) {
+                    $conflicts->push($roomNumber);
+                }
+            }
+        }
+
+        return $conflicts->unique()->sort()->values();
+    }
+
+    private function syncRoomSegments(Reservation $reservation, Collection $segments, Collection $previousPrices): void
+    {
+        $existingIds = $reservation->rooms->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $segmentRoomIds = $segments->pluck('room_id')->map(fn ($id) => (int) $id)->all();
+
+        $reservation->rooms()->detach($existingIds);
+
+        $rooms = Room::query()
+            ->whereIn('id', $segmentRoomIds)
+            ->get()
+            ->keyBy('id');
+
+        foreach ($segments as $segment) {
+            $roomId = (int) $segment['room_id'];
+            $room = $rooms->get($roomId);
+            if (!$room instanceof Room) {
+                continue;
+            }
+
+            $price = $reservation->source === 'Booking'
+                ? self::BOOKING_ROOM_PRICE_ARIARY
+                : $previousPrices->get($roomId, $room->base_price_ariary);
+
+            $reservation->rooms()->attach($roomId, [
+                'price_snapshot_ariary' => $price,
+                'segment_start_date' => $segment['segment_start_date'],
+                'segment_end_date' => $segment['segment_end_date'],
+                'segment_extra_beds' => (int) ($segment['segment_extra_beds'] ?? 0),
+                'segment_extra_mattresses' => (int) ($segment['segment_extra_mattresses'] ?? 0),
+            ]);
+        }
     }
 
     public function reservationsForDate(?string $date, string $statusFilter = 'all'): Collection
@@ -670,6 +829,10 @@ class BookingService
                 'occupant_id_number' => $room->pivot->occupant_id_number,
                 'occupant_passport_valid_from' => optional($room->pivot->occupant_passport_valid_from)->toDateString(),
                 'occupant_passport_valid_until' => optional($room->pivot->occupant_passport_valid_until)->toDateString(),
+                'segment_start_date' => optional($room->pivot->segment_start_date)->toDateString(),
+                'segment_end_date' => optional($room->pivot->segment_end_date)->toDateString(),
+                'segment_extra_beds' => (int) ($room->pivot->segment_extra_beds ?? 0),
+                'segment_extra_mattresses' => (int) ($room->pivot->segment_extra_mattresses ?? 0),
                 'checked_in_at' => optional($room->pivot->checked_in_at)->toDateTimeString(),
                 'checked_in_by_name' => $room->pivot->checked_in_by_name,
                 'checked_in_by_role' => $room->pivot->checked_in_by_role,
@@ -683,10 +846,32 @@ class BookingService
 
         $extraBeds = $reservation->extra_beds ?? 0;
         $extraMattresses = $reservation->extra_mattresses ?? 0;
-        $extrasPrice = (($extraBeds * 50000) + ($extraMattresses * 30000)) * $nights;
+        $hasSegmentedPricing = $rooms->contains(function (Room $room) use ($reservation) {
+            $segmentStart = optional($room->pivot->segment_start_date)->toDateString();
+            $segmentEnd = optional($room->pivot->segment_end_date)->toDateString();
 
-        $totalPrice = ($rooms->sum(fn (Room $room) => (int) $room->pivot->price_snapshot_ariary) * $nights) + $extrasPrice;
-        $fixedTotalPrice = ($rooms->sum(fn (Room $room) => (int) $room->base_price_ariary) * $nights) + $extrasPrice;
+            return (int) ($room->pivot->segment_extra_beds ?? 0) > 0
+                || (int) ($room->pivot->segment_extra_mattresses ?? 0) > 0
+                || ($segmentStart && $segmentStart !== $reservation->check_in_date->toDateString())
+                || ($segmentEnd && $segmentEnd !== $reservation->check_out_date->toDateString());
+        });
+
+        if ($hasSegmentedPricing) {
+            $totalPrice = 0;
+            $fixedTotalPrice = 0;
+
+            foreach ($rooms as $room) {
+                $segmentNights = $this->segmentNights($room, $reservation);
+                $roomExtras = ((int) ($room->pivot->segment_extra_beds ?? 0) * 50000)
+                    + ((int) ($room->pivot->segment_extra_mattresses ?? 0) * 30000);
+                $totalPrice += ((int) $room->pivot->price_snapshot_ariary * $segmentNights) + ($roomExtras * $segmentNights);
+                $fixedTotalPrice += ((int) $room->base_price_ariary * $segmentNights) + ($roomExtras * $segmentNights);
+            }
+        } else {
+            $extrasPrice = (($extraBeds * 50000) + ($extraMattresses * 30000)) * $nights;
+            $totalPrice = ($rooms->sum(fn (Room $room) => (int) $room->pivot->price_snapshot_ariary) * $nights) + $extrasPrice;
+            $fixedTotalPrice = ($rooms->sum(fn (Room $room) => (int) $room->base_price_ariary) * $nights) + $extrasPrice;
+        }
         $invoice = $reservation->invoice;
         $paymentStatus = $reservation->payment_status ?? 'unbilled';
         $payments = $invoice?->relationLoaded('payments')
@@ -841,6 +1026,14 @@ class BookingService
             'payment_methods_display' => $paymentMethodsDisplay,
             'created_at' => optional($reservation->created_at)->toDateTimeString(),
         ];
+    }
+
+    private function segmentNights(Room $room, Reservation $reservation): int
+    {
+        $start = $room->pivot->segment_start_date ?? $reservation->check_in_date;
+        $end = $room->pivot->segment_end_date ?? $reservation->check_out_date;
+
+        return max(1, Carbon::parse($start)->diffInDays(Carbon::parse($end)));
     }
 
     private function paymentMethodDisplayLabel(?Payment $payment): ?string

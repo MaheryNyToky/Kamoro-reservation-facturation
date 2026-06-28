@@ -152,12 +152,21 @@ class _FolioPageState extends State<FolioPage> {
         final roomLabel = bookingRoomId > 0
             ? _roomLabelForBooking(bookingRoomId, _roomBookings)
             : null;
+        final roomBooking = bookingRoomId > 0
+            ? _roomBookings.firstWhere(
+                (room) => _asInt(room['id']) == bookingRoomId,
+                orElse: () => const <String, dynamic>{},
+              )
+            : const <String, dynamic>{};
         return {
           'id': bookingRoomId > 0 ? bookingRoomId : _asInt(invoice['id']),
           'booking_room_id': bookingRoomId,
           'invoice_id': _asInt(invoice['id']),
           'title': roomLabel ?? 'Chambre',
-          'subtitle': _invoiceTileSubtitle(invoice, null),
+          'subtitle': [
+            _invoiceTileSubtitle(invoice, null),
+            _roomSegmentLabel(roomBooking),
+          ].where((value) => value.isNotEmpty).join(' • '),
           'invoice': invoice,
         };
       }).toList();
@@ -173,6 +182,7 @@ class _FolioPageState extends State<FolioPage> {
       final subtitleParts = <String>[
         if ((room['occupant_name'] ?? '').toString().trim().isNotEmpty)
           (room['occupant_name'] ?? '').toString().trim(),
+        _roomSegmentLabel(room),
         if ((room['invoice_id'] ?? '').toString().isNotEmpty)
           'Facture déjà liée',
         if ((room['price_snapshot_ariary'] ?? 0) != null)
@@ -1337,12 +1347,35 @@ String? _roomLabelForBooking(
     if (roomId == bookingRoomId) {
       final roomNumber = room['room_number']?.toString() ?? '';
       final type = room['type']?.toString() ?? '';
-      if (roomNumber.isEmpty) return type;
-      if (type.isEmpty) return roomNumber;
-      return '$roomNumber - $type';
+      final baseLabel = roomNumber.isEmpty
+          ? type
+          : (type.isEmpty ? roomNumber : '$roomNumber - $type');
+      final segmentLabel = _roomSegmentLabel(room);
+      if (segmentLabel.isEmpty) return baseLabel;
+      if (baseLabel.isEmpty) return segmentLabel;
+      return '$baseLabel • $segmentLabel';
     }
   }
   return null;
+}
+
+String _roomSegmentLabel(Map<String, dynamic> room) {
+  final start = _parseDateLabel(room['segment_start_date']);
+  final end = _parseDateLabel(room['segment_end_date']);
+  if (start.isEmpty || end.isEmpty) return '';
+  if (start == end) return '';
+  return '$start -> $end';
+}
+
+String _parseDateLabel(dynamic value) {
+  final text = value?.toString().trim();
+  if (text == null || text.isEmpty || text == 'null') return '';
+  final parsed = DateTime.tryParse(text);
+  if (parsed == null) return '';
+  final day = parsed.day.toString().padLeft(2, '0');
+  final month = parsed.month.toString().padLeft(2, '0');
+  final year = parsed.year.toString();
+  return '$day/$month/$year';
 }
 
 class _OrganizationInvoiceSelectionCard extends StatelessWidget {

@@ -102,6 +102,23 @@ class HotelManagementController extends Controller
         );
     }
 
+    public function getAvailableRoomSuggestions(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'check_in' => 'required|date',
+            'check_out' => 'required|date|after:check_in',
+            'exclude_reservation_id' => 'nullable|integer|exists:reservations,id',
+        ]);
+
+        return response()->json(
+            $this->availabilityService->roomAvailabilitySuggestions(
+                $validated['check_in'],
+                $validated['check_out'],
+                $validated['exclude_reservation_id'] ?? null,
+            )
+        );
+    }
+
     public function saveBooking(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -123,6 +140,12 @@ class HotelManagementController extends Controller
             'check_out' => 'required|date|after:check_in',
             'room_ids' => 'required|array|min:1',
             'room_ids.*' => 'integer|distinct|exists:rooms,id',
+            'room_segments' => 'nullable|array',
+            'room_segments.*.room_id' => 'required_with:room_segments|integer|exists:rooms,id',
+            'room_segments.*.segment_start_date' => 'nullable|date',
+            'room_segments.*.segment_end_date' => 'nullable|date',
+            'room_segments.*.segment_extra_beds' => 'nullable|integer|min:0',
+            'room_segments.*.segment_extra_mattresses' => 'nullable|integer|min:0',
             'room_prices' => 'nullable|array',
             'room_prices.*.id' => 'required_with:room_prices|integer|exists:rooms,id',
             'room_prices.*.price' => 'required_with:room_prices|integer|min:0|max:10000000',
@@ -197,6 +220,12 @@ class HotelManagementController extends Controller
             'check_out' => 'nullable|date|after:check_in',
             'room_ids' => 'required|array|min:1',
             'room_ids.*' => 'integer|distinct|exists:rooms,id',
+            'room_segments' => 'nullable|array',
+            'room_segments.*.room_id' => 'required_with:room_segments|integer|exists:rooms,id',
+            'room_segments.*.segment_start_date' => 'nullable|date',
+            'room_segments.*.segment_end_date' => 'nullable|date',
+            'room_segments.*.segment_extra_beds' => 'nullable|integer|min:0',
+            'room_segments.*.segment_extra_mattresses' => 'nullable|integer|min:0',
             'extra_beds' => 'nullable|integer|min:0',
             'extra_mattresses' => 'nullable|integer|min:0',
             'modified_by_name' => 'nullable|string|max:120',
