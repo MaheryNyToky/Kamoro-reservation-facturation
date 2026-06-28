@@ -29,10 +29,18 @@ class _CheckInPageState extends State<CheckInPage> {
   final _formKey = GlobalKey<FormState>();
   final ClientSearchService _clientSearchService = ClientSearchService();
 
+  final _nameController = TextEditingController();
   final _firstNameController = TextEditingController();
   final _lastNameController = TextEditingController();
   final _contactController = TextEditingController();
   final _idNumberController = TextEditingController();
+  final _organizationContactNameController = TextEditingController();
+  final _organizationContactPhoneController = TextEditingController();
+  final _organizationContactEmailController = TextEditingController();
+  final _organizationEmailController = TextEditingController();
+  final _organizationBillingAddressController = TextEditingController();
+  final _organizationNifController = TextEditingController();
+  final _organizationStatController = TextEditingController();
   final List<_RoomOccupantDraft> _roomOccupants = [];
 
   DateTime? _dateOfBirth;
@@ -44,16 +52,25 @@ class _CheckInPageState extends State<CheckInPage> {
   ClientProfile? _selectedClient;
 
   final List<String> _sexes = ['Homme', 'Femme', 'Autre'];
-  final List<String> _idTypes = ['CIN', 'Passeport', 'Permis'];
+  final List<String> _idTypes = [
+    'CIN',
+    'Passeport',
+    'Carte de séjour',
+    'Autre',
+    'Permis',
+  ];
 
   @override
   void initState() {
     super.initState();
+    _nameController.text = widget.reservation.clientName;
     final split = _splitName(widget.reservation.clientName);
     _firstNameController.text = split.$1;
     _lastNameController.text = split.$2;
     _contactController.text = widget.reservation.phone;
+    _hydrateOrganizationFields();
     _initRoomOccupants();
+    _hydrateRoomOccupantsFallback();
     _hydrateClient();
   }
 
@@ -62,10 +79,18 @@ class _CheckInPageState extends State<CheckInPage> {
     for (final draft in _roomOccupants) {
       draft.dispose();
     }
+    _nameController.dispose();
     _firstNameController.dispose();
     _lastNameController.dispose();
     _contactController.dispose();
     _idNumberController.dispose();
+    _organizationContactNameController.dispose();
+    _organizationContactPhoneController.dispose();
+    _organizationContactEmailController.dispose();
+    _organizationEmailController.dispose();
+    _organizationBillingAddressController.dispose();
+    _organizationNifController.dispose();
+    _organizationStatController.dispose();
     super.dispose();
   }
 
@@ -73,6 +98,32 @@ class _CheckInPageState extends State<CheckInPage> {
       widget.reservation.bookingType.trim().toLowerCase() == 'organization';
 
   bool get _needsRoomOccupants => _isOrganizationReservation;
+
+  void _hydrateOrganizationFields() {
+    final organization = widget.reservation.organization;
+    if (organization == null) return;
+
+    _nameControllerSafeAssign(organization['name']?.toString().trim() ?? '');
+    _organizationContactNameController.text =
+        organization['contact_name']?.toString().trim() ?? '';
+    _organizationContactPhoneController.text =
+        organization['phone']?.toString().trim() ?? '';
+    _organizationContactEmailController.text =
+        organization['contact_email']?.toString().trim() ?? '';
+    _organizationEmailController.text =
+        organization['email']?.toString().trim() ?? '';
+    _organizationBillingAddressController.text =
+        organization['billing_address']?.toString().trim() ?? '';
+    final nif = organization['nif'] ?? organization['tax_id'];
+    _organizationNifController.text = nif?.toString().trim() ?? '';
+    _organizationStatController.text =
+        organization['stat']?.toString().trim() ?? '';
+  }
+
+  void _nameControllerSafeAssign(String value) {
+    if (value.isEmpty) return;
+    _nameController.text = value;
+  }
 
   void _initRoomOccupants() {
     _roomOccupants.clear();
@@ -106,21 +157,79 @@ class _CheckInPageState extends State<CheckInPage> {
       occupant.nameController.text = (room['occupant_name'] ?? defaultName)
           .toString()
           .trim();
-      occupant.phoneController.text =
-          (room['occupant_phone'] ?? _contactController.text).toString().trim();
-      occupant.emailController.text = (room['occupant_email'] ?? '')
-          .toString()
-          .trim();
       occupant.idType = (room['occupant_id_type'] ?? 'CIN').toString();
       occupant.idNumberController.text =
           (room['occupant_id_number'] ?? _idNumberController.text)
               .toString()
               .trim();
+      occupant.passportValidFrom = _parseIsoDate(
+        room['occupant_passport_valid_from'],
+      );
+      occupant.passportValidUntil = _parseIsoDate(
+        room['occupant_passport_valid_until'],
+      );
       occupant.sex = (room['occupant_sex'] ?? _sex).toString();
       occupant.dateOfBirth =
           _parseIsoDate(room['occupant_date_of_birth']) ?? _dateOfBirth;
 
       _roomOccupants.add(occupant);
+    }
+  }
+
+  Future<void> _hydrateRoomOccupantsFallback() async {
+    if (!_isOrganizationReservation || _roomOccupants.isNotEmpty) return;
+
+    try {
+      final response = await http.get(
+        Uri.parse(
+          '${AppConfig.apiBaseUrl}/api/reservations/${widget.reservation.id}/folio',
+        ),
+        headers: {'Accept': 'application/json'},
+      );
+
+      if (!mounted || response.statusCode != 200) return;
+
+      final decoded = json.decode(response.body);
+      if (decoded is! Map) return;
+
+      final roomBookings = (decoded['room_bookings'] as List<dynamic>? ?? [])
+          .whereType<Map>()
+          .map((room) => Map<String, dynamic>.from(room))
+          .toList();
+
+      if (roomBookings.isEmpty) return;
+
+      final drafts = roomBookings
+          .map(
+            (room) => _RoomOccupantDraft(
+              roomId: _asInt(room['room_id'] ?? room['id']),
+              roomLabel: _roomLabel(room),
+            )
+              ..nameController.text =
+                  (room['occupant_name'] ?? widget.reservation.clientName)
+                      .toString()
+                      .trim()
+              ..idType = (room['occupant_id_type'] ?? 'CIN').toString()
+              ..idNumberController.text =
+                  (room['occupant_id_number'] ?? '').toString().trim()
+              ..passportValidFrom =
+                  _parseIsoDate(room['occupant_passport_valid_from'])
+              ..passportValidUntil =
+                  _parseIsoDate(room['occupant_passport_valid_until'])
+              ..sex = (room['occupant_sex'] ?? _sex).toString()
+              ..dateOfBirth =
+                  _parseIsoDate(room['occupant_date_of_birth']) ?? _dateOfBirth,
+          )
+          .toList();
+
+      if (!mounted) return;
+      setState(() {
+        _roomOccupants
+          ..clear()
+          ..addAll(drafts);
+      });
+    } catch (_) {
+      // On garde le comportement local si l'API de secours échoue.
     }
   }
 
@@ -151,10 +260,6 @@ class _CheckInPageState extends State<CheckInPage> {
       return {
         'room_id': draft.roomId,
         'occupant_name': draft.nameController.text.trim(),
-        'occupant_phone': draft.phoneController.text.trim(),
-        'occupant_email': draft.emailController.text.trim().isEmpty
-            ? null
-            : draft.emailController.text.trim(),
         'occupant_date_of_birth': draft.dateOfBirth
             ?.toIso8601String()
             .split('T')
@@ -162,6 +267,14 @@ class _CheckInPageState extends State<CheckInPage> {
         'occupant_sex': draft.sex,
         'occupant_id_type': draft.idType,
         'occupant_id_number': draft.idNumberController.text.trim(),
+        'occupant_passport_valid_from': draft.passportValidFrom
+            ?.toIso8601String()
+            .split('T')
+            .first,
+        'occupant_passport_valid_until': draft.passportValidUntil
+            ?.toIso8601String()
+            .split('T')
+            .first,
       };
     }).toList();
   }
@@ -185,13 +298,33 @@ class _CheckInPageState extends State<CheckInPage> {
     _applyClient(match);
   }
 
+  bool get _requiresDocumentValidity =>
+      !_isOrganizationReservation &&
+      (_idType == 'Passeport' ||
+          _idType == 'Carte de séjour' ||
+          _idType == 'Autre');
+
+  bool _requiresDocumentValidityForType(String type) {
+    return type == 'Passeport' || type == 'Carte de séjour' || type == 'Autre';
+  }
+
+  String get _documentValidityLabel => _idType == 'Carte de séjour'
+      ? 'carte de séjour'
+      : (_idType == 'Autre' ? 'autre document' : 'passeport');
+
+  String _documentValidityLabelForType(String type) {
+    return type == 'Carte de séjour'
+        ? 'carte de séjour'
+        : (type == 'Autre' ? 'autre document' : 'passeport');
+  }
+
   Future<void> _prefillMissingClientData() async {
     if (_isOrganizationReservation) return;
 
     final needsClientLookup =
         _dateOfBirth == null ||
         _idNumberController.text.trim().isEmpty ||
-        (_idType == 'Passeport' &&
+        (_requiresDocumentValidity &&
             (_passportValidFrom == null || _passportValidUntil == null));
 
     if (!needsClientLookup) return;
@@ -285,21 +418,6 @@ class _CheckInPageState extends State<CheckInPage> {
     });
   }
 
-  void _applyOccupantClient(_RoomOccupantDraft draft, ClientProfile client) {
-    setState(() {
-      draft.nameController.text = client.displayName;
-      draft.phoneController.text = client.phoneNumber?.trim() ?? '';
-      draft.emailController.text = '';
-      draft.idNumberController.text = client.displayDocumentNumber;
-      if (client.dateOfBirth != null) {
-        draft.dateOfBirth = client.dateOfBirth;
-      }
-      if (client.sex?.trim().isNotEmpty == true) {
-        draft.sex = client.sex!.trim();
-      }
-    });
-  }
-
   (String, String) _splitName(String rawName) {
     final normalized = rawName.trim().replaceAll(RegExp(r'\s+'), ' ');
     if (normalized.isEmpty) return ('', '');
@@ -362,19 +480,17 @@ class _CheckInPageState extends State<CheckInPage> {
       return;
     }
 
-    if (!_isOrganizationReservation &&
-        _idType == 'Passeport' &&
+    if (_requiresDocumentValidity &&
         (_passportValidFrom == null || _passportValidUntil == null)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Veuillez sélectionner la validité du passeport'),
+          content: Text('Veuillez sélectionner la validité du document'),
         ),
       );
       return;
     }
 
-    if (!_isOrganizationReservation &&
-        _idType == 'Passeport' &&
+    if (_requiresDocumentValidity &&
         _passportValidFrom != null &&
         _passportValidUntil != null &&
         _passportValidFrom!.isAfter(_passportValidUntil!)) {
@@ -402,7 +518,7 @@ class _CheckInPageState extends State<CheckInPage> {
         : null;
     final fullName = _isOrganizationReservation
         ? (mainOccupant?.nameController.text.trim() ??
-            widget.reservation.clientName.trim())
+              widget.reservation.clientName.trim())
         : _fullName;
     if (fullName.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -440,15 +556,45 @@ class _CheckInPageState extends State<CheckInPage> {
     }
 
     final contactPhone = _isOrganizationReservation
-        ? mainOccupant?.phoneController.text.trim() ?? _contactController.text.trim()
+        ? _contactController.text.trim()
         : _contactController.text.trim();
     final contactEmail = _isOrganizationReservation
-        ? mainOccupant?.emailController.text.trim() ?? ''
+        ? _organizationContactEmailController.text.trim()
         : '';
     final sex = _isOrganizationReservation ? mainOccupant?.sex ?? _sex : _sex;
     final idType = _isOrganizationReservation
         ? mainOccupant?.idType ?? _idType
         : _idType;
+
+    if (_isOrganizationReservation) {
+      for (final draft in _roomOccupants) {
+        if (_requiresDocumentValidityForType(draft.idType) &&
+            (draft.passportValidFrom == null ||
+                draft.passportValidUntil == null)) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Veuillez sélectionner la validité du document pour ${draft.roomLabel}',
+              ),
+            ),
+          );
+          return;
+        }
+        if (_requiresDocumentValidityForType(draft.idType) &&
+            draft.passportValidFrom != null &&
+            draft.passportValidUntil != null &&
+            draft.passportValidFrom!.isAfter(draft.passportValidUntil!)) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'La date de début doit être antérieure à la date de fin pour ${draft.roomLabel}',
+              ),
+            ),
+          );
+          return;
+        }
+      }
+    }
 
     setState(() => _isLoading = true);
 
@@ -469,6 +615,25 @@ class _CheckInPageState extends State<CheckInPage> {
           : _lastNameController.text.trim();
       request.fields['customer_phone'] = contactPhone;
       request.fields['phone_number'] = contactPhone;
+      if (_isOrganizationReservation) {
+        request.fields['organization_name'] = _nameController.text.trim();
+        request.fields['organization_phone'] =
+            _organizationContactPhoneController.text.trim();
+        request.fields['organization_contact_name'] =
+            _organizationContactNameController.text.trim();
+        request.fields['organization_contact_phone'] =
+            _organizationContactPhoneController.text.trim();
+        request.fields['organization_contact_email'] =
+            _organizationContactEmailController.text.trim();
+        request.fields['organization_email'] = _organizationEmailController.text
+            .trim();
+        request.fields['organization_billing_address'] =
+            _organizationBillingAddressController.text.trim();
+        request.fields['organization_nif'] = _organizationNifController.text
+            .trim();
+        request.fields['organization_stat'] = _organizationStatController.text
+            .trim();
+      }
       if (_isOrganizationReservation && contactEmail.isNotEmpty) {
         request.fields['customer_email'] = contactEmail;
       }
@@ -480,8 +645,7 @@ class _CheckInPageState extends State<CheckInPage> {
         'T',
       )[0];
       request.fields['sex'] = sex;
-      if (idType == 'Passeport' &&
-          !_isOrganizationReservation &&
+      if (_requiresDocumentValidity &&
           _passportValidFrom != null &&
           _passportValidUntil != null) {
         request.fields['passport_valid_from'] = _passportValidFrom!
@@ -537,39 +701,20 @@ class _CheckInPageState extends State<CheckInPage> {
               style: const TextStyle(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 12),
-            ClientAutocompleteField(
+            TextFormField(
               controller: draft.nameController,
-              labelText: 'Nom de l’occupant',
-              prefixIcon: Icons.person_outline,
+              decoration: const InputDecoration(
+                labelText: 'Nom de l’occupant',
+                prefixIcon: Icon(Icons.person_outline),
+              ),
               keyboardType: TextInputType.name,
               textInputAction: TextInputAction.next,
-              valueBuilder: (client) => client.displayName,
-              onSelected: (client) => _applyOccupantClient(draft, client),
-              showLoyalty: widget.role != 'receptionist',
               validator: (value) {
                 if (!_needsRoomOccupants) return null;
                 return value == null || value.trim().isEmpty
                     ? 'L’occupant de cette chambre est requis'
                     : null;
               },
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: draft.phoneController,
-              decoration: const InputDecoration(
-                labelText: 'Téléphone',
-                prefixIcon: Icon(Icons.phone),
-              ),
-              keyboardType: TextInputType.phone,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: draft.emailController,
-              decoration: const InputDecoration(
-                labelText: 'Email',
-                prefixIcon: Icon(Icons.mail_outline),
-              ),
-              keyboardType: TextInputType.emailAddress,
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
@@ -606,6 +751,69 @@ class _CheckInPageState extends State<CheckInPage> {
               },
             ),
             const SizedBox(height: 12),
+            if (_requiresDocumentValidityForType(draft.idType)) ...[
+              ListTile(
+                title: Text(
+                  draft.passportValidFrom == null
+                      ? 'Sélectionner la date de début de la ${_documentValidityLabelForType(draft.idType)}'
+                      : 'Document valable du : ${draft.passportValidFrom!.toIso8601String().split('T')[0]}',
+                ),
+                trailing: const Icon(Icons.badge_outlined),
+                shape: RoundedRectangleBorder(
+                  side: const BorderSide(color: Colors.grey),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                onTap: () async {
+                  final initial =
+                      draft.passportValidFrom ??
+                      draft.passportValidUntil ??
+                      DateTime.now();
+                  final picked = await showDatePicker(
+                    context: context,
+                    initialDate: initial,
+                    firstDate: DateTime(1900),
+                    lastDate: DateTime(2050),
+                  );
+                  if (picked == null) return;
+                  setState(() {
+                    draft.passportValidFrom = picked;
+                    if (draft.passportValidUntil != null &&
+                        draft.passportValidUntil!.isBefore(picked)) {
+                      draft.passportValidUntil = picked;
+                    }
+                  });
+                },
+              ),
+              const SizedBox(height: 12),
+              ListTile(
+                title: Text(
+                  draft.passportValidUntil == null
+                      ? 'Sélectionner la date de fin de la ${_documentValidityLabelForType(draft.idType)}'
+                      : 'Document valable au : ${draft.passportValidUntil!.toIso8601String().split('T')[0]}',
+                ),
+                trailing: const Icon(Icons.event_available_outlined),
+                shape: RoundedRectangleBorder(
+                  side: const BorderSide(color: Colors.grey),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                onTap: () async {
+                  final initial =
+                      draft.passportValidUntil ??
+                      draft.passportValidFrom ??
+                      DateTime.now().add(const Duration(days: 365));
+                  final firstDate = draft.passportValidFrom ?? DateTime.now();
+                  final picked = await showDatePicker(
+                    context: context,
+                    initialDate: initial,
+                    firstDate: firstDate,
+                    lastDate: DateTime(2050),
+                  );
+                  if (picked == null) return;
+                  setState(() => draft.passportValidUntil = picked);
+                },
+              ),
+              const SizedBox(height: 12),
+            ],
             TextFormField(
               controller: draft.idNumberController,
               decoration: const InputDecoration(
@@ -690,6 +898,104 @@ class _CheckInPageState extends State<CheckInPage> {
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: 16),
+              if (_isOrganizationReservation) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: const Text(
+                    'Informations de l’organisme à compléter avant le check-in.',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _nameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Nom de l’organisme',
+                    prefixIcon: Icon(Icons.apartment_outlined),
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.name,
+                  textInputAction: TextInputAction.next,
+                  validator: (val) => val == null || val.trim().isEmpty
+                      ? 'Le nom de l’organisme est requis'
+                      : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _organizationContactNameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Contact organisme',
+                    prefixIcon: Icon(Icons.badge_outlined),
+                    border: OutlineInputBorder(),
+                  ),
+                  textInputAction: TextInputAction.next,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _organizationContactPhoneController,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(
+                    labelText: 'Téléphone du siège',
+                    prefixIcon: Icon(Icons.business_outlined),
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _organizationContactEmailController,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(
+                    labelText: 'Email contact',
+                    prefixIcon: Icon(Icons.contact_mail_outlined),
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _organizationEmailController,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(
+                    labelText: 'Email de l’organisme',
+                    prefixIcon: Icon(Icons.email_outlined),
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _organizationBillingAddressController,
+                  decoration: const InputDecoration(
+                    labelText: 'Adresse de facturation',
+                    prefixIcon: Icon(Icons.location_on_outlined),
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.streetAddress,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _organizationNifController,
+                  decoration: const InputDecoration(
+                    labelText: 'NIF',
+                    prefixIcon: Icon(Icons.receipt_long_outlined),
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _organizationStatController,
+                  decoration: const InputDecoration(
+                    labelText: 'STAT',
+                    prefixIcon: Icon(Icons.account_balance_outlined),
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
               if (!_isOrganizationReservation) ...[
                 ClientAutocompleteField(
                   controller: _firstNameController,
@@ -777,7 +1083,7 @@ class _CheckInPageState extends State<CheckInPage> {
                     if (val == null) return;
                     setState(() {
                       _idType = val;
-                      if (_idType != 'Passeport') {
+                      if (!_requiresDocumentValidity) {
                         _passportValidFrom = null;
                         _passportValidUntil = null;
                       } else if (_selectedClient?.passportValidFrom != null ||
@@ -822,12 +1128,12 @@ class _CheckInPageState extends State<CheckInPage> {
                   onTap: _selectDate,
                 ),
                 const SizedBox(height: 16),
-                if (_idType == 'Passeport') ...[
+                if (_requiresDocumentValidity) ...[
                   ListTile(
                     title: Text(
                       _passportValidFrom == null
-                          ? 'Sélectionner la date de début du passeport'
-                          : 'Passeport valable du : ${_passportValidFrom!.toIso8601String().split('T')[0]}',
+                          ? 'Sélectionner la date de début de la $_documentValidityLabel'
+                          : 'Document valable du : ${_passportValidFrom!.toIso8601String().split('T')[0]}',
                     ),
                     trailing: const Icon(Icons.badge_outlined),
                     shape: RoundedRectangleBorder(
@@ -859,8 +1165,8 @@ class _CheckInPageState extends State<CheckInPage> {
                   ListTile(
                     title: Text(
                       _passportValidUntil == null
-                          ? 'Sélectionner la date de fin du passeport'
-                          : 'Passeport valable au : ${_passportValidUntil!.toIso8601String().split('T')[0]}',
+                          ? 'Sélectionner la date de fin de la $_documentValidityLabel'
+                          : 'Document valable au : ${_passportValidUntil!.toIso8601String().split('T')[0]}',
                     ),
                     trailing: const Icon(Icons.event_available_outlined),
                     shape: RoundedRectangleBorder(
@@ -937,17 +1243,15 @@ class _RoomOccupantDraft {
   final int roomId;
   final String roomLabel;
   final TextEditingController nameController = TextEditingController();
-  final TextEditingController phoneController = TextEditingController();
-  final TextEditingController emailController = TextEditingController();
   final TextEditingController idNumberController = TextEditingController();
   DateTime? dateOfBirth;
+  DateTime? passportValidFrom;
+  DateTime? passportValidUntil;
   String sex = 'Homme';
   String idType = 'CIN';
 
   void dispose() {
     nameController.dispose();
-    phoneController.dispose();
-    emailController.dispose();
     idNumberController.dispose();
   }
 }

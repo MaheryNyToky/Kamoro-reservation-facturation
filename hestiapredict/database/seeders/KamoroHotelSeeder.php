@@ -28,7 +28,7 @@ class KamoroHotelSeeder extends Seeder
 
         $roomsData = [
             ['room_number' => '01', 'type' => 'Chambre Double', 'model' => 'Standard', 'price' => 110000, 'fixed' => false],
-            ['room_number' => '02', 'type' => 'Chambre Double', 'model' => 'Standard (état dégradé)', 'price' => 95000, 'fixed' => true],
+            ['room_number' => '02', 'type' => 'Chambre Double', 'model' => 'Standard', 'price' => 110000, 'fixed' => false],
             ['room_number' => '03', 'type' => 'Chambre Double', 'model' => 'Standard', 'price' => 110000, 'fixed' => false],
             ['room_number' => '04', 'type' => 'Chambre Familiale', 'model' => 'Standard', 'price' => 175000, 'fixed' => false],
             ['room_number' => '05', 'type' => 'Chambre Double', 'model' => 'Standard', 'price' => 110000, 'fixed' => false],

@@ -17,30 +17,31 @@ class ClientController extends Controller
         ]);
 
         $term = trim($validated['q']);
+        $normalizedTerm = Str::lower(Str::ascii($term));
         $normalizedPhone = PhoneNumber::normalize($term);
-        $normalizedTerm = $normalizedPhone ?? Str::lower(Str::ascii($term));
+        $searchPhone = $normalizedPhone ?? preg_replace('/\D+/', '', $term);
 
         $clients = Guest::query()
             ->with('reservation')
-            ->where(function ($query) use ($normalizedTerm) {
-                $like = '%' . $normalizedTerm . '%';
+            ->where(function ($query) use ($normalizedTerm, $searchPhone) {
+                $nameLike = '%' . $normalizedTerm . '%';
+                $phoneLike = $searchPhone !== '' ? $searchPhone . '%' : null;
+                $documentLike = $normalizedTerm !== '' ? $normalizedTerm . '%' : null;
 
-                $query->whereRaw('LOWER(full_name) LIKE ?', [$like])
-                    ->orWhereRaw('LOWER(first_name) LIKE ?', [$like])
-                    ->orWhereRaw('LOWER(last_name) LIKE ?', [$like])
-                    ->orWhereRaw('LOWER(phone_number) LIKE ?', [$like])
-                    ->orWhereRaw('LOWER(id_number) LIKE ?', [$like])
-                    ->orWhereRaw('LOWER(id_document_number) LIKE ?', [$like])
-                    ->orWhereHas('reservation', function ($reservationQuery) use ($like) {
-                        $reservationQuery
-                            ->whereRaw('LOWER(client_name) LIKE ?', [$like])
-                            ->orWhereRaw('LOWER(client_phone) LIKE ?', [$like])
-                            ->orWhereRaw('LOWER(customer_phone) LIKE ?', [$like]);
-                    });
+                $query->whereRaw('LOWER(full_name) LIKE ?', [$nameLike])
+                    ->orWhereRaw('LOWER(first_name) LIKE ?', [$nameLike])
+                    ->orWhereRaw('LOWER(last_name) LIKE ?', [$nameLike]);
+
+                if ($phoneLike !== null) {
+                    $query->orWhereRaw('LOWER(phone_number) LIKE ?', [$phoneLike])
+                        ->orWhereRaw('LOWER(id_number) LIKE ?', [$documentLike ?? $phoneLike])
+                        ->orWhereRaw('LOWER(id_document_number) LIKE ?', [$documentLike ?? $phoneLike]);
+                } elseif ($documentLike !== null) {
+                    $query->orWhereRaw('LOWER(id_number) LIKE ?', [$documentLike])
+                        ->orWhereRaw('LOWER(id_document_number) LIKE ?', [$documentLike]);
+                }
             })
-            ->orderByDesc('loyalty_count')
-            ->orderByDesc('updated_at')
-            ->limit(50)
+            ->limit(100)
             ->get()
             ->map(fn (Guest $guest) => [
                 'id' => $guest->id,
@@ -74,6 +75,25 @@ class ClientController extends Controller
                     'source' => $guest->reservation->source,
                 ] : null,
             ])
+            ->sort(function (array $left, array $right) use ($normalizedTerm, $searchPhone) {
+                $leftScore = $this->searchScore($left, $normalizedTerm, $searchPhone);
+                $rightScore = $this->searchScore($right, $normalizedTerm, $searchPhone);
+
+                if ($leftScore !== $rightScore) {
+                    return $rightScore <=> $leftScore;
+                }
+
+                $leftLoyalty = (int) ($left['loyalty_count'] ?? 0);
+                $rightLoyalty = (int) ($right['loyalty_count'] ?? 0);
+                if ($leftLoyalty !== $rightLoyalty) {
+                    return $rightLoyalty <=> $leftLoyalty;
+                }
+
+                return strcmp(
+                    (string) ($right['updated_at'] ?? ''),
+                    (string) ($left['updated_at'] ?? '')
+                );
+            })
             ->unique(fn (array $client) => $this->clientKey($client))
             ->take(20)
             ->values();
@@ -102,5 +122,47 @@ class ClientController extends Controller
         }
 
         return 'id:' . (string) ($client['id'] ?? '');
+    }
+
+    private function searchScore(array $client, string $normalizedTerm, string $searchPhone): int
+    {
+        $score = 0;
+        $name = Str::lower(Str::ascii(trim((string) ($client['full_name'] ?? ''))));
+        $firstName = Str::lower(Str::ascii(trim((string) ($client['first_name'] ?? ''))));
+        $lastName = Str::lower(Str::ascii(trim((string) ($client['last_name'] ?? ''))));
+        $document = Str::lower(Str::ascii(trim((string) ($client['id_document_number'] ?? $client['id_number'] ?? ''))));
+        $phone = PhoneNumber::normalize($client['phone_number'] ?? null) ?? '';
+
+        foreach ([$name, $firstName, $lastName] as $field) {
+            if ($field === '') {
+                continue;
+            }
+
+            if ($field === $normalizedTerm) {
+                $score = max($score, 100);
+                continue;
+            }
+
+            if ($normalizedTerm !== '' && Str::startsWith($field, $normalizedTerm)) {
+                $score = max($score, 90);
+                continue;
+            }
+
+            if ($normalizedTerm !== '' && Str::contains($field, $normalizedTerm)) {
+                $score = max($score, 70);
+            }
+        }
+
+        if ($searchPhone !== '') {
+            if ($phone !== '' && Str::startsWith($phone, $searchPhone)) {
+                $score = max($score, 95);
+            }
+        }
+
+        if ($normalizedTerm !== '' && $document !== '' && Str::startsWith($document, $normalizedTerm)) {
+            $score = max($score, 85);
+        }
+
+        return $score;
     }
 }

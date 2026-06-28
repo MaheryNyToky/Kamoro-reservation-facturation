@@ -169,6 +169,93 @@ class ReservationEndToEndFlowTest extends TestCase
         ])->assertOk();
     }
 
+    public function test_organization_invoice_can_switch_to_individual_mode(): void
+    {
+        $user = $this->createReceptionUser();
+        $room1 = $this->createRoom('904');
+        $room2 = $this->createRoom('905');
+
+        $reservationPayload = $this->createReservation([
+            'client_name' => 'Organisme Individuel',
+            'customer_phone' => '0349000005',
+            'customer_email' => 'contact@organisme-individuel.example',
+            'organization_name' => 'Organisme Individuel',
+            'organization_phone' => '020900001',
+            'organization_contact_name' => 'Contact Organisme',
+            'organization_contact_phone' => '0349000005',
+            'organization_contact_email' => 'contact@organisme-individuel.example',
+            'organization_email' => 'siege@organisme-individuel.example',
+            'organization_billing_address' => 'Adresse Organisme',
+            'organization_nif' => 'NIF-ORG-IND-001',
+            'organization_stat' => 'STAT-ORG-IND-001',
+            'check_in' => '2026-07-15',
+            'check_out' => '2026-07-17',
+            'room_ids' => [$room1->id, $room2->id],
+            'room_prices' => [
+                ['id' => $room1->id, 'price' => 110000],
+                ['id' => $room2->id, 'price' => 110000],
+            ],
+            'source' => 'Appel',
+            'receptionist_name' => $user->name,
+        ]);
+
+        $this->assertSame(201, $reservationPayload['code']);
+
+        $reservation = Reservation::query()
+            ->where('client_name', 'Organisme Individuel')
+            ->firstOrFail();
+
+        $this->postJson("/api/reservations/{$reservation->id}/checkin", [
+            'full_name' => 'Organisme Individuel',
+            'customer_phone' => '0349000005',
+            'phone_number' => '0349000005',
+            'date_of_birth' => '1986-06-06',
+            'sex' => 'Femme',
+            'id_type' => 'CIN',
+            'id_number' => 'CIN-ORG-IND-001',
+            'id_document_number' => 'CIN-ORG-IND-001',
+            'room_checkins' => [
+                [
+                    'room_id' => $room1->id,
+                    'occupant_name' => 'Occupant Un',
+                    'occupant_phone' => '0349000006',
+                    'occupant_email' => 'occupant1@example.com',
+                    'occupant_date_of_birth' => '1990-01-01',
+                    'occupant_sex' => 'Homme',
+                    'occupant_id_type' => 'CIN',
+                    'occupant_id_number' => 'CIN-OI-001',
+                ],
+                [
+                    'room_id' => $room2->id,
+                    'occupant_name' => 'Occupant Deux',
+                    'occupant_phone' => '0349000007',
+                    'occupant_email' => 'occupant2@example.com',
+                    'occupant_date_of_birth' => '1991-02-02',
+                    'occupant_sex' => 'Femme',
+                    'occupant_id_type' => 'CIN',
+                    'occupant_id_number' => 'CIN-OI-002',
+                ],
+            ],
+            'checked_in_by_name' => $user->name,
+            'checked_in_by_role' => $user->role,
+        ])->assertOk();
+
+        $folio = $this->getJson("/api/reservations/{$reservation->id}/folio");
+        $folio->assertOk();
+
+        $invoiceId = $folio->json('id');
+        $this->postJson("/api/invoices/{$invoiceId}/generate-pdf", [
+            'document_type' => 'facture',
+            'billing_mode' => 'individual',
+            'currency_mode' => 'ariary',
+            'actor_role' => $user->role,
+        ])->assertOk();
+
+        $reservation->refresh();
+        $this->assertSame('per_room', $reservation->billing_mode);
+        $this->assertGreaterThanOrEqual(3, $reservation->invoices()->count());
+    }
+
     private function createReceptionUser(): User
     {
         return User::create([

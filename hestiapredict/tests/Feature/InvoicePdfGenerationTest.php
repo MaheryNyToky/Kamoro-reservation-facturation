@@ -95,6 +95,156 @@ class InvoicePdfGenerationTest extends TestCase
         $this->assertTrue(Storage::disk('local')->exists($refreshed->pdf_path));
     }
 
+    public function test_receptionist_can_generate_pdf_without_discount(): void
+    {
+        $user = User::create([
+            'name' => 'Reception PDF Test',
+            'email' => 'reception-pdf-test@example.com',
+            'password' => 'password',
+            'role' => 'receptionist',
+            'is_blacklisted' => false,
+        ]);
+
+        $room = Room::create([
+            'room_number' => '208',
+            'type' => 'Chambre Double',
+            'model' => 'Standard',
+            'base_price_ariary' => 110000,
+            'is_fixed_price' => false,
+        ]);
+
+        $reservation = Reservation::create([
+            'user_id' => $user->id,
+            'client_name' => 'Reception PDF Client',
+            'client_phone' => '0340000092',
+            'customer_phone' => '0340000092',
+            'customer_email' => 'reception-pdf@example.com',
+            'booking_reference' => 'BR-' . uniqid(),
+            'source' => 'Appel',
+            'check_in_date' => '2026-06-24',
+            'check_out_date' => '2026-06-25',
+            'status' => 'arrive',
+            'payment_status' => 'unbilled',
+            'extra_beds' => 0,
+            'extra_mattresses' => 0,
+        ]);
+        $reservation->rooms()->attach($room->id, [
+            'price_snapshot_ariary' => 110000,
+        ]);
+
+        $invoice = Invoice::create([
+            'reservation_id' => $reservation->id,
+            'invoice_number' => null,
+            'total_amount_ariary' => 110000,
+            'tax_amount_ariary' => 0,
+            'discount_mode' => null,
+            'discount_value' => null,
+            'discount_amount_ariary' => 0,
+            'deposit_amount_ariary' => 0,
+            'pdf_path' => null,
+            'finalized_at' => null,
+            'status' => 'open',
+            'document_type' => 'facture',
+        ]);
+
+        InvoiceItem::create([
+            'invoice_id' => $invoice->id,
+            'description' => 'Séjour chambre',
+            'type' => 'room',
+            'amount_ariary' => 110000,
+            'quantity' => 1,
+        ]);
+
+        $response = $this->postJson("/api/invoices/{$invoice->id}/generate-pdf", [
+            'document_type' => 'facture',
+            'actor_role' => 'receptionist',
+        ]);
+
+        $response->assertOk();
+        $this->assertSame('facture', $response->json('invoice.document_type'));
+
+        $refreshed = Invoice::query()->findOrFail($invoice->id);
+        $this->assertNotNull($refreshed->pdf_path);
+        $this->assertTrue(Storage::disk('local')->exists($refreshed->pdf_path));
+    }
+
+    public function test_admin_can_generate_pdf_with_discount(): void
+    {
+        $user = User::create([
+            'name' => 'Admin PDF Discount Test',
+            'email' => 'admin-pdf-discount@example.com',
+            'password' => 'password',
+            'role' => 'admin',
+            'is_blacklisted' => false,
+        ]);
+
+        $room = Room::create([
+            'room_number' => '209',
+            'type' => 'Chambre Double',
+            'model' => 'Standard',
+            'base_price_ariary' => 110000,
+            'is_fixed_price' => false,
+        ]);
+
+        $reservation = Reservation::create([
+            'user_id' => $user->id,
+            'client_name' => 'Admin PDF Client',
+            'client_phone' => '0340000093',
+            'customer_phone' => '0340000093',
+            'customer_email' => 'admin-pdf@example.com',
+            'booking_reference' => 'BR-' . uniqid(),
+            'source' => 'Appel',
+            'check_in_date' => '2026-06-26',
+            'check_out_date' => '2026-06-27',
+            'status' => 'arrive',
+            'payment_status' => 'unbilled',
+            'extra_beds' => 0,
+            'extra_mattresses' => 0,
+        ]);
+        $reservation->rooms()->attach($room->id, [
+            'price_snapshot_ariary' => 110000,
+        ]);
+
+        $invoice = Invoice::create([
+            'reservation_id' => $reservation->id,
+            'invoice_number' => null,
+            'total_amount_ariary' => 110000,
+            'tax_amount_ariary' => 0,
+            'discount_mode' => null,
+            'discount_value' => null,
+            'discount_amount_ariary' => 0,
+            'deposit_amount_ariary' => 0,
+            'pdf_path' => null,
+            'finalized_at' => null,
+            'status' => 'open',
+            'document_type' => 'facture',
+        ]);
+
+        InvoiceItem::create([
+            'invoice_id' => $invoice->id,
+            'description' => 'Séjour chambre',
+            'type' => 'room',
+            'amount_ariary' => 110000,
+            'quantity' => 1,
+        ]);
+
+        $response = $this->postJson("/api/invoices/{$invoice->id}/generate-pdf", [
+            'document_type' => 'facture',
+            'discount_mode' => 'amount',
+            'discount_value' => 10000,
+            'actor_role' => 'admin',
+        ]);
+
+        $response->assertOk();
+        $this->assertSame('facture', $response->json('invoice.document_type'));
+        $this->assertSame(10000, (int) $response->json('invoice.discount_amount_ariary'));
+
+        $refreshed = Invoice::query()->findOrFail($invoice->id);
+        $this->assertSame(10000, (int) $refreshed->discount_amount_ariary);
+        $this->assertNotNull($refreshed->pdf_path);
+        $this->assertTrue(Storage::disk('local')->exists($refreshed->pdf_path));
+    }
+
     public function test_euro_pdf_mode_is_rejected_for_non_booking_reservation(): void
     {
         $user = User::create([
@@ -472,8 +622,13 @@ class InvoicePdfGenerationTest extends TestCase
 
         $html = $this->invoiceHtmlForTest($invoice, 'facture', 'ariary');
 
+        $this->assertStringContainsString('Arrêtée la présente facture à la somme de', $html);
         $this->assertStringContainsString('Fait à Ambondromamy le ', $html);
         $this->assertStringContainsString('NIF: 2000683017 STAT: 46101 11 2011 Siège social: LOT II H 12 ter Bis EA Ankerana', $html);
+        $this->assertLessThan(
+            strpos($html, 'Fait à Ambondromamy le '),
+            strpos($html, 'Arrêtée la présente facture à la somme de'),
+        );
         $this->assertStringContainsString("class='signature-title'>Client</div>", $html);
         $this->assertStringContainsString("class='signature-title'>Responsable</div>", $html);
     }

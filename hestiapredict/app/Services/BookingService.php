@@ -668,6 +668,8 @@ class BookingService
                 'occupant_sex' => $room->pivot->occupant_sex,
                 'occupant_id_type' => $room->pivot->occupant_id_type,
                 'occupant_id_number' => $room->pivot->occupant_id_number,
+                'occupant_passport_valid_from' => optional($room->pivot->occupant_passport_valid_from)->toDateString(),
+                'occupant_passport_valid_until' => optional($room->pivot->occupant_passport_valid_until)->toDateString(),
                 'checked_in_at' => optional($room->pivot->checked_in_at)->toDateTimeString(),
                 'checked_in_by_name' => $room->pivot->checked_in_by_name,
                 'checked_in_by_role' => $room->pivot->checked_in_by_role,

@@ -10,6 +10,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../core/app_config.dart';
 import '../core/formatters.dart';
+import '../services/pdf_download.dart';
 
 const String baseUrl = AppConfig.apiBaseUrl;
 const Color _primary = Color(0xFF0F766E);
@@ -60,6 +61,16 @@ class _FolioPageState extends State<FolioPage> {
     final source = widget.reservation['source']?.toString();
 
     return folioFlag == true || reservationFlag == true || source == 'Booking';
+  }
+
+  bool get _isOrganizationReservation {
+    final folioBookingType = _folio?['booking_type']?.toString();
+    final reservationBookingType =
+        widget.reservation['booking_type']?.toString() ??
+        widget.reservation['bookingType']?.toString();
+
+    return folioBookingType == 'organization' ||
+        reservationBookingType == 'organization';
   }
 
   List<Map<String, dynamic>> get _availableInvoices {
@@ -231,24 +242,19 @@ class _FolioPageState extends State<FolioPage> {
   }
 
   Future<void> _generatePdf() async {
-    if (_documentType != 'facture') {
-      _showMessage(
-        'La génération PDF est réservée au mode facture.',
-        isError: true,
-      );
-      return;
-    }
-
     final discountText = _discountController.text.trim();
     final discountValue = int.tryParse(discountText) ?? 0;
     final payload = <String, dynamic>{
       'pricing_mode': widget.pricingMode,
       'document_type': _documentType,
-      'billing_mode': _billingMode,
       'currency_mode': _isBookingReservation && _bookingInvoiceInEuro
           ? 'euro'
           : 'ariary',
     };
+
+    payload['billing_mode'] = _isOrganizationReservation
+        ? _billingMode
+        : 'grouped';
 
     if (widget.role != 'receptionist' && discountValue > 0) {
       payload['discount_mode'] = _discountMode;
@@ -261,7 +267,9 @@ class _FolioPageState extends State<FolioPage> {
       'POST',
       '/api/invoices/$_invoiceId/generate-pdf',
       payload,
-      successMessage: 'Facture PDF mise à jour.',
+      successMessage: _documentType == 'proforma'
+          ? 'Proforma PDF mise à jour.'
+          : 'Facture PDF mise à jour.',
     );
   }
 
@@ -280,6 +288,18 @@ class _FolioPageState extends State<FolioPage> {
       {'email': email},
       successMessage: 'Facture envoyée par email.',
     );
+  }
+
+  Future<void> _downloadInvoice() async {
+    try {
+      final bytes = await _downloadPdfBytes();
+      final filename = '${_folio?['invoice_number'] ?? 'facture'}.pdf';
+      if (!mounted) return;
+      final message = await savePdfToDownloads(bytes, filename);
+      _showMessage(message);
+    } catch (e) {
+      if (mounted) _showMessage(e.toString(), isError: true);
+    }
   }
 
   Future<void> _sendJson(
@@ -716,96 +736,98 @@ class _FolioPageState extends State<FolioPage> {
                             showLoyalty: widget.role != 'receptionist',
                           ),
                           const SizedBox(height: 16),
-                          SegmentedButton<String>(
-                            segments: const [
-                              ButtonSegment(
-                                value: 'grouped',
-                                label: Text('Groupée'),
-                                icon: Icon(Icons.groups_outlined),
-                              ),
-                              ButtonSegment(
-                                value: 'individual',
-                                label: Text('Individuelle'),
-                                icon: Icon(Icons.person_outline),
-                              ),
-                            ],
-                            selected: {_billingMode},
-                            onSelectionChanged: _isBusy
-                                ? null
-                                : (selection) {
-                                    final nextMode = selection.first;
-                                    final nextInvoiceId =
-                                        _invoiceIdForBillingMode(nextMode);
-                                    setState(() {
-                                      _billingMode = nextMode;
-                                      if (nextInvoiceId != null) {
-                                        _selectedInvoiceId = nextInvoiceId;
-                                      }
-                                    });
-                                    if (nextInvoiceId != null) {
-                                      _fetchFolio(invoiceId: nextInvoiceId);
-                                    }
-                                  },
-                          ),
-                          if (_availableInvoices.isNotEmpty) ...[
-                            const SizedBox(height: 16),
-                            DropdownButtonFormField<int>(
-                              initialValue: _invoiceId,
-                              decoration: const InputDecoration(
-                                labelText: 'Facture affichée',
-                                border: OutlineInputBorder(),
-                              ),
-                              items: _availableInvoices.map((invoice) {
-                                final invoiceKind =
-                                    invoice['invoice_kind']?.toString() ??
-                                    'master';
-                                final bookingRoomId = _asInt(
-                                  invoice['booking_room_id'],
-                                );
-                                final roomLabel = bookingRoomId > 0
-                                    ? _roomLabelForBooking(
-                                        bookingRoomId,
-                                        roomBookings,
-                                      )
-                                    : null;
-                                final label = invoiceKind == 'master'
-                                    ? 'Résumé général'
-                                    : roomLabel ?? 'Chambre';
-                                final subtitle = invoice['invoice_number']
-                                    ?.toString();
-                                return DropdownMenuItem<int>(
-                                  value: _asInt(invoice['id']),
-                                  child: Text(
-                                    subtitle == null || subtitle.isEmpty
-                                        ? label
-                                        : '$label - $subtitle',
-                                  ),
-                                );
-                              }).toList(),
-                              onChanged: _isBusy
+                          if (_isOrganizationReservation) ...[
+                            SegmentedButton<String>(
+                              segments: const [
+                                ButtonSegment(
+                                  value: 'grouped',
+                                  label: Text('Groupée'),
+                                  icon: Icon(Icons.groups_outlined),
+                                ),
+                                ButtonSegment(
+                                  value: 'individual',
+                                  label: Text('Individuelle'),
+                                  icon: Icon(Icons.person_outline),
+                                ),
+                              ],
+                              selected: {_billingMode},
+                              onSelectionChanged: _isBusy
                                   ? null
-                                  : (value) {
-                                      if (value == null) return;
+                                  : (selection) {
+                                      final nextMode = selection.first;
+                                      final nextInvoiceId =
+                                          _invoiceIdForBillingMode(nextMode);
                                       setState(() {
-                                        _selectedInvoiceId = value;
-                                        final selectedInvoice =
-                                            _availableInvoices.firstWhere(
-                                              (invoice) =>
-                                                  _asInt(invoice['id']) ==
-                                                  value,
-                                              orElse: () => const {},
-                                            );
-                                        _billingMode =
-                                            (selectedInvoice['invoice_kind']
-                                                        ?.toString() ??
-                                                    'master') ==
-                                                'master'
-                                            ? 'grouped'
-                                            : 'individual';
+                                        _billingMode = nextMode;
+                                        if (nextInvoiceId != null) {
+                                          _selectedInvoiceId = nextInvoiceId;
+                                        }
                                       });
-                                      _fetchFolio(invoiceId: value);
+                                      if (nextInvoiceId != null) {
+                                        _fetchFolio(invoiceId: nextInvoiceId);
+                                      }
                                     },
                             ),
+                            if (_availableInvoices.isNotEmpty) ...[
+                              const SizedBox(height: 16),
+                              DropdownButtonFormField<int>(
+                                initialValue: _invoiceId,
+                                decoration: const InputDecoration(
+                                  labelText: 'Facture affichée',
+                                  border: OutlineInputBorder(),
+                                ),
+                                items: _availableInvoices.map((invoice) {
+                                  final invoiceKind =
+                                      invoice['invoice_kind']?.toString() ??
+                                      'master';
+                                  final bookingRoomId = _asInt(
+                                    invoice['booking_room_id'],
+                                  );
+                                  final roomLabel = bookingRoomId > 0
+                                      ? _roomLabelForBooking(
+                                          bookingRoomId,
+                                          roomBookings,
+                                        )
+                                      : null;
+                                  final label = invoiceKind == 'master'
+                                      ? 'Résumé général'
+                                      : roomLabel ?? 'Chambre';
+                                  final subtitle = invoice['invoice_number']
+                                      ?.toString();
+                                  return DropdownMenuItem<int>(
+                                    value: _asInt(invoice['id']),
+                                    child: Text(
+                                      subtitle == null || subtitle.isEmpty
+                                          ? label
+                                          : '$label - $subtitle',
+                                    ),
+                                  );
+                                }).toList(),
+                                onChanged: _isBusy
+                                    ? null
+                                    : (value) {
+                                        if (value == null) return;
+                                        setState(() {
+                                          _selectedInvoiceId = value;
+                                          final selectedInvoice =
+                                              _availableInvoices.firstWhere(
+                                                (invoice) =>
+                                                    _asInt(invoice['id']) ==
+                                                    value,
+                                                orElse: () => const {},
+                                              );
+                                          _billingMode =
+                                              (selectedInvoice['invoice_kind']
+                                                          ?.toString() ??
+                                                      'master') ==
+                                                  'master'
+                                              ? 'grouped'
+                                              : 'individual';
+                                        });
+                                        _fetchFolio(invoiceId: value);
+                                      },
+                              ),
+                            ],
                           ],
                           const SizedBox(height: 16),
                           if (widget.role != 'receptionist') ...[
@@ -920,16 +942,16 @@ class _FolioPageState extends State<FolioPage> {
                           ],
                           const SizedBox(height: 12),
                           ElevatedButton.icon(
-                            onPressed: _isBusy || _documentType != 'facture'
-                                ? null
-                                : _generatePdf,
+                            onPressed: _isBusy ? null : _generatePdf,
                             icon: const Icon(Icons.picture_as_pdf_outlined),
                             label: Text(
-                              _documentType == 'facture'
+                              _documentType == 'proforma'
                                   ? (_hasPdf
+                                        ? 'Mettre à jour le proforma PDF'
+                                        : 'Générer le proforma PDF')
+                                  : (_hasPdf
                                         ? 'Mettre à jour le PDF'
-                                        : 'Générer le PDF')
-                                  : 'PDF réservé à la facture',
+                                        : 'Générer le PDF'),
                             ),
                           ),
                           const SizedBox(height: 10),
@@ -939,9 +961,9 @@ class _FolioPageState extends State<FolioPage> {
                             label: const Text('Visualiser'),
                           ),
                           OutlinedButton.icon(
-                            onPressed: _hasPdf ? _sendEmail : null,
-                            icon: const Icon(Icons.mail_outline),
-                            label: const Text('Envoyer par email'),
+                            onPressed: _hasPdf ? _downloadInvoice : null,
+                            icon: const Icon(Icons.download_outlined),
+                            label: const Text('Télécharger la facture'),
                           ),
                           OutlinedButton.icon(
                             onPressed: _hasPdf ? _sharePdf : null,

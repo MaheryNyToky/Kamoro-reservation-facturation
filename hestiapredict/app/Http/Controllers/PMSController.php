@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Guest;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\Organization;
 use App\Models\Room;
 use App\Models\ReservationAudit;
 use App\Models\Payment;
@@ -20,6 +21,7 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class PMSController extends Controller
@@ -41,7 +43,8 @@ class PMSController extends Controller
 
     public function checkIn(Request $request, int $id): JsonResponse
     {
-        $reservation = Reservation::with(['rooms', 'guest', 'invoice.items', 'invoice.payments'])->findOrFail($id);
+        $reservation = Reservation::with(['rooms', 'guest', 'organization', 'invoice.items', 'invoice.payments'])->findOrFail($id);
+        $isOrganizationReservation = ($reservation->booking_type ?? '') === 'organization';
 
         $roomCheckins = $request->input('room_checkins');
         if (is_string($roomCheckins)) {
@@ -63,6 +66,16 @@ class PMSController extends Controller
             'passport_valid_from' => optional($reservation->guest?->passport_valid_from)->toDateString(),
             'passport_valid_until' => optional($reservation->guest?->passport_valid_until)->toDateString(),
             'loyalty_count' => $reservation->guest?->loyalty_count,
+            'organization_name' => $reservation->organization?->name ?? $reservation->client_name,
+            'organization_phone' => $reservation->organization?->phone,
+            'organization_contact_name' => $reservation->organization?->contact_name,
+            'organization_contact_phone' => $reservation->organization?->contact_phone,
+            'organization_contact_email' => $reservation->organization?->contact_email,
+            'organization_email' => $reservation->organization?->email,
+            'organization_billing_address' => $reservation->organization?->billing_address,
+            'organization_nif' => $reservation->organization?->nif ?? $reservation->organization?->tax_id,
+            'organization_stat' => $reservation->organization?->stat,
+            'organization_tax_id' => $reservation->organization?->tax_id,
         ], $request->all());
 
         $validated = validator($payload, [
@@ -71,14 +84,34 @@ class PMSController extends Controller
             'phone_number' => 'nullable|string|max:50',
             'date_of_birth' => 'required|date',
             'sex' => 'required|in:Homme,Femme,Autre',
-            'id_type' => 'required|in:CIN,Passeport,Permis',
+            'id_type' => 'required|in:CIN,Passeport,Carte de séjour,Autre,Permis',
             'id_number' => 'required|string|max:100',
             'id_document_number' => 'nullable|string|max:100',
-            'passport_valid_from' => 'nullable|date|required_if:id_type,Passeport|before_or_equal:passport_valid_until',
-            'passport_valid_until' => 'nullable|date|required_if:id_type,Passeport|after_or_equal:passport_valid_from',
+            'passport_valid_from' => [
+                'nullable',
+                'date',
+                Rule::requiredIf(fn () => ! $isOrganizationReservation && in_array((string) ($payload['id_type'] ?? ''), ['Passeport', 'Carte de séjour', 'Autre'], true)),
+                'before_or_equal:passport_valid_until',
+            ],
+            'passport_valid_until' => [
+                'nullable',
+                'date',
+                Rule::requiredIf(fn () => ! $isOrganizationReservation && in_array((string) ($payload['id_type'] ?? ''), ['Passeport', 'Carte de séjour', 'Autre'], true)),
+                'after_or_equal:passport_valid_from',
+            ],
             'loyalty_count' => 'nullable|integer|min:0',
             'first_name' => 'nullable|string|max:120',
             'last_name' => 'nullable|string|max:120',
+            'organization_name' => 'nullable|string|max:190',
+            'organization_phone' => 'nullable|string|max:40',
+            'organization_contact_name' => 'nullable|string|max:120',
+            'organization_contact_phone' => 'nullable|string|max:40',
+            'organization_contact_email' => 'nullable|email|max:190',
+            'organization_email' => 'nullable|email|max:190',
+            'organization_billing_address' => 'nullable|string|max:255',
+            'organization_nif' => 'nullable|string|max:80',
+            'organization_stat' => 'nullable|string|max:80',
+            'organization_tax_id' => 'nullable|string|max:80',
             'checked_in_by_name' => 'nullable|string|max:120',
             'checked_in_by_role' => 'nullable|string|in:admin,receptionist,superadmin',
             'room_checkins' => 'nullable|array',
@@ -90,48 +123,93 @@ class PMSController extends Controller
             'room_checkins.*.occupant_sex' => 'nullable|in:Homme,Femme,Autre',
             'room_checkins.*.occupant_id_type' => 'nullable|string|max:40',
             'room_checkins.*.occupant_id_number' => 'nullable|string|max:100',
+            'room_checkins.*.occupant_passport_valid_from' => 'nullable|date',
+            'room_checkins.*.occupant_passport_valid_until' => 'nullable|date',
         ])->validate();
-        $result = DB::transaction(function () use ($reservation, $validated) {
+        $result = DB::transaction(function () use ($reservation, $validated, $isOrganizationReservation) {
             $baseLoyaltyCount = (int) ($validated['loyalty_count'] ?? $reservation->guest?->loyalty_count ?? 0);
             $customerPhone = PhoneNumber::normalize($validated['customer_phone'] ?? $reservation->customer_phone ?? $reservation->client_phone ?? null);
             $phoneNumber = PhoneNumber::normalize($validated['phone_number'] ?? $customerPhone ?? null);
+            $clientName = $validated['full_name'];
+
+            if (($reservation->booking_type ?? '') === 'organization') {
+                $organization = $reservation->organization ?: new Organization();
+                $organizationPhone = PhoneNumber::normalize($validated['organization_phone'] ?? $organization->phone ?? null);
+                $organizationContactPhone = PhoneNumber::normalize(
+                    $validated['organization_contact_phone'] ?? $organization->contact_phone ?? null
+                );
+                $organization->fill([
+                    'name' => $validated['organization_name'] ?? $reservation->client_name,
+                    'phone' => $organizationPhone,
+                    'contact_name' => $validated['organization_contact_name'] ?? $organization->contact_name,
+                    'contact_phone' => $organizationContactPhone,
+                    'contact_email' => $validated['organization_contact_email'] ?? $organization->contact_email,
+                    'email' => $validated['organization_email'] ?? $organization->email,
+                    'billing_address' => $validated['organization_billing_address'] ?? $organization->billing_address,
+                    'nif' => $validated['organization_nif'] ?? $validated['organization_tax_id'] ?? $organization->nif ?? $organization->tax_id,
+                    'stat' => $validated['organization_stat'] ?? $organization->stat,
+                    'tax_id' => $validated['organization_tax_id'] ?? $validated['organization_nif'] ?? $organization->tax_id ?? $organization->nif,
+                ]);
+                $organization->save();
+                $reservation->organization_id = $organization->id;
+                $clientName = $organization->name;
+            }
 
             $reservation->update([
-                'client_name' => $validated['full_name'],
+                'client_name' => $clientName,
                 'customer_phone' => $customerPhone,
                 'client_phone' => $customerPhone ?? $reservation->client_phone,
                 'status' => 'arrive',
             ]);
 
-            $guest = Guest::updateOrCreate(
-                ['reservation_id' => $reservation->id],
-                [
-                    'first_name' => $validated['first_name'] ?? null,
-                    'last_name' => $validated['last_name'] ?? null,
-                    'phone_number' => $phoneNumber,
-                    'id_document_number' => $validated['id_document_number'] ?? $validated['id_number'],
-                    'loyalty_count' => $baseLoyaltyCount,
-                    'full_name' => $validated['full_name'],
-                    'date_of_birth' => $validated['date_of_birth'],
-                    'sex' => $validated['sex'],
-                    'passport_valid_from' => $validated['passport_valid_from'] ?? null,
-                    'passport_valid_until' => $validated['passport_valid_until'] ?? null,
-                    'id_type' => $validated['id_type'],
-                    'id_number' => $validated['id_number'],
-                ],
-            );
+            $guest = Guest::query()->firstOrNew([
+                'reservation_id' => $reservation->id,
+            ]);
+            $guest->fill([
+                'first_name' => $validated['first_name'] ?? null,
+                'last_name' => $validated['last_name'] ?? null,
+                'phone_number' => $phoneNumber,
+                'id_document_number' => $validated['id_document_number'] ?? $validated['id_number'],
+                'loyalty_count' => $baseLoyaltyCount,
+                'full_name' => $validated['full_name'],
+                'date_of_birth' => $validated['date_of_birth'],
+                'sex' => $validated['sex'],
+                'passport_valid_from' => $validated['passport_valid_from'] ?? null,
+                'passport_valid_until' => $validated['passport_valid_until'] ?? null,
+                'id_type' => $validated['id_type'],
+                'id_number' => $validated['id_number'],
+            ]);
+            $guest->reservation_id = $reservation->id;
+            $guest->save();
 
             $roomCheckins = collect($validated['room_checkins'] ?? []);
             if ($roomCheckins->isNotEmpty()) {
                 foreach ($roomCheckins as $roomCheckin) {
+                    $roomIdType = (string) ($roomCheckin['occupant_id_type'] ?? $validated['id_type']);
+                    $roomNeedsValidity = in_array($roomIdType, ['Passeport', 'Carte de séjour', 'Autre'], true);
+                    if ($roomNeedsValidity && (
+                        empty($roomCheckin['occupant_passport_valid_from'] ?? null)
+                        || empty($roomCheckin['occupant_passport_valid_until'] ?? null)
+                    )) {
+                        throw ValidationException::withMessages([
+                            'room_checkins' => 'Veuillez renseigner la validité du document pour chaque chambre concernée.',
+                        ]);
+                    }
+
                     $reservation->rooms()->updateExistingPivot((int) $roomCheckin['room_id'], [
                         'occupant_name' => $roomCheckin['occupant_name'] ?? $validated['full_name'],
-                        'occupant_phone' => $roomCheckin['occupant_phone'] ?? $phoneNumber,
-                        'occupant_email' => $roomCheckin['occupant_email'] ?? $validated['customer_email'] ?? null,
+                        'occupant_phone' => $isOrganizationReservation
+                            ? ($roomCheckin['occupant_phone'] ?? null)
+                            : ($roomCheckin['occupant_phone'] ?? $phoneNumber),
+                        'occupant_email' => $isOrganizationReservation
+                            ? ($roomCheckin['occupant_email'] ?? null)
+                            : ($roomCheckin['occupant_email'] ?? $validated['customer_email'] ?? null),
                         'occupant_date_of_birth' => $roomCheckin['occupant_date_of_birth'] ?? $validated['date_of_birth'],
                         'occupant_sex' => $roomCheckin['occupant_sex'] ?? $validated['sex'],
                         'occupant_id_type' => $roomCheckin['occupant_id_type'] ?? $validated['id_type'],
                         'occupant_id_number' => $roomCheckin['occupant_id_number'] ?? $validated['id_number'],
+                        'occupant_passport_valid_from' => $roomCheckin['occupant_passport_valid_from'] ?? null,
+                        'occupant_passport_valid_until' => $roomCheckin['occupant_passport_valid_until'] ?? null,
                         'checked_in_at' => now(),
                         'checked_in_by_name' => $validated['checked_in_by_name'] ?? null,
                         'checked_in_by_role' => $validated['checked_in_by_role'] ?? null,
@@ -141,12 +219,14 @@ class PMSController extends Controller
                 foreach ($reservation->rooms as $room) {
                     $reservation->rooms()->updateExistingPivot($room->id, [
                         'occupant_name' => $validated['full_name'],
-                        'occupant_phone' => $phoneNumber,
-                        'occupant_email' => $validated['customer_email'] ?? null,
+                        'occupant_phone' => $isOrganizationReservation ? null : $phoneNumber,
+                        'occupant_email' => $isOrganizationReservation ? null : ($validated['customer_email'] ?? null),
                         'occupant_date_of_birth' => $validated['date_of_birth'],
                         'occupant_sex' => $validated['sex'],
                         'occupant_id_type' => $validated['id_type'],
                         'occupant_id_number' => $validated['id_number'],
+                        'occupant_passport_valid_from' => $validated['passport_valid_from'] ?? null,
+                        'occupant_passport_valid_until' => $validated['passport_valid_until'] ?? null,
                         'checked_in_at' => now(),
                         'checked_in_by_name' => $validated['checked_in_by_name'] ?? null,
                         'checked_in_by_role' => $validated['checked_in_by_role'] ?? null,
@@ -522,15 +602,30 @@ class PMSController extends Controller
 
         DB::transaction(function () use ($invoice, $validated, $documentType, $currencyMode) {
             $invoice->refresh();
+            $reservation = $invoice->reservation()->lockForUpdate()->first();
+            $invoice->refresh();
             if (!$invoice->invoice_number) {
                 $invoice->invoice_number = $this->nextInvoiceNumber();
                 $invoice->save();
+            }
+
+            if ($reservation && array_key_exists('billing_mode', $validated)) {
+                $newBillingMode = $validated['billing_mode'] === 'individual' ? 'per_room' : 'grouped';
+                $reservation->update([
+                    'billing_mode' => $newBillingMode,
+                ]);
+                $invoice->update(['billing_mode' => $newBillingMode]);
+                $reservation = $reservation->refresh()->loadMissing('rooms');
             }
 
             if ($invoice->status !== 'finalized' && $invoice->reservation) {
                 $this->syncReservationExtras($invoice, $invoice->reservation);
                 $this->syncRoomItemDescriptions($invoice, $invoice->reservation);
                 $this->recalculateInvoice($invoice->refresh());
+            }
+
+            if ($reservation && ($reservation->billing_mode ?? 'grouped') === 'per_room') {
+                $this->ensureRoomInvoices($reservation->refresh()->load('rooms'), $invoice->refresh());
             }
 
             $invoice->update([
@@ -818,6 +913,8 @@ class PMSController extends Controller
             'occupant_sex' => $room->pivot->occupant_sex,
             'occupant_id_type' => $room->pivot->occupant_id_type,
             'occupant_id_number' => $room->pivot->occupant_id_number,
+            'occupant_passport_valid_from' => optional($room->pivot->occupant_passport_valid_from)->toDateString(),
+            'occupant_passport_valid_until' => optional($room->pivot->occupant_passport_valid_until)->toDateString(),
             'checked_in_at' => optional($room->pivot->checked_in_at)->toDateTimeString(),
             'checked_in_by_name' => $room->pivot->checked_in_by_name,
             'checked_in_by_role' => $room->pivot->checked_in_by_role,
@@ -1093,7 +1190,7 @@ class PMSController extends Controller
                 </style>
             </head>
             <body>
-                " . ($isProforma ? "<div class='document-ribbon'>DOCUMENT PROFORMA - NON VALABLE POUR COMPTABILISATION FINALE</div>" : "") . "
+                " . ($isProforma ? "<div class='document-ribbon'>DOCUMENT PROFORMA</div>" : "") . "
                 <div class='topbar'>
                     <div class='brand'>
                         " . ($logoDataUri
@@ -1198,14 +1295,14 @@ class PMSController extends Controller
                         </tr>
                     </table>
                 </div>
+                <div class='footer-note'>
+                    Arrêtée la présente {$amountLabel} à la somme de : {$amountInWords}
+                </div>
                 <div class='invoice-footer'>
                     <div class='invoice-location'>Fait à Ambondromamy le {$printedAt}</div>
                     <div class='legal-block'>
                         NIF: 2000683017 STAT: 46101 11 2011 Siège social: LOT II H 12 ter Bis EA Ankerana
                     </div>
-                </div>
-                <div class='footer-note'>
-                    Arrêtée la présente {$amountLabel} à la somme de : {$amountInWords}
                 </div>
             </body>
             </html>
@@ -1263,9 +1360,16 @@ class PMSController extends Controller
 
         self::$hotelLogoLoaded = true;
         $root = dirname(base_path());
-        $matches = glob($root . DIRECTORY_SEPARATOR . 'Capture*.png');
-        $logoPath = $matches[0] ?? null;
-        if (!$logoPath || !is_file($logoPath)) {
+        $captureMatches = glob($root . DIRECTORY_SEPARATOR . 'Capture*.png') ?: [];
+        $candidates = [
+            $captureMatches[0] ?? null,
+            $root . DIRECTORY_SEPARATOR . 'hestia_app' . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'login_logo.png',
+            base_path('public/logo.png'),
+            storage_path('app/public/logo.png'),
+        ];
+
+        $logoPath = collect($candidates)->first(fn ($path) => is_string($path) && is_file($path));
+        if (!$logoPath) {
             return null;
         }
 

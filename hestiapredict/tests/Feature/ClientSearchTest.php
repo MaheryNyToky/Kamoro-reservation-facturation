@@ -83,6 +83,56 @@ class ClientSearchTest extends TestCase
         $response->assertJsonPath('data.0.loyalty_count', 7);
     }
 
+    public function test_search_prefers_name_matches_over_document_substrings(): void
+    {
+        $user = User::create([
+            'name' => 'Reception Test',
+            'email' => 'reception-name-test@example.com',
+            'password' => 'password',
+            'role' => 'receptionist',
+            'is_blacklisted' => false,
+        ]);
+
+        $aliceReservationId = $this->createReservation($user->id, 'Alice Dupont', '0341000010');
+        $bobReservationId = $this->createReservation($user->id, 'Bob Martin', '0341000011');
+
+        Guest::create([
+            'reservation_id' => $aliceReservationId,
+            'full_name' => 'Alice Dupont',
+            'first_name' => 'Alice',
+            'last_name' => 'Dupont',
+            'phone_number' => '0341000010',
+            'sex' => 'Femme',
+            'id_document_number' => 'CIN-ALICE-001',
+            'loyalty_count' => 1,
+            'date_of_birth' => '1991-01-01',
+            'id_type' => 'CIN',
+            'id_number' => 'CIN-ALICE-001',
+            'id_photo_path' => null,
+        ]);
+
+        Guest::create([
+            'reservation_id' => $bobReservationId,
+            'full_name' => 'Bob Martin',
+            'first_name' => 'Bob',
+            'last_name' => 'Martin',
+            'phone_number' => '0341000011',
+            'sex' => 'Homme',
+            'id_document_number' => 'XALICE-999',
+            'loyalty_count' => 3,
+            'date_of_birth' => '1992-02-02',
+            'id_type' => 'CIN',
+            'id_number' => 'XALICE-999',
+            'id_photo_path' => null,
+        ]);
+
+        $response = $this->getJson('/api/clients/search?q=Alice');
+
+        $response->assertOk();
+        $response->assertJsonCount(1, 'data');
+        $response->assertJsonPath('data.0.full_name', 'Alice Dupont');
+    }
+
     private function createReservation(int $userId, string $clientName, string $clientPhone): int
     {
         return DB::table('reservations')->insertGetId([

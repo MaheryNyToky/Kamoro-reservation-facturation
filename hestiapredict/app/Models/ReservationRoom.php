@@ -20,6 +20,8 @@ class ReservationRoom extends Pivot
         'occupant_sex',
         'occupant_id_type',
         'occupant_id_number',
+        'occupant_passport_valid_from',
+        'occupant_passport_valid_until',
         'checked_in_at',
         'checked_in_by_name',
         'checked_in_by_role',
@@ -29,6 +31,8 @@ class ReservationRoom extends Pivot
     protected $casts = [
         'price_snapshot_ariary' => 'integer',
         'occupant_date_of_birth' => 'date:Y-m-d',
+        'occupant_passport_valid_from' => 'date:Y-m-d',
+        'occupant_passport_valid_until' => 'date:Y-m-d',
         'checked_in_at' => 'datetime',
     ];
 

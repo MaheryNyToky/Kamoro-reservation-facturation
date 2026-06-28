@@ -16,7 +16,7 @@ return new class extends Migration
             $table->foreignId('reservation_id')->constrained()->onDelete('cascade');
             $table->string('full_name');
             $table->date('date_of_birth');
-            $table->enum('id_type', ['CIN', 'Passeport', 'Permis']);
+            $table->string('id_type', 40);
             $table->string('id_number');
             $table->string('id_photo_path')->nullable();
             $table->timestamps();

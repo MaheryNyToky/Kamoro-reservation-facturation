@@ -1912,11 +1912,11 @@ class _NewBookingPageState extends State<NewBookingPage> {
       return;
     }
 
-    if (effectivePhone.isEmpty && effectiveEmail.isEmpty) {
+    if (effectivePhone.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Veuillez renseigner au moins un numéro de téléphone ou un email.',
+            'Veuillez renseigner un numéro de téléphone.',
           ),
           backgroundColor: Colors.orange,
         ),
@@ -2253,7 +2253,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
                     decoration: InputDecoration(
                       labelText: _isOrganizationBooking
                           ? 'Email contact'
-                          : 'Email / Autre contact (Requis si pas de tel)',
+                          : 'Email / Autre contact (si pas de téléphone)',
                       prefixIcon: const Icon(Icons.contact_mail),
                       border: const OutlineInputBorder(),
                     ),
