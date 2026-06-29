@@ -8,6 +8,7 @@ use App\Models\Reservation;
 use App\Models\ReservationAudit;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class PaymentModificationTest extends TestCase
@@ -37,6 +38,54 @@ class PaymentModificationTest extends TestCase
             ->firstOrFail();
 
         $this->assertSame(10000, (int) ($audit->details['change_given_ariary'] ?? 0));
+    }
+
+    public function test_extra_added_after_full_payment_reopens_balance_without_using_previous_change(): void
+    {
+        Storage::fake('local');
+        [$reservation, $invoice] = $this->createReservationAndInvoice(110000);
+
+        $paymentResponse = $this->postJson("/api/invoices/{$invoice->id}/payments", [
+            'amount_ariary' => 115000,
+            'payment_method' => 'Espèces',
+            'processed_by_name' => 'Reception Test',
+            'processed_by_role' => 'receptionist',
+        ]);
+
+        $paymentResponse->assertOk();
+        $paymentResponse->assertJsonPath('payment.amount_ariary', 110000);
+        $paymentResponse->assertJsonPath('payment.change_given_ariary', 5000);
+        $paymentResponse->assertJsonPath('invoice.balance_amount_ariary', 0);
+
+        $this->postJson("/api/invoices/{$invoice->id}/generate-pdf", [
+            'document_type' => 'facture',
+            'actor_role' => 'admin',
+        ])->assertOk();
+        $invoice->refresh();
+        $this->assertNotNull($invoice->pdf_path);
+        Storage::disk('local')->assertExists($invoice->pdf_path);
+
+        $extraResponse = $this->postJson("/api/invoices/{$invoice->id}/items", [
+            'description' => 'Déjeuner',
+            'type' => 'extra',
+            'amount_ariary' => 50000,
+            'quantity' => 1,
+            'actor_name' => 'Reception Test',
+            'actor_role' => 'receptionist',
+        ]);
+
+        $extraResponse->assertOk();
+        $extraResponse->assertJsonPath('invoice.total_amount_ariary', 160000);
+        $extraResponse->assertJsonPath('invoice.paid_amount_ariary', 110000);
+        $extraResponse->assertJsonPath('invoice.balance_amount_ariary', 50000);
+        $extraResponse->assertJsonPath('invoice.change_given_ariary', 5000);
+
+        $invoice->refresh();
+        $this->assertSame('partial', $invoice->status);
+        $this->assertSame(160000, (int) $invoice->total_amount_ariary);
+        $this->assertSame(110000, (int) $invoice->paid_amount_ariary);
+        $this->assertSame(50000, (int) $invoice->balance_amount_ariary);
+        $this->assertNull($invoice->pdf_path);
     }
 
     public function test_receptionist_can_only_modify_one_payment_per_reservation(): void

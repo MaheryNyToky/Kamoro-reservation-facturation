@@ -33,6 +33,8 @@ Route::post('/reservations/{id}/checkin', [PMSController::class, 'checkIn']);
 Route::post('/reservations/{id}/manual-checkout', [PMSController::class, 'manualCheckout']);
 Route::post('/reservations/{id}/deposit', [PMSController::class, 'addDeposit']);
 Route::post('/invoices/{id}/items', [PMSController::class, 'addInvoiceItem']);
+Route::put('/invoices/{id}/items/{itemId}', [PMSController::class, 'updateInvoiceItem']);
+Route::delete('/invoices/{id}/items/{itemId}', [PMSController::class, 'deleteInvoiceItem']);
 Route::post('/invoices/{id}/payments', [PMSController::class, 'addPayment']);
 Route::put('/invoices/{id}/payments/{paymentId}', [PMSController::class, 'updatePayment']);
 Route::post('/users', [HotelManagementController::class, 'createUser']);

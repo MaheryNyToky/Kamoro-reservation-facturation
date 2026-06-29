@@ -337,6 +337,21 @@ class _FolioPageState extends State<FolioPage> {
       widget.role != 'receptionist' ||
       _reservationData['status']?.toString() == 'arrive';
 
+  bool _canModifyInvoiceItem(Map<String, dynamic> item) {
+    if (_isFinalized) return false;
+    if (widget.role == 'admin' || widget.role == 'superadmin') return true;
+    if (widget.role != 'receptionist') return false;
+    if (item['created_by_role']?.toString() != 'receptionist') return false;
+
+    final rawCreatedAt = item['created_at']?.toString();
+    final createdAt = DateTime.tryParse(
+      (rawCreatedAt ?? '').replaceFirst(' ', 'T'),
+    );
+    if (createdAt == null) return false;
+
+    return DateTime.now().difference(createdAt).inSeconds <= 7;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -414,11 +429,50 @@ class _FolioPageState extends State<FolioPage> {
     final result = await _showItemDialog();
     if (result == null) return;
 
+    await _sendJson('POST', '/api/invoices/$_invoiceId/items', {
+      ...result,
+      'actor_name': widget.userName,
+      'actor_role': widget.role,
+    }, successMessage: 'Extra ajouté.');
+  }
+
+  Future<void> _editInvoiceItem(Map<String, dynamic> item) async {
+    final result = await _showItemDialog(item: item);
+    if (result == null) return;
+
     await _sendJson(
-      'POST',
-      '/api/invoices/$_invoiceId/items',
-      result,
-      successMessage: 'Extra ajouté.',
+      'PUT',
+      '/api/invoices/$_invoiceId/items/${item['id']}',
+      {...result, 'actor_name': widget.userName, 'actor_role': widget.role},
+      successMessage: 'Ligne modifiée.',
+    );
+  }
+
+  Future<void> _deleteInvoiceItem(Map<String, dynamic> item) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Supprimer la ligne'),
+        content: Text(item['description']?.toString() ?? ''),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    await _sendJson(
+      'DELETE',
+      '/api/invoices/$_invoiceId/items/${item['id']}',
+      {'actor_name': widget.userName, 'actor_role': widget.role},
+      successMessage: 'Ligne supprimée.',
     );
   }
 
@@ -546,7 +600,10 @@ class _FolioPageState extends State<FolioPage> {
     final uri = Uri.parse('$baseUrl/api/invoices/$invoiceId/generate-pdf');
     final response = await http.post(
       uri,
-      headers: const {'Content-Type': 'application/json'},
+      headers: const {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
       body: json.encode(payload),
     );
     if (!mounted) return;
@@ -584,10 +641,14 @@ class _FolioPageState extends State<FolioPage> {
     setState(() => _isBusy = true);
     try {
       final uri = Uri.parse('$baseUrl$path');
-      final headers = {'Content-Type': 'application/json'};
+      final headers = {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      };
       final encodedBody = json.encode(body);
       final response = switch (method) {
         'PUT' => await http.put(uri, headers: headers, body: encodedBody),
+        'DELETE' => await http.delete(uri, headers: headers, body: encodedBody),
         _ => await http.post(uri, headers: headers, body: encodedBody),
       };
       if (!mounted) return;
@@ -720,16 +781,25 @@ class _FolioPageState extends State<FolioPage> {
     }
   }
 
-  Future<Map<String, dynamic>?> _showItemDialog() async {
-    final descriptionController = TextEditingController();
-    final amountController = TextEditingController();
-    final quantityController = TextEditingController(text: '1');
+  Future<Map<String, dynamic>?> _showItemDialog({
+    Map<String, dynamic>? item,
+  }) async {
+    final isEdit = item != null;
+    final descriptionController = TextEditingController(
+      text: item?['description']?.toString() ?? '',
+    );
+    final amountController = TextEditingController(
+      text: item == null ? '' : formatPrice(_asInt(item['amount_ariary'])),
+    );
+    final quantityController = TextEditingController(
+      text: item?['quantity']?.toString() ?? '1',
+    );
     final stayNights = _stayNights();
 
     return showDialog<Map<String, dynamic>>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Ajouter un extra'),
+        title: Text(isEdit ? 'Modifier une ligne' : 'Ajouter un extra'),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -737,7 +807,7 @@ class _FolioPageState extends State<FolioPage> {
               TextField(
                 controller: descriptionController,
                 decoration: const InputDecoration(
-                  labelText: 'Consommation ou service',
+                  labelText: 'Libellé',
                   prefixIcon: Icon(Icons.room_service_outlined),
                 ),
               ),
@@ -762,7 +832,9 @@ class _FolioPageState extends State<FolioPage> {
               ),
               const SizedBox(height: 8),
               Text(
-                'Les suppléments lit et matelas seront multipliés par $stayNights nuit(s).',
+                isEdit
+                    ? 'La quantité correspond au nombre facturé.'
+                    : 'Les suppléments lit et matelas seront multipliés par $stayNights nuit(s).',
                 style: const TextStyle(
                   fontSize: 12,
                   color: _muted,
@@ -792,12 +864,16 @@ class _FolioPageState extends State<FolioPage> {
                   normalizedDescription == 'matelas supplementaire';
               Navigator.pop(context, {
                 'description': description,
-                'type': 'extra',
+                'type': item?['type']?.toString() ?? 'extra',
                 'amount_ariary': amount,
-                'quantity': appliesPerNight ? quantity * stayNights : quantity,
+                'quantity': !isEdit && appliesPerNight
+                    ? quantity * stayNights
+                    : quantity,
+                if (_asInt(item?['booking_room_id']) > 0)
+                  'booking_room_id': _asInt(item?['booking_room_id']),
               });
             },
-            child: const Text('Ajouter'),
+            child: Text(isEdit ? 'Modifier' : 'Ajouter'),
           ),
         ],
       ),
@@ -1170,11 +1246,23 @@ class _FolioPageState extends State<FolioPage> {
                                     label: const Text('Extra'),
                                   ),
                           ),
-                          ...items.map(
-                            (item) => _InvoiceItemTile(
-                              item: Map<String, dynamic>.from(item as Map),
-                            ),
-                          ),
+                          ...items.map((item) {
+                            final invoiceItem = Map<String, dynamic>.from(
+                              item as Map,
+                            );
+                            final canModify = _canModifyInvoiceItem(
+                              invoiceItem,
+                            );
+                            return _InvoiceItemTile(
+                              item: invoiceItem,
+                              onEdit: canModify
+                                  ? () => _editInvoiceItem(invoiceItem)
+                                  : null,
+                              onDelete: canModify
+                                  ? () => _deleteInvoiceItem(invoiceItem)
+                                  : null,
+                            );
+                          }),
                           if (_reservationData['status']?.toString() ==
                               'arrive') ...[
                             const SizedBox(height: 16),
@@ -1925,9 +2013,11 @@ class _SectionHeader extends StatelessWidget {
 }
 
 class _InvoiceItemTile extends StatelessWidget {
-  const _InvoiceItemTile({required this.item});
+  const _InvoiceItemTile({required this.item, this.onEdit, this.onDelete});
 
   final Map<String, dynamic> item;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -1941,9 +2031,28 @@ class _InvoiceItemTile extends StatelessWidget {
         subtitle: Text(
           'Qté ${item['quantity']} x ${formatPrice(_asInt(item['amount_ariary']))} Ar',
         ),
-        trailing: Text(
-          '${formatPrice(_asInt(item['line_total_ariary']))} Ar',
-          style: const TextStyle(fontWeight: FontWeight.w900),
+        trailing: Wrap(
+          spacing: 4,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Text(
+              '${formatPrice(_asInt(item['line_total_ariary']))} Ar',
+              style: const TextStyle(fontWeight: FontWeight.w900),
+            ),
+            if (onEdit != null)
+              IconButton(
+                tooltip: 'Modifier',
+                icon: const Icon(Icons.edit_outlined),
+                onPressed: onEdit,
+              ),
+            if (onDelete != null)
+              IconButton(
+                tooltip: 'Supprimer',
+                icon: const Icon(Icons.delete_outline),
+                color: _rose,
+                onPressed: onDelete,
+              ),
+          ],
         ),
       ),
     );
