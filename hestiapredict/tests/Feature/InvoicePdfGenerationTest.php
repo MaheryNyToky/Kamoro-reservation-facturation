@@ -624,13 +624,99 @@ class InvoicePdfGenerationTest extends TestCase
 
         $this->assertStringContainsString('Arrêtée la présente facture à la somme de', $html);
         $this->assertStringContainsString('Fait à Ambondromamy le ', $html);
-        $this->assertStringContainsString('NIF: 2000683017 STAT: 46101 11 2011 Siège social: LOT II H 12 ter Bis EA Ankerana', $html);
+        $this->assertStringContainsString("class='legal-block'", $html);
+        $this->assertStringContainsString("class='legal-line'", $html);
+        $this->assertStringContainsString("<span class='legal-label'>NIF :</span> 2000683017", $html);
+        $this->assertStringContainsString("<span class='legal-label'>STAT :</span> 46101 11 2011", $html);
+        $this->assertStringContainsString("<span class='legal-label'>Siège social :</span> PK 2 Route de Mampikony, 403 AMBONDROMAMY", $html);
         $this->assertLessThan(
             strpos($html, 'Fait à Ambondromamy le '),
             strpos($html, 'Arrêtée la présente facture à la somme de'),
         );
+        $this->assertLessThan(
+            strpos($html, "class='signature-wrap'"),
+            strpos($html, 'Arrêtée la présente facture à la somme de'),
+        );
+        $this->assertLessThan(
+            strpos($html, "class='legal-block'"),
+            strpos($html, 'Fait à Ambondromamy le '),
+        );
         $this->assertStringContainsString("class='signature-title'>Client</div>", $html);
         $this->assertStringContainsString("class='signature-title'>Responsable</div>", $html);
+    }
+
+    public function test_proforma_pdf_header_and_signature_are_proforma_specific(): void
+    {
+        $user = User::create([
+            'name' => 'Admin Proforma Test',
+            'email' => 'admin-proforma-test@example.com',
+            'password' => 'password',
+            'role' => 'admin',
+            'is_blacklisted' => false,
+        ]);
+
+        $room = Room::create([
+            'room_number' => '803',
+            'type' => 'Chambre Double',
+            'model' => 'Standard',
+            'base_price_ariary' => 50000,
+            'is_fixed_price' => false,
+        ]);
+
+        $reservation = Reservation::create([
+            'user_id' => $user->id,
+            'client_name' => 'Proforma Invoice Client',
+            'client_phone' => '0340000092',
+            'customer_phone' => '0340000092',
+            'customer_email' => 'proforma@example.com',
+            'booking_reference' => 'BR-' . uniqid(),
+            'source' => 'Appel',
+            'check_in_date' => '2026-06-22',
+            'check_out_date' => '2026-06-23',
+            'status' => 'en_attente',
+            'payment_status' => 'unbilled',
+            'extra_beds' => 0,
+            'extra_mattresses' => 0,
+        ]);
+
+        $reservation->rooms()->attach($room->id, [
+            'price_snapshot_ariary' => 50000,
+        ]);
+
+        $invoice = Invoice::create([
+            'reservation_id' => $reservation->id,
+            'invoice_number' => null,
+            'total_amount_ariary' => 50000,
+            'tax_amount_ariary' => 0,
+            'discount_mode' => null,
+            'discount_value' => null,
+            'discount_amount_ariary' => 0,
+            'deposit_amount_ariary' => 0,
+            'pdf_path' => null,
+            'finalized_at' => null,
+            'status' => 'open',
+            'document_type' => 'proforma',
+        ]);
+
+        InvoiceItem::create([
+            'invoice_id' => $invoice->id,
+            'description' => 'Séjour chambre',
+            'type' => 'room',
+            'amount_ariary' => 50000,
+            'quantity' => 1,
+        ]);
+
+        $html = $this->invoiceHtmlForTest($invoice, 'proforma', 'ariary');
+
+        $this->assertStringContainsString('FACTURE PROFORMA', $html);
+        $this->assertStringNotContainsString('DOCUMENT PROFORMA', $html);
+        $this->assertStringNotContainsString("<div class='subtitle'>Facture proforma</div>", $html);
+        $this->assertStringNotContainsString("class='signature-title'>Client</div>", $html);
+        $this->assertStringContainsString("class='signature-title'>Responsable</div>", $html);
+
+        $pdf = Pdf::loadHTML($html);
+        $pdf->render();
+        $this->assertGreaterThan(0, $pdf->getDomPDF()->getCanvas()->get_page_count());
     }
 
     private function invoiceHtmlForTest(Invoice $invoice, string $documentType, string $currencyMode): string

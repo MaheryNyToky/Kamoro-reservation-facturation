@@ -1797,6 +1797,23 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
     );
   }
 
+  Future<void> _openProformaFolio(Map<String, dynamic> reservation) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => FolioPage(
+          reservation: reservation,
+          userName: widget.userName,
+          role: widget.role,
+          pricingMode: 'fixed',
+          initialDocumentType: 'proforma',
+          proformaOnly: true,
+        ),
+      ),
+    );
+    _fetchReservations();
+  }
+
   Future<void> _openFolio(Map<String, dynamic> reservation) async {
     final isWaiting = (reservation['status'] ?? '').toString() == 'en_attente';
     if (isWaiting) {
@@ -2063,6 +2080,15 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                                         isPostCheckIn
                                             ? Icons.receipt_long_outlined
                                             : Icons.savings_outlined,
+                                      ),
+                                      color: _primaryDark,
+                                    ),
+                                  if (status == 'en_attente')
+                                    IconButton(
+                                      tooltip: 'Facture proforma',
+                                      onPressed: () => _openProformaFolio(res),
+                                      icon: const Icon(
+                                        Icons.request_quote_outlined,
                                       ),
                                       color: _primaryDark,
                                     ),

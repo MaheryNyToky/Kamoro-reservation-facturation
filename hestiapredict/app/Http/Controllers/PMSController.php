@@ -1642,7 +1642,7 @@ class PMSController extends Controller
             ? $this->formatMoney($displayTotal, $currencyLabel)
             : e($this->amountInWords($invoice->total_amount_ariary)) . " (" . number_format($invoice->total_amount_ariary, 0, ',', ' ') . ") Ariary";
         $isProforma = $documentType === 'proforma';
-        $documentLabel = $isProforma ? 'Facture proforma' : 'Facture de séjour';
+        $documentLabel = $isProforma ? '' : 'Facture de séjour';
         $amountLabel = $isProforma ? 'facture proforma' : 'facture';
         $logoDataUri = $this->hotelLogoDataUri();
         $accentColor = '#d10f0f';
@@ -1749,24 +1749,28 @@ class PMSController extends Controller
                     .signature-wrap { width: 100%; margin-top: 14px; page-break-inside: avoid; }
                     .signature-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
                     .signature-cell { width: 50%; vertical-align: top; padding: 0 4px; }
+                    .signature-cell.single { width: 50%; padding-left: 50%; }
                     .signature-box { min-height: 84px; border: 1px solid #dbe4ea; border-radius: 10px; padding: 10px 12px; background: #fff; }
                     .signature-title { margin-bottom: 6px; color: {$accentText}; font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; }
-                    .signature-line { margin-top: 34px; border-top: 1px solid #94a3b8; padding-top: 5px; color: #475569; font-size: 10px; }
-                    .signature-label { display: block; margin-bottom: 3px; color: #64748b; font-size: 9px; text-transform: uppercase; letter-spacing: 0.4px; }
-                    .invoice-footer { margin-top: 14px; page-break-inside: avoid; }
+                    .signature-line { margin-top: 34px; padding-top: 5px; color: #475569; font-size: 10px; }
+                    .invoice-footer { margin-top: 14px; margin-bottom: 18px; page-break-inside: avoid; }
                     .invoice-location { margin-top: 8px; font-weight: bold; text-align: right; color: {$accentText}; font-size: 10.5px; }
-                    .legal-block { margin-top: 8px; padding: 8px 10px; border: 1px solid {$accentColor}; border-radius: 8px; background: {$accentSoft}; color: {$accentText}; font-size: 9.8px; line-height: 1.35; }
+                    .legal-block { position: fixed; left: 0; right: 0; bottom: 0; padding-top: 5px; border-top: 1px solid {$accentColor}; color: {$accentText}; font-size: 9px; line-height: 1.2; }
+                    .legal-line { width: 100%; border-collapse: collapse; table-layout: fixed; }
+                    .legal-line td { border: 0; padding: 0 8px 0 0; vertical-align: top; }
+                    .legal-line td:last-child { padding-right: 0; }
+                    .legal-label { font-weight: bold; }
                     .footer-note { margin-top: 10px; font-weight: bold; text-transform: uppercase; font-size: 10.5px; line-height: 1.25; }
                 </style>
             </head>
             <body>
-                " . ($isProforma ? "<div class='document-ribbon'>DOCUMENT PROFORMA</div>" : "") . "
+                " . ($isProforma ? "<div class='document-ribbon'>FACTURE PROFORMA</div>" : "") . "
                 <div class='topbar'>
                     <div class='brand'>
                         " . ($logoDataUri
                             ? "<img class='brand-logo' src='{$logoDataUri}' alt='Kamoro Hotel'>"
                             : "<div class='brand-fallback'>KAMORO HOTEL</div>") . "
-                        <div class='subtitle'>{$documentLabel}</div>
+                        " . ($documentLabel ? "<div class='subtitle'>{$documentLabel}</div>" : "") . "
                     </div>
                     <div class='meta'>
                         <div style='margin-bottom: 8px; font-weight: bold; color: {$accentText};'>" . ($isProforma ? 'Proforma n° ' : 'Facture n° ') . "{$invoiceNumber}</div>
@@ -1845,34 +1849,40 @@ class PMSController extends Controller
                         " : '') . "
                     </div>
                 </div>
+                <div class='footer-note'>
+                    Arrêtée la présente {$amountLabel} à la somme de : {$amountInWords}
+                </div>
                 <div class='signature-wrap'>
                     <table class='signature-table'>
                         <tr>
+                            " . (!$isProforma ? "
                             <td class='signature-cell'>
                                 <div class='signature-box'>
                                     <div class='signature-title'>Client</div>
-                                    <span class='signature-label'>Signature</span>
                                     <div class='signature-line'>&nbsp;</div>
                                 </div>
                             </td>
-                            <td class='signature-cell'>
+                            " : "") . "
+                            <td class='signature-cell " . ($isProforma ? 'single' : '') . "'>
                                 <div class='signature-box'>
                                     <div class='signature-title'>Responsable</div>
-                                    <span class='signature-label'>Signature</span>
                                     <div class='signature-line'>&nbsp;</div>
                                 </div>
                             </td>
                         </tr>
                     </table>
                 </div>
-                <div class='footer-note'>
-                    Arrêtée la présente {$amountLabel} à la somme de : {$amountInWords}
-                </div>
                 <div class='invoice-footer'>
                     <div class='invoice-location'>Fait à Ambondromamy le {$printedAt}</div>
-                    <div class='legal-block'>
-                        NIF: 2000683017 STAT: 46101 11 2011 Siège social: LOT II H 12 ter Bis EA Ankerana
-                    </div>
+                </div>
+                <div class='legal-block'>
+                    <table class='legal-line'>
+                        <tr>
+                            <td style='width: 24%;'><span class='legal-label'>NIF :</span> 2000683017</td>
+                            <td style='width: 28%;'><span class='legal-label'>STAT :</span> 46101 11 2011</td>
+                            <td><span class='legal-label'>Siège social :</span> PK 2 Route de Mampikony, 403 AMBONDROMAMY</td>
+                        </tr>
+                    </table>
                 </div>
             </body>
             </html>

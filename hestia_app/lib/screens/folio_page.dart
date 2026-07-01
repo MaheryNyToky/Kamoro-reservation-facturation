@@ -26,12 +26,16 @@ class FolioPage extends StatefulWidget {
     required this.userName,
     required this.role,
     this.pricingMode = 'fixed',
+    this.initialDocumentType = 'facture',
+    this.proformaOnly = false,
   });
 
   final Map<String, dynamic> reservation;
   final String userName;
   final String role;
   final String pricingMode;
+  final String initialDocumentType;
+  final bool proformaOnly;
 
   @override
   State<FolioPage> createState() => _FolioPageState();
@@ -258,7 +262,9 @@ class _FolioPageState extends State<FolioPage> {
 
     setState(() {
       _folio = payload;
-      _documentType = (_folio?['document_type'] ?? 'facture').toString();
+      _documentType = widget.proformaOnly
+          ? 'proforma'
+          : (_folio?['document_type'] ?? 'facture').toString();
       _billingMode =
           preserveBillingMode ??
           (payloadBillingMode == 'per_room' ? 'individual' : 'grouped');
@@ -334,6 +340,7 @@ class _FolioPageState extends State<FolioPage> {
   }
 
   bool get _canAccess =>
+      widget.proformaOnly ||
       widget.role != 'receptionist' ||
       _reservationData['status']?.toString() == 'arrive';
 
@@ -356,6 +363,9 @@ class _FolioPageState extends State<FolioPage> {
   void initState() {
     super.initState();
     _reservation = Map<String, dynamic>.from(widget.reservation);
+    _documentType = widget.proformaOnly
+        ? 'proforma'
+        : (widget.initialDocumentType == 'proforma' ? 'proforma' : 'facture');
     _fetchFolio();
   }
 
@@ -1287,7 +1297,7 @@ class _FolioPageState extends State<FolioPage> {
                         children: [
                           _SectionHeader(
                             title: 'Paiements',
-                            action: _isFinalized
+                            action: _isFinalized || widget.proformaOnly
                                 ? null
                                 : TextButton.icon(
                                     onPressed: _isBusy ? null : _addPayment,
@@ -1316,7 +1326,10 @@ class _FolioPageState extends State<FolioPage> {
                             ...payments.map(
                               (payment) => _PaymentTile(
                                 payment: Map<String, dynamic>.from(payment),
-                                onEdit: !_isFinalized && _canEditPayments
+                                onEdit:
+                                    !_isFinalized &&
+                                        !widget.proformaOnly &&
+                                        _canEditPayments
                                     ? () => _editPayment(
                                         Map<String, dynamic>.from(payment),
                                       )
@@ -1325,21 +1338,32 @@ class _FolioPageState extends State<FolioPage> {
                             ),
                           const SizedBox(height: 20),
                           SegmentedButton<String>(
-                            segments: const [
-                              ButtonSegment(
-                                value: 'facture',
-                                label: Text('Facture'),
-                                icon: Icon(Icons.description_outlined),
-                              ),
-                              ButtonSegment(
-                                value: 'proforma',
-                                label: Text('Proforma'),
-                                icon: Icon(Icons.receipt_long_outlined),
-                              ),
-                            ],
+                            segments: widget.proformaOnly
+                                ? const [
+                                    ButtonSegment(
+                                      value: 'proforma',
+                                      label: Text('Proforma'),
+                                      icon: Icon(Icons.receipt_long_outlined),
+                                    ),
+                                  ]
+                                : const [
+                                    ButtonSegment(
+                                      value: 'facture',
+                                      label: Text('Facture'),
+                                      icon: Icon(Icons.description_outlined),
+                                    ),
+                                    ButtonSegment(
+                                      value: 'proforma',
+                                      label: Text('Proforma'),
+                                      icon: Icon(Icons.receipt_long_outlined),
+                                    ),
+                                  ],
                             selected: {_documentType},
-                            onSelectionChanged: (selection) =>
-                                setState(() => _documentType = selection.first),
+                            onSelectionChanged: widget.proformaOnly
+                                ? null
+                                : (selection) => setState(
+                                    () => _documentType = selection.first,
+                                  ),
                           ),
                           if (_isBookingReservation) ...[
                             const SizedBox(height: 12),
