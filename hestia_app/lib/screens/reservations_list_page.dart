@@ -1543,7 +1543,7 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Après check-in, seul un administrateur peut annuler.',
+              'Après check-in ou acompte, seul un administrateur peut annuler.',
             ),
             backgroundColor: Colors.orange,
           ),
@@ -1618,7 +1618,12 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
 
   bool _canCancelReservation(Map<String, dynamic> reservation) {
     final status = (reservation['status'] ?? '').toString();
-    return widget.role != 'receptionist' || status != 'arrive';
+    final paymentStatus = (reservation['payment_status'] ?? 'unbilled').toString();
+    final hasAdvancePayment =
+        _asInt(reservation['deposit_amount_ariary']) > 0 ||
+        paymentStatus == 'partial' ||
+        paymentStatus == 'paid';
+    return widget.role != 'receptionist' || (!hasAdvancePayment && status != 'arrive');
   }
 
   bool _shouldShowStatusControls(Map<String, dynamic> reservation) {
@@ -2550,61 +2555,7 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                               _ReservationPaymentBadge(
                                 paymentStatus: paymentStatus,
                                 hasInvoice: hasInvoice,
-                                processedBy:
-                                    [
-                                          res['latest_payment_processed_by']
-                                              ?.toString(),
-                                          res['latest_payment_processed_by_role']
-                                              ?.toString(),
-                                        ]
-                                        .where(
-                                          (value) =>
-                                              value != null && value.isNotEmpty,
-                                        )
-                                        .join(' / '),
                               ),
-                              if (_asInt(res['deposit_amount_ariary']) > 0)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 4),
-                                  child: Text(
-                                    [
-                                          'Acompte : ${formatPrice(_asInt(res['deposit_amount_ariary']))} Ar',
-                                          (res['latest_deposit_method'] ?? '')
-                                                  .toString()
-                                                  .isNotEmpty
-                                              ? (res['latest_deposit_operator'] ??
-                                                            '')
-                                                        .toString()
-                                                        .isNotEmpty
-                                                    ? '${res['latest_deposit_method']} / ${res['latest_deposit_operator']}'
-                                                    : res['latest_deposit_method']
-                                                          .toString()
-                                              : null,
-                                          [
-                                                res['latest_deposit_processed_by']
-                                                    ?.toString(),
-                                                res['latest_deposit_processed_by_role']
-                                                    ?.toString(),
-                                              ]
-                                              .where(
-                                                (value) =>
-                                                    value != null &&
-                                                    value.isNotEmpty,
-                                              )
-                                              .join(' / '),
-                                        ]
-                                        .where(
-                                          (value) =>
-                                              value != null && value.isNotEmpty,
-                                        )
-                                        .join(' • '),
-                                    style: const TextStyle(
-                                      color: _primaryDark,
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ),
                               const SizedBox(height: 10),
                               Row(
                                 children: [
@@ -3068,12 +3019,10 @@ class _ReservationPaymentBadge extends StatelessWidget {
   const _ReservationPaymentBadge({
     required this.paymentStatus,
     required this.hasInvoice,
-    required this.processedBy,
   });
 
   final String paymentStatus;
   final bool hasInvoice;
-  final String? processedBy;
 
   @override
   Widget build(BuildContext context) {
@@ -3095,9 +3044,7 @@ class _ReservationPaymentBadge extends StatelessWidget {
     return Align(
       alignment: Alignment.centerLeft,
       child: Text(
-        processedBy == null || processedBy!.isEmpty
-            ? label
-            : '$label • ${processedBy!}',
+        label,
         style: TextStyle(
           color: color,
           fontSize: 12,

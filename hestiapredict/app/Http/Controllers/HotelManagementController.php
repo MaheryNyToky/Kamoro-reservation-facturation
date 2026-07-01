@@ -180,6 +180,7 @@ class HotelManagementController extends Controller
         }
 
         $reservation = Reservation::query()
+            ->with('invoice')
             ->when(!empty($validated['id']), fn ($query) => $query->where('id', $validated['id']))
             ->when(empty($validated['id']) && !empty($validated['reference']), fn ($query) => $query->where('booking_reference', $validated['reference']))
             ->first();
@@ -190,12 +191,12 @@ class HotelManagementController extends Controller
 
         if (
             $validated['status'] === 'annule'
-            && $reservation->status === 'arrive'
             && !in_array($validated['cancelled_by_role'] ?? null, ['admin', 'superadmin'], true)
+            && ($reservation->status === 'arrive' || $this->reservationHasAdvancePayment($reservation))
         ) {
             return response()->json([
                 'status' => 'error',
-                'message' => 'Après check-in, seule une annulation par un administrateur est autorisée.',
+                'message' => 'Après check-in ou acompte, seule une annulation par un administrateur est autorisée.',
             ], 403);
         }
 
@@ -208,6 +209,20 @@ class HotelManagementController extends Controller
         $this->availabilityService->invalidateCaches();
 
         return response()->json(['status' => 'success']);
+    }
+
+    private function reservationHasAdvancePayment(Reservation $reservation): bool
+    {
+        $reservation->loadMissing('invoice');
+        $invoice = $reservation->invoice;
+
+        if (!$invoice) {
+            return false;
+        }
+
+        return in_array((string) ($reservation->payment_status ?? ''), ['partial', 'paid'], true)
+            || (int) ($invoice->deposit_amount_ariary ?? 0) > 0
+            || (int) ($invoice->paid_amount_ariary ?? 0) > 0;
     }
 
     public function updateReservation(Request $request, int $id): JsonResponse

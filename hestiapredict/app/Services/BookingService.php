@@ -179,6 +179,7 @@ class BookingService
     public function updateStatus(array $data): ?Reservation
     {
         $reservation = Reservation::query()
+            ->with(['invoice'])
             ->when(!empty($data['id']), fn ($query) => $query->where('id', $data['id']))
             ->when(empty($data['id']) && !empty($data['reference']), fn ($query) => $query->where('booking_reference', $data['reference']))
             ->first();
@@ -197,11 +198,11 @@ class BookingService
 
         if (
             $status === 'annule'
-            && $reservation->status === 'arrive'
             && !in_array($data['cancelled_by_role'] ?? null, ['admin', 'superadmin'], true)
+            && ($reservation->status === 'arrive' || $this->reservationHasAdvancePayment($reservation))
         ) {
             throw ValidationException::withMessages([
-                'status' => 'Après check-in, seule une annulation par un administrateur ou superadmin est autorisée.',
+                'status' => 'Après check-in ou acompte, seule une annulation par un administrateur ou superadmin est autorisée.',
             ]);
         }
 
@@ -234,6 +235,20 @@ class BookingService
         }
 
         return $reservation;
+    }
+
+    private function reservationHasAdvancePayment(Reservation $reservation): bool
+    {
+        $reservation->loadMissing('invoice');
+        $invoice = $reservation->invoice;
+
+        if (!$invoice) {
+            return false;
+        }
+
+        return in_array((string) ($reservation->payment_status ?? ''), ['partial', 'paid'], true)
+            || (int) ($invoice->deposit_amount_ariary ?? 0) > 0
+            || (int) ($invoice->paid_amount_ariary ?? 0) > 0;
     }
 
     public function updateReservation(int $id, array $data): ?Reservation
