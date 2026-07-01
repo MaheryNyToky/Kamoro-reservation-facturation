@@ -578,6 +578,10 @@ class _FolioPageState extends State<FolioPage> {
         ? _billingMode
         : 'grouped';
 
+    if (_groupReservationIds.isNotEmpty) {
+      payload['group_reservation_ids'] = _groupReservationIds.join(',');
+    }
+
     if (widget.role != 'receptionist' && discountValue > 0) {
       payload['discount_mode'] = _discountMode;
       payload['discount_value'] = discountValue;

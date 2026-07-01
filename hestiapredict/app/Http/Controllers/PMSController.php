@@ -773,9 +773,11 @@ class PMSController extends Controller
             'document_type' => 'nullable|in:facture,proforma',
             'billing_mode' => 'nullable|in:grouped,individual',
             'currency_mode' => 'nullable|in:ariary,euro',
+            'group_reservation_ids' => 'nullable|string',
         ]);
         $documentType = $validated['document_type'] ?? 'facture';
         $currencyMode = $validated['currency_mode'] ?? 'ariary';
+        $groupReservationIds = $this->parseGroupReservationIds($validated['group_reservation_ids'] ?? null);
 
         if (
             ($validated['discount_mode'] ?? null) !== null
@@ -794,7 +796,7 @@ class PMSController extends Controller
             ], 422);
         }
 
-        DB::transaction(function () use ($invoice, $validated, $documentType) {
+        DB::transaction(function () use ($invoice, $validated, $documentType, $groupReservationIds) {
             $invoice->refresh();
             $reservation = $invoice->reservation()->lockForUpdate()->first();
             $invoice->refresh();
@@ -818,6 +820,13 @@ class PMSController extends Controller
 
             if ($reservation && ($reservation->billing_mode ?? 'grouped') === 'per_room') {
                 $this->syncRoomInvoicesForReservation($reservation->refresh()->load('rooms'), $invoice->refresh());
+            }
+
+            if ($reservation && $groupReservationIds->isNotEmpty()) {
+                $groupReservations = $this->resolveGroupReservations($reservation, $groupReservationIds);
+                if ($groupReservations->isNotEmpty()) {
+                    $this->syncGroupedReservationFolio($invoice->refresh(), $groupReservations);
+                }
             }
 
             $invoice->update([

@@ -803,6 +803,57 @@ class ReservationEndToEndFlowTest extends TestCase
         $this->assertSame(330000, (int) $response->json('total_amount_ariary'));
     }
 
+    public function test_grouped_organization_pdf_keeps_all_selected_reservations(): void
+    {
+        $user = $this->createReceptionUser();
+        $room1 = $this->createRoom('020');
+        $room2 = $this->createRoom('021');
+        $room3 = $this->createRoom('022');
+
+        $reservation1 = $this->createGroupedOrganizationReservation(
+            $user,
+            'Organisme PDF Groupe',
+            $room1,
+            'Occupant PDF 1',
+        );
+        $reservation2 = $this->createGroupedOrganizationReservation(
+            $user,
+            'Organisme PDF Groupe',
+            $room2,
+            'Occupant PDF 2',
+        );
+        $reservation3 = $this->createGroupedOrganizationReservation(
+            $user,
+            'Organisme PDF Groupe',
+            $room3,
+            'Occupant PDF 3',
+        );
+
+        $folio = $this->getJson(
+            "/api/reservations/{$reservation1->id}/folio?group_reservation_ids={$reservation1->id},{$reservation2->id},{$reservation3->id}",
+        )->assertOk();
+
+        $invoiceId = $folio->json('id');
+        $response = $this->postJson("/api/invoices/{$invoiceId}/generate-pdf", [
+            'document_type' => 'facture',
+            'billing_mode' => 'grouped',
+            'currency_mode' => 'ariary',
+            'group_reservation_ids' => "{$reservation1->id},{$reservation2->id},{$reservation3->id}",
+            'actor_role' => $user->role,
+        ])->assertOk();
+
+        $roomLines = collect($response->json('invoice.items'))
+            ->pluck('description')
+            ->filter(fn ($description) => str_starts_with((string) $description, 'Chambre '))
+            ->values()
+            ->all();
+
+        $this->assertCount(3, $roomLines);
+        $this->assertContains('Chambre 020 (double standard) - Occupant PDF 1 - 1 nuit', $roomLines);
+        $this->assertContains('Chambre 021 (double standard) - Occupant PDF 2 - 1 nuit', $roomLines);
+        $this->assertContains('Chambre 022 (double standard) - Occupant PDF 3 - 1 nuit', $roomLines);
+    }
+
     public function test_grouped_organization_folio_can_target_only_a_subset_of_reservations(): void
     {
         $user = $this->createReceptionUser();
