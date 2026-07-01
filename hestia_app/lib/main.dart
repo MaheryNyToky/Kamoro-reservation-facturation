@@ -14,6 +14,7 @@ import 'models/organization_profile.dart';
 import 'models/app_user.dart';
 import 'screens/admin_users_page.dart';
 import 'screens/reservations_list_page.dart';
+import 'screens/payment_summary_page.dart';
 import 'services/session_service.dart';
 import 'widgets/availability_card.dart';
 import 'widgets/client_autocomplete_field.dart';
@@ -663,6 +664,18 @@ class _StaffDashboardState extends State<StaffDashboard> {
           : _MobileReceptionDrawer(
               role: widget.role,
               userName: widget.userName,
+              onSummaryTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  _softRoute(
+                    PaymentSummaryPage(
+                      role: widget.role,
+                      userName: widget.userName,
+                    ),
+                  ),
+                );
+              },
               onDashboardTap: () {
                 Navigator.pop(context);
                 _launchURL('http://localhost:8000/dashboard');
@@ -699,6 +712,15 @@ class _StaffDashboardState extends State<StaffDashboard> {
                 _FrostedSideNav(
                   role: widget.role,
                   userName: widget.userName,
+                  onSummaryTap: () => Navigator.push(
+                    context,
+                    _softRoute(
+                      PaymentSummaryPage(
+                        role: widget.role,
+                        userName: widget.userName,
+                      ),
+                    ),
+                  ),
                   onManageStaff: () => Navigator.push(
                     context,
                     _softRoute(AdminUsersPage(currentRole: widget.role)),
@@ -738,6 +760,7 @@ class _MobileReceptionDrawer extends StatelessWidget {
   const _MobileReceptionDrawer({
     required this.role,
     required this.userName,
+    required this.onSummaryTap,
     required this.onDashboardTap,
     required this.onManageStaff,
     required this.onLogout,
@@ -745,6 +768,7 @@ class _MobileReceptionDrawer extends StatelessWidget {
 
   final String role;
   final String userName;
+  final VoidCallback onSummaryTap;
   final VoidCallback onDashboardTap;
   final VoidCallback onManageStaff;
   final Future<void> Function() onLogout;
@@ -776,6 +800,11 @@ class _MobileReceptionDrawer extends StatelessWidget {
               ),
             ),
           ),
+          ListTile(
+            leading: const Icon(Icons.receipt_long_outlined),
+            title: const Text('Récapitulatif'),
+            onTap: onSummaryTap,
+          ),
           if (role != 'receptionist') ...[
             ListTile(
               leading: const Icon(Icons.manage_accounts),
@@ -806,6 +835,7 @@ class _FrostedSideNav extends StatelessWidget {
   const _FrostedSideNav({
     required this.role,
     required this.userName,
+    required this.onSummaryTap,
     required this.onDashboardTap,
     required this.onManageStaff,
     required this.onLogout,
@@ -813,6 +843,7 @@ class _FrostedSideNav extends StatelessWidget {
 
   final String role;
   final String userName;
+  final VoidCallback onSummaryTap;
   final VoidCallback onDashboardTap;
   final VoidCallback onManageStaff;
   final Future<void> Function() onLogout;
@@ -886,6 +917,12 @@ class _FrostedSideNav extends StatelessWidget {
                   label: 'Chambres',
                   selected: true,
                   onTap: () {},
+                ),
+                const SizedBox(height: 10),
+                _SideNavButton(
+                  icon: Icons.receipt_long_outlined,
+                  label: 'Récapitulatif',
+                  onTap: onSummaryTap,
                 ),
                 if (role != 'receptionist') ...[
                   const SizedBox(height: 10),
