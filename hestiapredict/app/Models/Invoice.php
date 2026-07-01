@@ -46,6 +46,15 @@ class Invoice extends Model
         'balance_amount_ariary',
     ];
 
+    protected static function booted(): void
+    {
+        static::saving(function (self $invoice): void {
+            if ($invoice->parent_invoice_id !== null && (int) $invoice->parent_invoice_id === (int) $invoice->id) {
+                $invoice->parent_invoice_id = null;
+            }
+        });
+    }
+
     public function reservation(): BelongsTo
     {
         return $this->belongsTo(Reservation::class);

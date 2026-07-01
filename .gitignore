@@ -27,5 +27,8 @@ hestiapredict/storage/logs/*
 
 # Misc
 .dev-logs/
+.backup-logs/
+backups/
+hestiapredict/database/.backup-temp/
 database.sqlite
 ~$*.docx

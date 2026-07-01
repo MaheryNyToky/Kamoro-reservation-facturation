@@ -1,0 +1,386 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+2 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+3 0 obj
+<< /Length 3243 >>
+stream
+BT
+/F2 18 Tf
+1 0 0 1 54 738 Tm
+(Sauvegarde automatique Kamoro) Tj
+/F1 10 Tf
+1 0 0 1 54 711 Tm
+() Tj
+/F1 10 Tf
+1 0 0 1 54 696 Tm
+(Guide tres simple pour sauvegarder la base SQLite Docker tous les jours et copier la) Tj
+/F1 10 Tf
+1 0 0 1 54 681 Tm
+(sauvegarde vers Google Drive.) Tj
+/F1 10 Tf
+1 0 0 1 54 666 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 651 Tm
+(1. Ce que le systeme fait) Tj
+/F1 10 Tf
+1 0 0 1 54 630 Tm
+(La base Docker importante est celle-ci :) Tj
+/F1 9 Tf
+1 0 0 1 54 615 Tm
+(    hestiapredict/database/database.sqlite) Tj
+/F1 10 Tf
+1 0 0 1 54 601 Tm
+(- A 09:00, Kamoro cree une sauvegarde de cette base.) Tj
+/F1 10 Tf
+1 0 0 1 54 586 Tm
+(- A 10:00, Kamoro verifie que la sauvegarde du jour existe en local et dans Google) Tj
+/F1 10 Tf
+1 0 0 1 54 571 Tm
+(  Drive si Drive est configure.) Tj
+/F1 10 Tf
+1 0 0 1 54 556 Tm
+(- Si la verification de 10:00 est OK, la journee est marquee OK.) Tj
+/F1 10 Tf
+1 0 0 1 54 541 Tm
+(- Apres cela, les controles de 11:00, 12:00, 13:00, etc. ne font plus rien pour cette) Tj
+/F1 10 Tf
+1 0 0 1 54 526 Tm
+(  journee.) Tj
+/F1 10 Tf
+1 0 0 1 54 511 Tm
+(- Si 10:00 echoue, Kamoro reessaie a 11:00, puis 12:00, puis toutes les heures jusqu'a) Tj
+/F1 10 Tf
+1 0 0 1 54 496 Tm
+(  23:00.) Tj
+/F1 10 Tf
+1 0 0 1 54 481 Tm
+(- Le lendemain, Kamoro refait une vraie sauvegarde a 09:00.) Tj
+/F1 10 Tf
+1 0 0 1 54 466 Tm
+(- Les sauvegardes sont gardees pendant 60 jours.) Tj
+/F1 10 Tf
+1 0 0 1 54 451 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 436 Tm
+(2. Installer Google Drive) Tj
+/F1 10 Tf
+1 0 0 1 54 415 Tm
+(Cette etape sert a avoir un dossier local qui se synchronise avec le cloud Google.) Tj
+/F1 10 Tf
+1 0 0 1 54 400 Tm
+(- Ouvrir le navigateur internet.) Tj
+/F1 10 Tf
+1 0 0 1 54 385 Tm
+(- Chercher Google Drive pour ordinateur.) Tj
+/F1 10 Tf
+1 0 0 1 54 370 Tm
+(- Installer l'application officielle Google Drive.) Tj
+/F1 10 Tf
+1 0 0 1 54 355 Tm
+(- Se connecter avec le compte Google qui doit recevoir les sauvegardes.) Tj
+/F1 10 Tf
+1 0 0 1 54 340 Tm
+(- Attendre que Google Drive apparaisse dans l'explorateur Windows.) Tj
+/F1 10 Tf
+1 0 0 1 54 325 Tm
+(Le dossier Google Drive peut ressembler a l'un de ces exemples :) Tj
+/F1 9 Tf
+1 0 0 1 54 310 Tm
+(    C:\\Users\\VotreNom\\Google Drive) Tj
+/F1 9 Tf
+1 0 0 1 54 296 Tm
+(    G:\\My Drive) Tj
+/F1 10 Tf
+1 0 0 1 54 282 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 267 Tm
+(3. Creer le dossier Kamoro Backups) Tj
+/F1 10 Tf
+1 0 0 1 54 246 Tm
+(- Ouvrir l'explorateur Windows.) Tj
+/F1 10 Tf
+1 0 0 1 54 231 Tm
+(- Ouvrir le dossier Google Drive.) Tj
+/F1 10 Tf
+1 0 0 1 54 216 Tm
+(- Creer un nouveau dossier nomme Kamoro Backups.) Tj
+/F1 10 Tf
+1 0 0 1 54 201 Tm
+(- Ouvrir ce dossier Kamoro Backups.) Tj
+/F1 10 Tf
+1 0 0 1 54 186 Tm
+(- Cliquer dans la barre d'adresse en haut de l'explorateur.) Tj
+/F1 10 Tf
+1 0 0 1 54 171 Tm
+(- Copier le chemin complet.) Tj
+/F1 10 Tf
+1 0 0 1 54 156 Tm
+(Exemples de chemins corrects :) Tj
+/F1 9 Tf
+1 0 0 1 54 141 Tm
+(    C:\\Users\\Mahery\\Google Drive\\Kamoro Backups) Tj
+/F1 9 Tf
+1 0 0 1 54 127 Tm
+(    G:\\My Drive\\Kamoro Backups) Tj
+/F1 10 Tf
+1 0 0 1 54 113 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 98 Tm
+(4. Activer la sauvegarde automatique avec Drive) Tj
+/F1 10 Tf
+1 0 0 1 54 77 Tm
+(Dans le dossier du projet Kamoro sur la machine Windows :) Tj
+/F1 8 Tf
+1 0 0 1 54 36 Tm
+(Page 1 / 3) Tj
+ET
+endstream
+endobj
+4 0 obj
+<< /Type /Page /Parent 9 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 3 0 R >>
+endobj
+5 0 obj
+<< /Length 3164 >>
+stream
+BT
+/F1 10 Tf
+1 0 0 1 54 738 Tm
+(- Double-cliquer sur Activer-Sauvegarde-Sqlite-Docker-Avec-Drive.cmd.) Tj
+/F1 10 Tf
+1 0 0 1 54 723 Tm
+(- Une fenetre noire s'ouvre.) Tj
+/F1 10 Tf
+1 0 0 1 54 708 Tm
+(- Coller le chemin du dossier Google Drive copie avant.) Tj
+/F1 10 Tf
+1 0 0 1 54 693 Tm
+(- Appuyer sur Entree.) Tj
+/F1 10 Tf
+1 0 0 1 54 678 Tm
+(- Attendre le message qui confirme que la sauvegarde automatique est activee.) Tj
+/F1 10 Tf
+1 0 0 1 54 663 Tm
+(Deux taches Windows sont creees :) Tj
+/F1 9 Tf
+1 0 0 1 54 648 Tm
+(    Kamoro - Sauvegarde SQLite 09h) Tj
+/F1 9 Tf
+1 0 0 1 54 634 Tm
+(    Kamoro - Verification Sauvegarde SQLite) Tj
+/F1 10 Tf
+1 0 0 1 54 620 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 605 Tm
+(5. Tester tout de suite) Tj
+/F1 10 Tf
+1 0 0 1 54 584 Tm
+(Il ne faut pas attendre le lendemain. Il faut tester juste apres l'installation.) Tj
+/F1 10 Tf
+1 0 0 1 54 569 Tm
+(- Double-cliquer sur Sauvegarder-Sqlite-Docker.cmd.) Tj
+/F1 10 Tf
+1 0 0 1 54 554 Tm
+(- Attendre que la fenetre indique que la sauvegarde est terminee.) Tj
+/F1 10 Tf
+1 0 0 1 54 539 Tm
+(- Ouvrir le dossier local backups/sqlite.) Tj
+/F1 10 Tf
+1 0 0 1 54 524 Tm
+(- Verifier qu'un fichier kamoro-sqlite-AAAAMMJJ-HHMMSS.sqlite existe.) Tj
+/F1 10 Tf
+1 0 0 1 54 509 Tm
+(- Ouvrir le dossier Google Drive Kamoro Backups.) Tj
+/F1 10 Tf
+1 0 0 1 54 494 Tm
+(- Verifier que le meme fichier existe aussi dans Google Drive.) Tj
+/F1 10 Tf
+1 0 0 1 54 479 Tm
+(Exemple de nom de fichier :) Tj
+/F1 9 Tf
+1 0 0 1 54 464 Tm
+(    kamoro-sqlite-20260702-090000.sqlite) Tj
+/F1 10 Tf
+1 0 0 1 54 450 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 435 Tm
+(6. Tester la verification) Tj
+/F1 10 Tf
+1 0 0 1 54 414 Tm
+(- Double-cliquer sur Verifier-Sauvegarde-Sqlite-Docker.cmd.) Tj
+/F1 10 Tf
+1 0 0 1 54 399 Tm
+(- Si la sauvegarde du jour existe deja, le script dit que c'est OK.) Tj
+/F1 10 Tf
+1 0 0 1 54 384 Tm
+(- Si la sauvegarde manque, le script relance une sauvegarde.) Tj
+/F1 10 Tf
+1 0 0 1 54 369 Tm
+(- Si la journee est deja marquee OK, le script s'arrete tout de suite.) Tj
+/F1 10 Tf
+1 0 0 1 54 354 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 339 Tm
+(7. Ou regarder les fichiers) Tj
+/F1 8 Tf
+1 0 0 1 54 318 Tm
+() Tj
+/F2 12 Tf
+1 0 0 1 54 306 Tm
+(Sauvegardes locales) Tj
+/F1 9 Tf
+1 0 0 1 54 288 Tm
+(    backups/sqlite) Tj
+/F1 8 Tf
+1 0 0 1 54 274 Tm
+() Tj
+/F2 12 Tf
+1 0 0 1 54 262 Tm
+(Sauvegardes dans Google Drive) Tj
+/F1 9 Tf
+1 0 0 1 54 244 Tm
+(    Le dossier choisi pendant l'installation, par exemple Google Drive\\Kamoro Backups) Tj
+/F1 8 Tf
+1 0 0 1 54 230 Tm
+() Tj
+/F2 12 Tf
+1 0 0 1 54 218 Tm
+(Logs) Tj
+/F1 9 Tf
+1 0 0 1 54 200 Tm
+(    .backup-logs\\sqlite-backup.log) Tj
+/F1 9 Tf
+1 0 0 1 54 186 Tm
+(    .backup-logs\\sqlite-backup-check.log) Tj
+/F1 10 Tf
+1 0 0 1 54 172 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 157 Tm
+(8. Restaurer une sauvegarde) Tj
+/F1 10 Tf
+1 0 0 1 54 136 Tm
+(A faire seulement si la base actuelle a un probleme.) Tj
+/F1 10 Tf
+1 0 0 1 54 121 Tm
+(- Arreter Kamoro.) Tj
+/F1 10 Tf
+1 0 0 1 54 106 Tm
+(- Arreter Docker si Kamoro tourne encore.) Tj
+/F1 10 Tf
+1 0 0 1 54 91 Tm
+(- Aller dans backups/sqlite ou dans Google Drive.) Tj
+/F1 10 Tf
+1 0 0 1 54 76 Tm
+(- Choisir le fichier .sqlite a restaurer.) Tj
+/F1 8 Tf
+1 0 0 1 54 36 Tm
+(Page 2 / 3) Tj
+ET
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 9 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 5 0 R >>
+endobj
+7 0 obj
+<< /Length 1399 >>
+stream
+BT
+/F1 10 Tf
+1 0 0 1 54 738 Tm
+(- Renommer ce fichier en database.sqlite.) Tj
+/F1 10 Tf
+1 0 0 1 54 723 Tm
+(- Remplacer le fichier hestiapredict/database/database.sqlite par celui restaure.) Tj
+/F1 10 Tf
+1 0 0 1 54 708 Tm
+(- Relancer Kamoro.) Tj
+/F1 10 Tf
+1 0 0 1 54 693 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 678 Tm
+(9. Desactiver la sauvegarde automatique) Tj
+/F1 10 Tf
+1 0 0 1 54 657 Tm
+(Double-cliquer sur :) Tj
+/F1 9 Tf
+1 0 0 1 54 642 Tm
+(    Desactiver-Sauvegarde-Sqlite-Docker.cmd) Tj
+/F1 10 Tf
+1 0 0 1 54 628 Tm
+(Cela supprime les taches Windows de sauvegarde et de verification. Les fichiers deja) Tj
+/F1 10 Tf
+1 0 0 1 54 613 Tm
+(sauvegardes ne sont pas supprimes.) Tj
+/F1 10 Tf
+1 0 0 1 54 598 Tm
+() Tj
+/F2 14 Tf
+1 0 0 1 54 583 Tm
+(10. Resume tres simple) Tj
+/F1 10 Tf
+1 0 0 1 54 562 Tm
+(- Installer Google Drive pour ordinateur.) Tj
+/F1 10 Tf
+1 0 0 1 54 547 Tm
+(- Creer le dossier Kamoro Backups dans Google Drive.) Tj
+/F1 10 Tf
+1 0 0 1 54 532 Tm
+(- Copier le chemin du dossier Kamoro Backups.) Tj
+/F1 10 Tf
+1 0 0 1 54 517 Tm
+(- Double-cliquer sur Activer-Sauvegarde-Sqlite-Docker-Avec-Drive.cmd.) Tj
+/F1 10 Tf
+1 0 0 1 54 502 Tm
+(- Coller le chemin Google Drive.) Tj
+/F1 10 Tf
+1 0 0 1 54 487 Tm
+(- Tester avec Sauvegarder-Sqlite-Docker.cmd.) Tj
+/F1 10 Tf
+1 0 0 1 54 472 Tm
+(- Verifier que le fichier apparait dans backups/sqlite et dans Google Drive.) Tj
+/F1 8 Tf
+1 0 0 1 54 36 Tm
+(Page 3 / 3) Tj
+ET
+endstream
+endobj
+8 0 obj
+<< /Type /Page /Parent 9 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 7 0 R >>
+endobj
+9 0 obj
+<< /Type /Pages /Kids [4 0 R 6 0 R 8 0 R] /Count 3 >>
+endobj
+10 0 obj
+<< /Type /Catalog /Pages 9 0 R >>
+endobj
+xref
+0 11
+0000000000 65535 f 
+0000000015 00000 n 
+0000000085 00000 n 
+0000000160 00000 n 
+0000003455 00000 n 
+0000003591 00000 n 
+0000006807 00000 n 
+0000006943 00000 n 
+0000008394 00000 n 
+0000008530 00000 n 
+0000008599 00000 n 
+trailer
+<< /Size 11 /Root 10 0 R >>
+startxref
+8649
+%%EOF
