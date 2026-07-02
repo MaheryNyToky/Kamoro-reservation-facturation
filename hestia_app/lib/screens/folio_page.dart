@@ -1288,7 +1288,7 @@ class _FolioPageState extends State<FolioPage> {
                           ],
                           _SectionHeader(
                             title: 'Lignes de facture',
-                            action: _isFinalized
+                            action: _isFinalized || widget.proformaOnly
                                 ? null
                                 : TextButton.icon(
                                     onPressed: _isBusy ? null : _addExtra,

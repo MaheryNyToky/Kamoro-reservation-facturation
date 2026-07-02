@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Http\Controllers\PMSController;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\Organization;
 use App\Models\Payment;
 use App\Models\Reservation;
 use App\Models\Room;
@@ -164,6 +165,85 @@ class InvoicePdfGenerationTest extends TestCase
         $this->assertSame('facture', $response->json('invoice.document_type'));
 
         $refreshed = Invoice::query()->findOrFail($invoice->id);
+        $this->assertNotNull($refreshed->pdf_path);
+        $this->assertTrue(Storage::disk('local')->exists($refreshed->pdf_path));
+    }
+
+    public function test_receptionist_can_only_generate_proforma_before_checkin(): void
+    {
+        $user = User::create([
+            'name' => 'Reception Precheckin PDF',
+            'email' => 'reception-precheckin-pdf@example.com',
+            'password' => 'password',
+            'role' => 'receptionist',
+            'is_blacklisted' => false,
+        ]);
+
+        $room = Room::create([
+            'room_number' => '210',
+            'type' => 'Chambre Double',
+            'model' => 'Standard',
+            'base_price_ariary' => 110000,
+            'is_fixed_price' => false,
+        ]);
+
+        $reservation = Reservation::create([
+            'user_id' => $user->id,
+            'client_name' => 'Precheckin Proforma Client',
+            'client_phone' => '0340000094',
+            'customer_phone' => '0340000094',
+            'customer_email' => 'precheckin-proforma@example.com',
+            'booking_reference' => 'BR-' . uniqid(),
+            'source' => 'Appel',
+            'check_in_date' => '2026-06-28',
+            'check_out_date' => '2026-06-29',
+            'status' => 'en_attente',
+            'payment_status' => 'unbilled',
+            'extra_beds' => 0,
+            'extra_mattresses' => 0,
+        ]);
+        $reservation->rooms()->attach($room->id, [
+            'price_snapshot_ariary' => 110000,
+        ]);
+
+        $invoice = Invoice::create([
+            'reservation_id' => $reservation->id,
+            'invoice_number' => null,
+            'total_amount_ariary' => 110000,
+            'tax_amount_ariary' => 0,
+            'discount_mode' => null,
+            'discount_value' => null,
+            'discount_amount_ariary' => 0,
+            'deposit_amount_ariary' => 0,
+            'pdf_path' => null,
+            'finalized_at' => null,
+            'status' => 'open',
+            'document_type' => 'facture',
+        ]);
+
+        InvoiceItem::create([
+            'invoice_id' => $invoice->id,
+            'description' => 'Séjour chambre',
+            'type' => 'room',
+            'amount_ariary' => 110000,
+            'quantity' => 1,
+        ]);
+
+        $this->postJson("/api/invoices/{$invoice->id}/generate-pdf", [
+            'document_type' => 'facture',
+            'actor_role' => 'receptionist',
+        ])->assertForbidden();
+
+        $response = $this->postJson("/api/invoices/{$invoice->id}/generate-pdf", [
+            'document_type' => 'proforma',
+            'actor_role' => 'receptionist',
+        ]);
+
+        $response->assertOk();
+        $response->assertJsonPath('invoice.document_type', 'proforma');
+
+        $refreshed = Invoice::query()->findOrFail($invoice->id);
+        $this->assertSame('proforma', $refreshed->document_type);
         $this->assertNotNull($refreshed->pdf_path);
         $this->assertTrue(Storage::disk('local')->exists($refreshed->pdf_path));
     }
@@ -643,6 +723,7 @@ class InvoicePdfGenerationTest extends TestCase
         );
         $this->assertStringContainsString("class='signature-title'>Client</div>", $html);
         $this->assertStringContainsString("class='signature-title'>Responsable</div>", $html);
+        $this->assertStringNotContainsString("class='responsible-signature'", $html);
     }
 
     public function test_proforma_pdf_header_and_signature_are_proforma_specific(): void
@@ -711,12 +792,98 @@ class InvoicePdfGenerationTest extends TestCase
         $this->assertStringContainsString('FACTURE PROFORMA', $html);
         $this->assertStringNotContainsString('DOCUMENT PROFORMA', $html);
         $this->assertStringNotContainsString("<div class='subtitle'>Facture proforma</div>", $html);
-        $this->assertStringNotContainsString("class='signature-title'>Client</div>", $html);
+        $this->assertStringNotContainsString('Compte BMOI', $html);
+        $this->assertStringNotContainsString('00004 00017 039579201 02 62', $html);
+        $this->assertStringNotContainsString('Kamoro hotel', $html);
+        $this->assertStringContainsString("class='signature-title'>Client</div>", $html);
         $this->assertStringContainsString("class='signature-title'>Responsable</div>", $html);
+        $this->assertStringContainsString("class='responsible-signature'", $html);
 
         $pdf = Pdf::loadHTML($html);
         $pdf->render();
         $this->assertGreaterThan(0, $pdf->getDomPDF()->getCanvas()->get_page_count());
+    }
+
+    public function test_organization_proforma_pdf_includes_bank_details_and_signature(): void
+    {
+        $user = User::create([
+            'name' => 'Admin Org Proforma Test',
+            'email' => 'admin-org-proforma-test@example.com',
+            'password' => 'password',
+            'role' => 'admin',
+            'is_blacklisted' => false,
+        ]);
+
+        $organization = Organization::create([
+            'name' => 'Organisme Test',
+            'contact_name' => 'Contact Organisme',
+            'contact_phone' => '0340000093',
+            'contact_email' => 'org@example.com',
+            'billing_address' => 'Antananarivo',
+        ]);
+
+        $room = Room::create([
+            'room_number' => '804',
+            'type' => 'Chambre Double',
+            'model' => 'Standard',
+            'base_price_ariary' => 50000,
+            'is_fixed_price' => false,
+        ]);
+
+        $reservation = Reservation::create([
+            'user_id' => $user->id,
+            'organization_id' => $organization->id,
+            'client_name' => 'Proforma Organization Client',
+            'client_phone' => '0340000093',
+            'customer_phone' => '0340000093',
+            'customer_email' => 'org-proforma@example.com',
+            'booking_reference' => 'BR-' . uniqid(),
+            'booking_type' => 'organization',
+            'source' => 'Appel',
+            'check_in_date' => '2026-06-22',
+            'check_out_date' => '2026-06-23',
+            'status' => 'en_attente',
+            'payment_status' => 'unbilled',
+            'extra_beds' => 0,
+            'extra_mattresses' => 0,
+        ]);
+
+        $reservation->rooms()->attach($room->id, [
+            'price_snapshot_ariary' => 50000,
+        ]);
+
+        $invoice = Invoice::create([
+            'reservation_id' => $reservation->id,
+            'invoice_number' => null,
+            'total_amount_ariary' => 50000,
+            'tax_amount_ariary' => 0,
+            'discount_mode' => null,
+            'discount_value' => null,
+            'discount_amount_ariary' => 0,
+            'deposit_amount_ariary' => 0,
+            'pdf_path' => null,
+            'finalized_at' => null,
+            'status' => 'open',
+            'document_type' => 'proforma',
+        ]);
+
+        InvoiceItem::create([
+            'invoice_id' => $invoice->id,
+            'description' => 'Séjour chambre',
+            'type' => 'room',
+            'amount_ariary' => 50000,
+            'quantity' => 1,
+        ]);
+
+        $html = $this->invoiceHtmlForTest($invoice, 'proforma', 'ariary');
+
+        $this->assertStringContainsString('FACTURE PROFORMA', $html);
+        $this->assertStringContainsString('Compte BMOI', $html);
+        $this->assertStringContainsString('00004 00017 039579201 02 62', $html);
+        $this->assertStringContainsString('Kamoro hotel', $html);
+        $this->assertStringContainsString("class='signature-title'>Client</div>", $html);
+        $this->assertStringContainsString("class='signature-title'>Responsable</div>", $html);
+        $this->assertStringContainsString("class='responsible-signature'", $html);
     }
 
     private function invoiceHtmlForTest(Invoice $invoice, string $documentType, string $currencyMode): string

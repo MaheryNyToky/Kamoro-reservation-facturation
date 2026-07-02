@@ -38,6 +38,8 @@ class PMSController extends Controller
     private const RECEPTIONIST_ITEM_EDIT_WINDOW_SECONDS = 7;
     private static bool $hotelLogoLoaded = false;
     private static ?string $hotelLogoDataUri = null;
+    private static bool $responsibleSignatureLoaded = false;
+    private static ?string $responsibleSignatureDataUri = null;
 
     public function __construct(
         private readonly AvailabilityService $availabilityService,
@@ -509,6 +511,10 @@ class PMSController extends Controller
         $result = DB::transaction(function () use ($validated, $id) {
             $invoice = Invoice::with(['payments', 'reservation.audits', 'reservation.guest'])->lockForUpdate()->findOrFail($id);
             $previousStatus = $invoice->status;
+            $this->assertReceptionistCannotTakePreCheckinPayment(
+                $invoice->reservation,
+                $validated['processed_by_role'] ?? 'receptionist',
+            );
 
             if ($invoice->status === 'finalized') {
                 throw ValidationException::withMessages([
@@ -695,6 +701,7 @@ class PMSController extends Controller
                     ->findOrFail($paymentId);
 
             $actorRole = $validated['processed_by_role'] ?? 'receptionist';
+            $this->assertReceptionistCannotTakePreCheckinPayment($invoice->reservation, $actorRole);
             $this->assertPaymentModificationAllowed($invoice->reservation, $actorRole);
 
             $otherPaymentsTotal = (int) $invoice->payments
@@ -790,6 +797,17 @@ class PMSController extends Controller
         }
 
         $invoice = Invoice::with(['items', 'payments', 'reservation.guest', 'reservation.rooms'])->findOrFail($id);
+        $actorRole = $validated['actor_role'] ?? 'receptionist';
+        if (
+            $documentType !== 'proforma'
+            && $actorRole === 'receptionist'
+            && $this->isPreCheckinReservation($invoice->reservation)
+        ) {
+            return response()->json([
+                'message' => 'Avant le check-in, le réceptionniste peut générer uniquement une facture proforma.',
+            ], 403);
+        }
+
         if ($currencyMode === 'euro' && $invoice->reservation?->source !== 'Booking') {
             return response()->json([
                 'message' => 'La facture en euro est réservée aux réservations Booking.',
@@ -1520,6 +1538,20 @@ class PMSController extends Controller
         $invoice->update(['status' => $status]);
     }
 
+    private function isPreCheckinReservation(?Reservation $reservation): bool
+    {
+        return $reservation?->status === 'en_attente';
+    }
+
+    private function assertReceptionistCannotTakePreCheckinPayment(?Reservation $reservation, ?string $actorRole): void
+    {
+        if ($actorRole === 'receptionist' && $this->isPreCheckinReservation($reservation)) {
+            throw ValidationException::withMessages([
+                'payment' => 'Avant le check-in, le réceptionniste ne peut pas enregistrer de paiement.',
+            ]);
+        }
+    }
+
     private function nextInvoiceNumber(): string
     {
         $year = now()->year;
@@ -1849,6 +1881,12 @@ class PMSController extends Controller
         $documentLabel = $isProforma ? '' : 'Facture de séjour';
         $amountLabel = $isProforma ? 'facture proforma' : 'facture';
         $logoDataUri = $this->hotelLogoDataUri();
+        $signatureDataUri = $this->responsibleSignatureDataUri();
+        $responsibleSignature = $signatureDataUri
+            ? "<img class='responsible-signature' src='{$signatureDataUri}' alt='Signature responsable'>"
+            : '';
+        $leftSignatureTitle = 'Client';
+        $rightSignatureTitle = 'Responsable';
         $accentColor = '#d10f0f';
         $accentSoft = $isProforma ? '#fff7f7' : '#fff1f1';
         $accentText = '#111111';
@@ -1950,21 +1988,32 @@ class PMSController extends Controller
                     .summary-row.discount .value { color: #b91c1c; }
                     .summary-row.deposit .value { color: #0f766e; }
                     .notice { margin: 8px 0 12px; padding: 8px 10px; border: 1px solid #cbd5e1; background: #f8fafc; color: #334155; border-radius: 8px; font-size: 10.5px; }
-                    .signature-wrap { width: 100%; margin-top: 14px; page-break-inside: avoid; }
+                    .bank-details { margin: 8px 0 12px; padding: 8px 10px; border: 1px solid {$accentColor}; background: {$accentSoft}; color: {$accentText}; border-radius: 8px; font-size: 10.5px; line-height: 1.35; }
+                    .bank-details-title { font-size: 9px; text-transform: uppercase; letter-spacing: 0.6px; color: #64748b; margin-bottom: 3px; font-weight: bold; }
+                    .signature-wrap { width: 100%; margin-top: 12px; page-break-inside: avoid; }
                     .signature-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+                    .signature-table td { border: 0; }
                     .signature-cell { width: 50%; vertical-align: top; padding: 0 4px; }
-                    .signature-cell.single { width: 50%; padding-left: 50%; }
-                    .signature-box { min-height: 84px; border: 1px solid #dbe4ea; border-radius: 10px; padding: 10px 12px; background: #fff; }
+                    .signature-cell:first-child { padding-right: 12px; }
+                    .signature-cell:last-child { padding-left: 0; padding-right: 0; text-align: center; }
+                    .signature-cell.single { width: 50%; padding-left: 0; padding-right: 0; text-align: center; }
+                    .signature-cell.single .signature-box { align-items: center; text-align: center; width: auto; min-width: 0; margin: 0 auto; }
+                    .signature-box { min-height: 0; border: 0; border-radius: 0; padding: 0; background: transparent; display: flex; flex-direction: column; }
+                    .signature-cell.single .signature-title { text-align: center; }
+                    .signature-cell.single .signature-line { width: 100%; }
                     .signature-title { margin-bottom: 6px; color: {$accentText}; font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; }
-                    .signature-line { margin-top: 34px; padding-top: 5px; color: #475569; font-size: 10px; }
-                    .invoice-footer { margin-top: 14px; margin-bottom: 18px; page-break-inside: avoid; }
+                    .responsible-signature { display: block; width: 112px; max-height: 58px; object-fit: contain; margin: 2px auto 0; }
+                    .signature-cell.single .responsible-signature { margin-right: auto; margin-left: auto; }
+                    .signature-line { margin-top: 28px; padding-top: 5px; color: #475569; font-size: 10px; }
+                    .signature-box .responsible-signature + .signature-line { margin-top: 8px; }
+                    .invoice-footer { margin-top: 4px; margin-bottom: 18px; page-break-inside: avoid; }
                     .invoice-location { margin-top: 8px; font-weight: bold; text-align: right; color: {$accentText}; font-size: 10.5px; }
                     .legal-block { position: fixed; left: 0; right: 0; bottom: 0; padding-top: 5px; border-top: 1px solid {$accentColor}; color: {$accentText}; font-size: 9px; line-height: 1.2; }
                     .legal-line { width: 100%; border-collapse: collapse; table-layout: fixed; }
                     .legal-line td { border: 0; padding: 0 8px 0 0; vertical-align: top; }
                     .legal-line td:last-child { padding-right: 0; }
                     .legal-label { font-weight: bold; }
-                    .footer-note { margin-top: 10px; font-weight: bold; text-transform: uppercase; font-size: 10.5px; line-height: 1.25; }
+                    .footer-note { margin-top: 10px; margin-bottom: 8px; font-weight: bold; text-transform: uppercase; font-size: 10.5px; line-height: 1.25; }
                 </style>
             </head>
             <body>
@@ -1980,9 +2029,16 @@ class PMSController extends Controller
                         <div style='margin-bottom: 8px; font-weight: bold; color: {$accentText};'>" . ($isProforma ? 'Proforma n° ' : 'Facture n° ') . "{$invoiceNumber}</div>
                         <span class='pill " . ($balanceAmount > 0 ? 'unpaid' : '') . "'>{$paymentStatus}</span>
                     </div>
-                </div>
-                <div class='notice'>{$paymentNotice}</div>
-                <table class='info-grid'>
+	                </div>
+	                <div class='notice'>{$paymentNotice}</div>
+                    " . (($isProforma && ($reservation->booking_type ?? '') === 'organization') ? "
+                    <div class='bank-details'>
+                        <div class='bank-details-title'>Coordonnées bancaires</div>
+                        <strong>Compte BMOI</strong> 00004 00017 039579201 02 62<br>
+                        Kamoro hotel
+                    </div>
+                    " : '') . "
+	                <table class='info-grid'>
                     <tr>
                         <td style='width: 56%; padding-right: 10px;'>
                             <div class='box'>
@@ -2058,20 +2114,28 @@ class PMSController extends Controller
                 <div class='signature-wrap'>
                     <table class='signature-table'>
                         <tr>
-                            " . (!$isProforma ? "
                             <td class='signature-cell'>
                                 <div class='signature-box'>
-                                    <div class='signature-title'>Client</div>
+                                    <div class='signature-title'>{$leftSignatureTitle}</div>
                                     <div class='signature-line'>&nbsp;</div>
                                 </div>
                             </td>
-                            " : "") . "
-                            <td class='signature-cell " . ($isProforma ? 'single' : '') . "'>
+                            " . ($isProforma ? "
+                            <td class='signature-cell single'>
                                 <div class='signature-box'>
-                                    <div class='signature-title'>Responsable</div>
+                                    <div class='signature-title'>{$rightSignatureTitle}</div>
+                                    {$responsibleSignature}
                                     <div class='signature-line'>&nbsp;</div>
                                 </div>
                             </td>
+                            " : "
+                            <td class='signature-cell'>
+                                <div class='signature-box'>
+                                    <div class='signature-title'>{$rightSignatureTitle}</div>
+                                    <div class='signature-line'>&nbsp;</div>
+                                </div>
+                            </td>
+                            ") . "
                         </tr>
                     </table>
                 </div>
@@ -2160,6 +2224,34 @@ class PMSController extends Controller
         self::$hotelLogoDataUri = 'data:' . $mime . ';base64,' . base64_encode(file_get_contents($logoPath));
 
         return self::$hotelLogoDataUri;
+    }
+
+    private function responsibleSignatureDataUri(): ?string
+    {
+        if (self::$responsibleSignatureLoaded) {
+            return self::$responsibleSignatureDataUri;
+        }
+
+        self::$responsibleSignatureLoaded = true;
+        $root = dirname(base_path());
+        $candidates = [
+            $root . DIRECTORY_SEPARATOR . 'Signature .png',
+            $root . DIRECTORY_SEPARATOR . 'Signature.png',
+            base_path('Signature .png'),
+            base_path('Signature.png'),
+            base_path('public/Signature.png'),
+            storage_path('app/public/Signature.png'),
+        ];
+
+        $signaturePath = collect($candidates)->first(fn ($path) => is_string($path) && is_file($path));
+        if (!$signaturePath) {
+            return null;
+        }
+
+        $mime = mime_content_type($signaturePath) ?: 'image/png';
+        self::$responsibleSignatureDataUri = 'data:' . $mime . ';base64,' . base64_encode(file_get_contents($signaturePath));
+
+        return self::$responsibleSignatureDataUri;
     }
 
     private function ensureInvoicePdf(Invoice $invoice, string $documentType = 'facture', string $currencyMode = 'ariary'): void

@@ -1618,12 +1618,14 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
 
   bool _canCancelReservation(Map<String, dynamic> reservation) {
     final status = (reservation['status'] ?? '').toString();
-    final paymentStatus = (reservation['payment_status'] ?? 'unbilled').toString();
+    final paymentStatus = (reservation['payment_status'] ?? 'unbilled')
+        .toString();
     final hasAdvancePayment =
         _asInt(reservation['deposit_amount_ariary']) > 0 ||
         paymentStatus == 'partial' ||
         paymentStatus == 'paid';
-    return widget.role != 'receptionist' || (!hasAdvancePayment && status != 'arrive');
+    return widget.role != 'receptionist' ||
+        (!hasAdvancePayment && status != 'arrive');
   }
 
   bool _shouldShowStatusControls(Map<String, dynamic> reservation) {
@@ -2015,7 +2017,11 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
   Future<void> _openFolio(Map<String, dynamic> reservation) async {
     final isWaiting = (reservation['status'] ?? '').toString() == 'en_attente';
     if (isWaiting) {
-      await _openDepositDialog(reservation);
+      if (widget.role == 'admin' || widget.role == 'superadmin') {
+        await _openDepositDialog(reservation);
+      } else {
+        await _openProformaFolio(reservation);
+      }
       return;
     }
 

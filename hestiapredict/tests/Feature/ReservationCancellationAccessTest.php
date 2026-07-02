@@ -116,8 +116,8 @@ class ReservationCancellationAccessTest extends TestCase
         $this->postJson("/api/reservations/{$reservation->id}/deposit", [
             'amount_ariary' => 20000,
             'payment_method' => 'Espèces',
-            'processed_by_name' => $receptionist->name,
-            'processed_by_role' => $receptionist->role,
+            'processed_by_name' => $admin->name,
+            'processed_by_role' => $admin->role,
             'reference' => 'ACPT-002',
         ])->assertOk();
 

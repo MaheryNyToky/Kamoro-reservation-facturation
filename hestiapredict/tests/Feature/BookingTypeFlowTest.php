@@ -57,8 +57,8 @@ class BookingTypeFlowTest extends TestCase
         $depositResponse = $this->postJson("/api/reservations/{$reservation->id}/deposit", [
             'amount_ariary' => 10000,
             'payment_method' => 'Espèces',
-            'processed_by_name' => 'Reception Test',
-            'processed_by_role' => 'receptionist',
+            'processed_by_name' => 'Admin Test',
+            'processed_by_role' => 'admin',
         ]);
 
         $depositResponse->assertOk();
@@ -107,8 +107,8 @@ class BookingTypeFlowTest extends TestCase
         $depositResponse = $this->postJson("/api/reservations/{$reservation->id}/deposit", [
             'amount_ariary' => 10000,
             'payment_method' => 'Espèces',
-            'processed_by_name' => 'Reception Test',
-            'processed_by_role' => 'receptionist',
+            'processed_by_name' => 'Admin Test',
+            'processed_by_role' => 'admin',
         ]);
 
         $depositResponse->assertOk();

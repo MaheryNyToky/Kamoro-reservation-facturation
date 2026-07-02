@@ -28,7 +28,8 @@ RUN composer install --no-dev --no-interaction --prefer-source --optimize-autolo
 COPY *.png ./
 COPY hestiapredict/ ./
 RUN set -eux; \
-    logo="$(find . -maxdepth 1 -type f -name '*.png' | head -n 1)"; \
+    logo="$(find . -maxdepth 1 -type f -name 'Capture*.png' | head -n 1)"; \
+    if [ -z "$logo" ]; then logo="$(find . -maxdepth 1 -type f -name '*.png' ! -name 'Signature .png' ! -name 'Signature.png' | head -n 1)"; fi; \
     test -n "$logo"; \
     cp "$logo" public/logo.png
 RUN composer dump-autoload --optimize \
