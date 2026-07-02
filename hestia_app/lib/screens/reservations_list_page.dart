@@ -168,7 +168,7 @@ class _EditReservationPageState extends State<EditReservationPage> {
           _segmentDrafts[_asInt(room['id'])] ?? _segmentDraftFromRoom(room);
       return total +
           (draft.extraBeds * 50000) +
-          (draft.extraMattresses * 30000);
+          (draft.extraMattresses * 35000);
     });
   }
 
@@ -178,7 +178,7 @@ class _EditReservationPageState extends State<EditReservationPage> {
       final draft =
           _segmentDrafts[_asInt(room['id'])] ?? _segmentDraftFromRoom(room);
       total +=
-          ((draft.extraBeds * 50000) + (draft.extraMattresses * 30000)) *
+          ((draft.extraBeds * 50000) + (draft.extraMattresses * 35000)) *
           _segmentNights(draft);
     }
     return total;

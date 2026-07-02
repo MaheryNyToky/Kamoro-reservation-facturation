@@ -650,7 +650,7 @@ class ReservationEndToEndFlowTest extends TestCase
         ])->assertOk();
 
         $folio = $this->getJson("/api/reservations/{$reservation->id}/folio")->assertOk();
-        $folio->assertJsonPath('total_amount_ariary', 265000);
+        $folio->assertJsonPath('total_amount_ariary', 270000);
         $descriptions = collect($folio->json('items'))->pluck('description')->all();
 
         $this->assertContains('Chambre 01 (double standard) - 1 nuit', $descriptions);
@@ -665,7 +665,7 @@ class ReservationEndToEndFlowTest extends TestCase
             'currency_mode' => 'ariary',
             'actor_role' => 'admin',
         ])->assertOk();
-        $pdfResponse->assertJsonPath('invoice.total_amount_ariary', 265000);
+        $pdfResponse->assertJsonPath('invoice.total_amount_ariary', 270000);
         $pdfDescriptions = collect($pdfResponse->json('invoice.items'))->pluck('description')->all();
 
         $this->assertContains('Chambre 01 (double standard) - 1 nuit', $pdfDescriptions);
@@ -1036,7 +1036,7 @@ class ReservationEndToEndFlowTest extends TestCase
         $this->putJson("/api/invoices/{$invoiceId}/items/{$itemId}", [
             'description' => 'Dîner',
             'type' => 'extra',
-            'amount_ariary' => 35000,
+            'amount_ariary' => 32000,
             'quantity' => 1,
             'booking_room_id' => $bookingRoomId,
             'actor_name' => $receptionist->name,
@@ -1046,13 +1046,13 @@ class ReservationEndToEndFlowTest extends TestCase
         $this->putJson("/api/invoices/{$invoiceId}/items/{$itemId}", [
             'description' => 'Dîner',
             'type' => 'extra',
-            'amount_ariary' => 35000,
+            'amount_ariary' => 32000,
             'quantity' => 1,
             'booking_room_id' => $bookingRoomId,
             'actor_name' => 'Admin Facturation',
             'actor_role' => 'admin',
         ])->assertOk()
-            ->assertJsonPath('invoice.total_amount_ariary', 145000);
+            ->assertJsonPath('invoice.total_amount_ariary', 142000);
 
         $this->deleteJson("/api/invoices/{$invoiceId}/items/{$itemId}", [
             'actor_name' => 'Admin Facturation',

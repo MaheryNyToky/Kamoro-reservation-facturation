@@ -445,7 +445,7 @@ class InvoicePdfGenerationTest extends TestCase
             'invoice_id' => $invoice->id,
             'description' => 'Matelas supplémentaire',
             'type' => 'extra',
-            'amount_ariary' => 30000,
+            'amount_ariary' => 35000,
             'quantity' => 1,
         ]);
 
@@ -501,7 +501,7 @@ class InvoicePdfGenerationTest extends TestCase
         $invoice = Invoice::create([
             'reservation_id' => $reservation->id,
             'invoice_number' => null,
-            'total_amount_ariary' => 727500,
+            'total_amount_ariary' => 742500,
             'tax_amount_ariary' => 0,
             'discount_mode' => null,
             'discount_value' => null,
@@ -531,7 +531,7 @@ class InvoicePdfGenerationTest extends TestCase
             'invoice_id' => $invoice->id,
             'description' => 'Matelas supplémentaire',
             'type' => 'extra',
-            'amount_ariary' => 30000,
+            'amount_ariary' => 35000,
             'quantity' => 1,
         ]);
 
@@ -541,10 +541,10 @@ class InvoicePdfGenerationTest extends TestCase
         ]);
 
         $response->assertOk();
-        $response->assertJsonPath('invoice.total_amount_ariary', 727500);
+        $response->assertJsonPath('invoice.total_amount_ariary', 742500);
 
         $refreshed = Invoice::with('items')->findOrFail($invoice->id);
-        $this->assertSame(727500, (int) $refreshed->total_amount_ariary);
+        $this->assertSame(742500, (int) $refreshed->total_amount_ariary);
         $this->assertSame(3, (int) $refreshed->items->firstWhere('description', 'Lit supplémentaire')?->quantity);
         $this->assertSame(3, (int) $refreshed->items->firstWhere('description', 'Matelas supplémentaire')?->quantity);
         $this->assertNotNull($refreshed->pdf_path);

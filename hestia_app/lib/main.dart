@@ -2284,7 +2284,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
   }
 
   int _segmentExtrasNightPrice(_RoomSegmentDraft draft) {
-    return (draft.extraBeds * 50000) + (draft.extraMattresses * 30000);
+    return (draft.extraBeds * 50000) + (draft.extraMattresses * 35000);
   }
 
   List<_RoomSegmentDraft> _currentSegmentDrafts() {

@@ -30,10 +30,10 @@ class PMSController extends Controller
 {
     private const TOURIST_TAX_PER_ROOM_NIGHT = 2000;
     private const EXTRA_BED_PRICE_ARIARY = 50000;
-    private const EXTRA_MATTRESS_PRICE_ARIARY = 30000;
+    private const EXTRA_MATTRESS_PRICE_ARIARY = 35000;
     private const BOOKING_ROOM_PRICE_EUR = 32.5;
     private const EXTRA_BED_PRICE_EUR = 10.0;
-    private const EXTRA_MATTRESS_PRICE_EUR = 6.0;
+    private const EXTRA_MATTRESS_PRICE_EUR = 7.0;
     private const EUR_TO_ARIARY_RATE = 5000;
     private const RECEPTIONIST_ITEM_EDIT_WINDOW_SECONDS = 7;
     private static bool $hotelLogoLoaded = false;

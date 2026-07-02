@@ -1087,12 +1087,12 @@ class BookingService
             foreach ($rooms as $room) {
                 $segmentNights = $this->segmentNights($room, $reservation);
                 $roomExtras = ((int) ($room->pivot->segment_extra_beds ?? 0) * 50000)
-                    + ((int) ($room->pivot->segment_extra_mattresses ?? 0) * 30000);
+                    + ((int) ($room->pivot->segment_extra_mattresses ?? 0) * 35000);
                 $totalPrice += ((int) $room->pivot->price_snapshot_ariary * $segmentNights) + ($roomExtras * $segmentNights);
                 $fixedTotalPrice += ((int) $room->base_price_ariary * $segmentNights) + ($roomExtras * $segmentNights);
             }
         } else {
-            $extrasPrice = (($extraBeds * 50000) + ($extraMattresses * 30000)) * $nights;
+            $extrasPrice = (($extraBeds * 50000) + ($extraMattresses * 35000)) * $nights;
             $totalPrice = ($rooms->sum(fn (Room $room) => (int) $room->pivot->price_snapshot_ariary) * $nights) + $extrasPrice;
             $fixedTotalPrice = ($rooms->sum(fn (Room $room) => (int) $room->base_price_ariary) * $nights) + $extrasPrice;
         }
