@@ -1815,6 +1815,26 @@ class _NewBookingPageState extends State<NewBookingPage> {
   DateTime _dateOnly(DateTime date) =>
       DateTime(date.year, date.month, date.day);
 
+  bool get _canCreatePastBooking =>
+      widget.role == 'admin' || widget.role == 'superadmin';
+
+  DateTime get _todayOnly => _dateOnly(DateTime.now());
+
+  DateTime get _firstBookingDate => _canCreatePastBooking
+      ? _todayOnly.subtract(const Duration(days: 730))
+      : _todayOnly;
+
+  DateTime _dateWithinRange(
+    DateTime value,
+    DateTime firstDate,
+    DateTime lastDate,
+  ) {
+    final normalized = _dateOnly(value);
+    if (normalized.isBefore(firstDate)) return firstDate;
+    if (normalized.isAfter(lastDate)) return lastDate;
+    return normalized;
+  }
+
   String _formatShortDate(DateTime date) {
     final normalized = _dateOnly(date);
     return '${normalized.day.toString().padLeft(2, '0')}/${normalized.month.toString().padLeft(2, '0')}';
@@ -2393,7 +2413,9 @@ class _NewBookingPageState extends State<NewBookingPage> {
                     children: [
                       RadioListTile<String>(
                         title: Text('En même temps'),
-                        subtitle: Text('Une seule réservation pour tout le groupe'),
+                        subtitle: Text(
+                          'Une seule réservation pour tout le groupe',
+                        ),
                         value: 'same_time',
                       ),
                       RadioListTile<String>(
@@ -2826,6 +2848,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
                   ? 'Booking'
                   : (effectivePhone.isNotEmpty ? 'Appel' : 'Mail'),
               'receptionist_name': widget.userName,
+              'actor_role': widget.role,
             }),
           )
           .timeout(const Duration(seconds: 30));
@@ -3394,13 +3417,19 @@ class _NewBookingPageState extends State<NewBookingPage> {
                     ),
                     trailing: const Icon(Icons.calendar_today),
                     onTap: () async {
+                      final firstDate = _firstBookingDate;
+                      final lastDate = DateTime.now().add(
+                        const Duration(days: 365),
+                      );
                       var d = await showDatePicker(
                         context: context,
-                        initialDate: _checkIn,
-                        firstDate: DateTime.now().subtract(
-                          const Duration(days: 1),
+                        initialDate: _dateWithinRange(
+                          _checkIn,
+                          firstDate,
+                          lastDate,
                         ),
-                        lastDate: DateTime.now().add(const Duration(days: 365)),
+                        firstDate: firstDate,
+                        lastDate: lastDate,
                       );
                       if (d != null) {
                         setState(() {
@@ -3419,11 +3448,17 @@ class _NewBookingPageState extends State<NewBookingPage> {
                     ),
                     trailing: const Icon(Icons.calendar_today),
                     onTap: () async {
+                      final firstDate = _checkIn.add(const Duration(days: 1));
+                      final lastDate = firstDate.add(const Duration(days: 365));
                       var d = await showDatePicker(
                         context: context,
-                        initialDate: _checkOut,
-                        firstDate: _checkIn.add(const Duration(days: 1)),
-                        lastDate: DateTime.now().add(const Duration(days: 365)),
+                        initialDate: _dateWithinRange(
+                          _checkOut,
+                          firstDate,
+                          lastDate,
+                        ),
+                        firstDate: firstDate,
+                        lastDate: lastDate,
                       );
                       if (d != null) {
                         setState(() => _checkOut = d);

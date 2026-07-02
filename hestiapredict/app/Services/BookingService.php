@@ -212,7 +212,7 @@ class BookingService
             'reservation_id' => $reservation->id,
             'action' => 'booked',
             'actor_name' => $data['receptionist_name'] ?? null,
-            'actor_role' => 'receptionist',
+            'actor_role' => $data['actor_role'] ?? 'receptionist',
             'details' => [
                 'room_ids' => $roomSegments->pluck('room_id')->all(),
                 'room_segments' => $roomSegments->values()->all(),

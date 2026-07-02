@@ -5,12 +5,25 @@ namespace Tests\Feature;
 use App\Models\Reservation;
 use App\Models\Room;
 use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 class BookingConflictTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Carbon::setTestNow('2026-06-19 10:00:00');
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
+    }
 
     public function test_booking_creation_rejects_any_room_already_reserved(): void
     {
@@ -160,5 +173,60 @@ class BookingConflictTest extends TestCase
 
         $response->assertStatus(422);
         $response->assertJsonValidationErrors('room_ids');
+    }
+
+    public function test_only_admins_can_create_bookings_in_the_past(): void
+    {
+        Carbon::setTestNow('2026-07-02 10:00:00');
+
+        try {
+            $user = User::create([
+                'name' => 'Past Booking User',
+                'email' => 'past-booking@example.com',
+                'password' => 'password',
+                'role' => 'receptionist',
+                'is_blacklisted' => false,
+            ]);
+
+            $room = Room::create([
+                'room_number' => '701',
+                'type' => 'Chambre Double',
+                'model' => 'Standard',
+                'base_price_ariary' => 50000,
+                'is_fixed_price' => false,
+            ]);
+
+            $payload = [
+                'client_name' => 'Past Booking Client',
+                'customer_phone' => '0340000030',
+                'customer_email' => 'past-booking@example.com',
+                'check_in' => '2026-06-01',
+                'check_out' => '2026-06-02',
+                'room_ids' => [$room->id],
+                'room_prices' => [
+                    ['id' => $room->id, 'price' => 50000],
+                ],
+                'source' => 'Appel',
+                'receptionist_name' => $user->name,
+            ];
+
+            $this->postJson('/api/bookings', [
+                ...$payload,
+                'actor_role' => 'receptionist',
+            ])->assertForbidden();
+
+            $this->postJson('/api/bookings', [
+                ...$payload,
+                'actor_role' => 'admin',
+            ])->assertCreated();
+
+            $this->assertDatabaseHas('reservations', [
+                'client_name' => 'Past Booking Client',
+                'check_in_date' => '2026-06-01',
+                'check_out_date' => '2026-06-02',
+            ]);
+        } finally {
+            Carbon::setTestNow();
+        }
     }
 }

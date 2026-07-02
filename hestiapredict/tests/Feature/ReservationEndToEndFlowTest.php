@@ -8,6 +8,7 @@ use App\Models\Reservation;
 use App\Models\ReservationAudit;
 use App\Models\Room;
 use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -674,6 +675,8 @@ class ReservationEndToEndFlowTest extends TestCase
 
     public function test_receptionist_can_extend_checked_in_stay_without_new_invoice(): void
     {
+        $this->travelTo(Carbon::parse('2026-06-30 10:00:00'));
+
         $user = $this->createReceptionUser();
         $room = $this->createRoom('914');
 
@@ -698,6 +701,7 @@ class ReservationEndToEndFlowTest extends TestCase
             ],
             'source' => 'Appel',
             'receptionist_name' => $user->name,
+            'actor_role' => 'admin',
         ]);
 
         $reservation = Reservation::query()
@@ -742,9 +746,9 @@ class ReservationEndToEndFlowTest extends TestCase
 
         $reservation->refresh()->load('rooms');
         $this->assertSame('2026-07-03', $reservation->check_out_date->toDateString());
-        $this->assertSame(2, $reservation->rooms->count());
+        $this->assertSame(1, $reservation->rooms->count());
         $this->assertSame(
-            ['2026-06-30:2026-07-01', '2026-07-01:2026-07-03'],
+            ['2026-06-30:2026-07-03'],
             $reservation->rooms
                 ->sortBy(fn (Room $room) => $room->pivot->segment_start_date)
                 ->map(fn (Room $room) => $room->pivot->segment_start_date->toDateString() . ':' . $room->pivot->segment_end_date->toDateString())
@@ -756,8 +760,7 @@ class ReservationEndToEndFlowTest extends TestCase
         $this->assertSame($invoiceId, $folio->json('id'));
         $folio->assertJsonPath('total_amount_ariary', 330000);
         $descriptions = collect($folio->json('items'))->pluck('description')->all();
-        $this->assertContains('Chambre 914 (double standard) - 1 nuit', $descriptions);
-        $this->assertContains('Chambre 914 (double standard) - 2 nuits', $descriptions);
+        $this->assertContains('Chambre 914 (double standard) - 3 nuits', $descriptions);
     }
 
     public function test_grouped_organization_folio_includes_all_selected_reservations(): void

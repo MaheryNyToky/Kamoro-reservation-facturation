@@ -154,7 +154,17 @@ class HotelManagementController extends Controller
             'extra_mattresses' => 'nullable|integer|min:0',
             'source' => 'nullable|string|in:Appel,Mail,Booking',
             'receptionist_name' => 'nullable|string|max:120',
+            'actor_role' => 'nullable|string|in:admin,receptionist,superadmin',
         ]);
+
+        $checkIn = Carbon::parse($validated['check_in'])->startOfDay();
+        $actorRole = (string) ($validated['actor_role'] ?? Auth::user()?->role ?? '');
+        if ($checkIn->lt(now()->startOfDay()) && !in_array($actorRole, ['admin', 'superadmin'], true)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Seul un administrateur peut créer une réservation dans le passé.',
+            ], 403);
+        }
 
         $result = $this->bookingService->createBooking($validated);
         $reservations = collect($result['reservations'] ?? []);
