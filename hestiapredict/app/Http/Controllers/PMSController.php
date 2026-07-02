@@ -122,6 +122,7 @@ class PMSController extends Controller
             'room_checkins' => 'nullable|array',
             'room_checkins.*.room_id' => 'required_with:room_checkins|integer|exists:rooms,id',
             'room_checkins.*.occupant_name' => 'nullable|string|max:255',
+            'room_checkins.*.occupant_first_name' => 'nullable|string|max:255',
             'room_checkins.*.occupant_phone' => 'nullable|string|max:50',
             'room_checkins.*.occupant_email' => 'nullable|email|max:190',
             'room_checkins.*.occupant_date_of_birth' => 'nullable|date',
@@ -203,6 +204,7 @@ class PMSController extends Controller
 
                     $reservation->rooms()->updateExistingPivot((int) $roomCheckin['room_id'], [
                         'occupant_name' => $roomCheckin['occupant_name'] ?? $validated['full_name'],
+                        'occupant_first_name' => $roomCheckin['occupant_first_name'] ?? null,
                         'occupant_phone' => $isOrganizationReservation
                             ? ($roomCheckin['occupant_phone'] ?? null)
                             : ($roomCheckin['occupant_phone'] ?? $phoneNumber),
@@ -224,6 +226,7 @@ class PMSController extends Controller
                 foreach ($reservation->rooms as $room) {
                     $reservation->rooms()->updateExistingPivot($room->id, [
                         'occupant_name' => $validated['full_name'],
+                        'occupant_first_name' => null,
                         'occupant_phone' => $isOrganizationReservation ? null : $phoneNumber,
                         'occupant_email' => $isOrganizationReservation ? null : ($validated['customer_email'] ?? null),
                         'occupant_date_of_birth' => $validated['date_of_birth'],
@@ -253,7 +256,7 @@ class PMSController extends Controller
 
             return [
                 'guest' => $guest,
-                'reservation' => $reservation->refresh()->load('rooms', 'guest'),
+                'reservation' => $reservation->refresh()->load('rooms', 'guest', 'organization'),
             ];
         });
 
@@ -1160,8 +1163,9 @@ class PMSController extends Controller
         $parts = [sprintf('Chambre %s (%s)', $room->room_number, $this->roomClassificationLabel($room))];
 
         $occupantName = trim((string) ($room->pivot->occupant_name ?? ''));
+        $occupantFirstName = trim((string) ($room->pivot->occupant_first_name ?? ''));
         if (($reservation->booking_type ?? '') === 'organization' && $occupantName !== '') {
-            $parts[] = $occupantName;
+            $parts[] = trim($occupantName . ' ' . $occupantFirstName);
         }
 
         $parts[] = sprintf('%d %s', $nights, $nights > 1 ? 'nuits' : 'nuit');
@@ -1588,6 +1592,7 @@ class PMSController extends Controller
             'segment_extra_beds' => (int) ($room->pivot->segment_extra_beds ?? 0),
             'segment_extra_mattresses' => (int) ($room->pivot->segment_extra_mattresses ?? 0),
             'occupant_name' => $room->pivot->occupant_name,
+            'occupant_first_name' => $room->pivot->occupant_first_name,
             'occupant_phone' => $room->pivot->occupant_phone,
             'occupant_email' => $room->pivot->occupant_email,
             'occupant_date_of_birth' => optional($room->pivot->occupant_date_of_birth)->toDateString(),

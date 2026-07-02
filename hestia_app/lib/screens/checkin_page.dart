@@ -157,6 +157,8 @@ class _CheckInPageState extends State<CheckInPage> {
       occupant.nameController.text = (room['occupant_name'] ?? defaultName)
           .toString()
           .trim();
+      occupant.firstNameController.text =
+          (room['occupant_first_name'] ?? '').toString().trim();
       occupant.idType = (room['occupant_id_type'] ?? 'CIN').toString();
       occupant.idNumberController.text =
           (room['occupant_id_number'] ?? _idNumberController.text)
@@ -210,6 +212,8 @@ class _CheckInPageState extends State<CheckInPage> {
                       (room['occupant_name'] ?? widget.reservation.clientName)
                           .toString()
                           .trim()
+                  ..firstNameController.text =
+                      (room['occupant_first_name'] ?? '').toString().trim()
                   ..idType = (room['occupant_id_type'] ?? 'CIN').toString()
                   ..idNumberController.text = (room['occupant_id_number'] ?? '')
                       .toString()
@@ -293,6 +297,7 @@ class _CheckInPageState extends State<CheckInPage> {
       return {
         'room_id': draft.roomId,
         'occupant_name': draft.nameController.text.trim(),
+        'occupant_first_name': draft.firstNameController.text.trim(),
         'occupant_date_of_birth': draft.dateOfBirth
             ?.toIso8601String()
             .split('T')
@@ -749,6 +754,16 @@ class _CheckInPageState extends State<CheckInPage> {
                     ? 'L’occupant de cette chambre est requis'
                     : null;
               },
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: draft.firstNameController,
+              decoration: const InputDecoration(
+                labelText: 'Prénom de l’occupant',
+                prefixIcon: Icon(Icons.badge_outlined),
+              ),
+              keyboardType: TextInputType.name,
+              textInputAction: TextInputAction.next,
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
@@ -1277,6 +1292,7 @@ class _RoomOccupantDraft {
   final int roomId;
   final String roomLabel;
   final TextEditingController nameController = TextEditingController();
+  final TextEditingController firstNameController = TextEditingController();
   final TextEditingController idNumberController = TextEditingController();
   DateTime? dateOfBirth;
   DateTime? passportValidFrom;
@@ -1286,6 +1302,7 @@ class _RoomOccupantDraft {
 
   void dispose() {
     nameController.dispose();
+    firstNameController.dispose();
     idNumberController.dispose();
   }
 }

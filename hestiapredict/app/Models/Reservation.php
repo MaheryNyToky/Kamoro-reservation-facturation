@@ -65,6 +65,7 @@ class Reservation extends Model
                 'segment_extra_beds',
                 'segment_extra_mattresses',
                 'occupant_name',
+                'occupant_first_name',
                 'occupant_phone',
                 'occupant_email',
                 'occupant_date_of_birth',

@@ -426,6 +426,7 @@ class PmsGuestUpdateTest extends TestCase
                 [
                     'room_id' => $room->id,
                     'occupant_name' => 'Occupant Chambre 1',
+                    'occupant_first_name' => 'Jean',
                     'occupant_date_of_birth' => '1990-02-03',
                     'occupant_sex' => 'Homme',
                     'occupant_id_type' => 'CIN',
@@ -435,6 +436,8 @@ class PmsGuestUpdateTest extends TestCase
         ]);
 
         $response->assertOk();
+        $response->assertJsonPath('reservation.organization.contact_name', 'Nouveau Contact');
+        $response->assertJsonPath('reservation.rooms.0.pivot.occupant_first_name', 'Jean');
 
         $guest = Guest::query()->where('reservation_id', $reservation->id)->firstOrFail();
         $this->assertSame('Carte de séjour', $guest->id_type);
@@ -458,6 +461,7 @@ class PmsGuestUpdateTest extends TestCase
             ->first();
         $this->assertNotNull($roomBooking);
         $this->assertSame('Occupant Chambre 1', $roomBooking->occupant_name);
+        $this->assertSame('Jean', $roomBooking->occupant_first_name);
         $this->assertNull($roomBooking->occupant_phone);
         $this->assertNull($roomBooking->occupant_email);
     }

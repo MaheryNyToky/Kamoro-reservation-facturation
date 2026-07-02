@@ -1463,7 +1463,8 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
       final occupantName = (room['occupant_name'] ?? '').toString().trim();
       if (occupantName.isEmpty) continue;
 
-      occupants.add(occupantName);
+      final firstName = (room['occupant_first_name'] ?? '').toString().trim();
+      occupants.add([occupantName, firstName].where((value) => value.isNotEmpty).join(' '));
     }
 
     if (occupants.isEmpty) return null;

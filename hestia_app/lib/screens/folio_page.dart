@@ -223,7 +223,10 @@ class _FolioPageState extends State<FolioPage> {
           : (type.isNotEmpty ? type : 'Chambre');
       final subtitleParts = <String>[
         if ((room['occupant_name'] ?? '').toString().trim().isNotEmpty)
-          (room['occupant_name'] ?? '').toString().trim(),
+          [
+            (room['occupant_name'] ?? '').toString().trim(),
+            (room['occupant_first_name'] ?? '').toString().trim(),
+          ].where((value) => value.isNotEmpty).join(' '),
         _roomSegmentLabel(room),
         if ((room['invoice_id'] ?? '').toString().isNotEmpty)
           'Facture déjà liée',
