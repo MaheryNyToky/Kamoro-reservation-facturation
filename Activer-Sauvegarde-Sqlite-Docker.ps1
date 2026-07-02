@@ -64,7 +64,7 @@ $verifyAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument ($ve
 $verifyTriggers = for ($hour = 10; $hour -le 23; $hour++) {
     New-ScheduledTaskTrigger -Daily -At ("{0}:00" -f $hour)
 }
-$principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel LeastPrivilege
+$principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
 
 foreach ($taskName in @($LegacyTaskName, $BackupTaskName, $VerifyTaskName)) {

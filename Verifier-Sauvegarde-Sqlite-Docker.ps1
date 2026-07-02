@@ -85,15 +85,19 @@ function Copy-ToDriveIfNeeded {
         return
     }
 
-    New-Item -ItemType Directory -Force -Path $DriveRoot | Out-Null
-    $driveBackupPath = Join-Path $DriveRoot $LocalBackup.Name
+    try {
+        New-Item -ItemType Directory -Force -Path $DriveRoot | Out-Null
+        $driveBackupPath = Join-Path $DriveRoot $LocalBackup.Name
 
-    if ((Test-Path $driveBackupPath) -and ((Get-Item $driveBackupPath).Length -eq $LocalBackup.Length)) {
-        return
+        if ((Test-Path $driveBackupPath) -and ((Get-Item $driveBackupPath).Length -eq $LocalBackup.Length)) {
+            return
+        }
+
+        Copy-Item -Path $LocalBackup.FullName -Destination $driveBackupPath -Force
+        Write-Log "Copie Drive retentee : $driveBackupPath"
+    } catch {
+        Write-Log "Avertissement : copie Drive impossible vers '$DriveRoot'. La verification continue sur la sauvegarde locale. Detail : $($_.Exception.Message)"
     }
-
-    Copy-Item -Path $LocalBackup.FullName -Destination $driveBackupPath -Force
-    Write-Log "Copie Drive retentee : $driveBackupPath"
 }
 
 if (-not (Test-Path $BackupScriptPath)) {
@@ -116,15 +120,17 @@ Write-Log "Verification de la sauvegarde du jour."
 $localBackup = Get-TodayBackup -Root $BackupRoot
 if ($localBackup) {
     Copy-ToDriveIfNeeded -LocalBackup $localBackup -DriveRoot $DriveBackupRoot
+    if (Test-BackupIsComplete -LocalBackup $localBackup -DriveRoot $DriveBackupRoot) {
+        Set-Content -Path $TodayOkMarker -Value "OK $($localBackup.FullName)" -Encoding UTF8
+        Write-Log "Sauvegarde du jour deja OK : $($localBackup.FullName)"
+        exit 0
+    }
+
+    Write-Log "Sauvegarde locale du jour presente mais copie Drive incomplète. Nouvelle tentative de copie au prochain passage."
+    exit 1
 }
 
-if (Test-BackupIsComplete -LocalBackup $localBackup -DriveRoot $DriveBackupRoot) {
-    Set-Content -Path $TodayOkMarker -Value "OK $($localBackup.FullName)" -Encoding UTF8
-    Write-Log "Sauvegarde du jour deja OK : $($localBackup.FullName)"
-    exit 0
-}
-
-Write-Log "Sauvegarde du jour manquante ou incomplete. Nouvelle tentative."
+Write-Log "Sauvegarde du jour manquante. Nouvelle tentative complete."
 
 $arguments = @(
     "-NoProfile",
@@ -141,13 +147,17 @@ if ($DriveBackupRoot) {
 Start-Process -FilePath "powershell.exe" -ArgumentList $arguments -WorkingDirectory $ProjectRoot -Wait -NoNewWindow
 
 $localBackup = Get-TodayBackup -Root $BackupRoot
-if ($localBackup) {
-    Copy-ToDriveIfNeeded -LocalBackup $localBackup -DriveRoot $DriveBackupRoot
+if (-not $localBackup -or -not (Test-Path $localBackup.FullName)) {
+    throw "La sauvegarde locale du jour n'a pas pu etre creee."
 }
 
-if (-not (Test-BackupIsComplete -LocalBackup $localBackup -DriveRoot $DriveBackupRoot)) {
-    throw "La sauvegarde du jour n'est toujours pas complete. La prochaine verification horaire reessaiera."
+Copy-ToDriveIfNeeded -LocalBackup $localBackup -DriveRoot $DriveBackupRoot
+
+if (Test-BackupIsComplete -LocalBackup $localBackup -DriveRoot $DriveBackupRoot) {
+    Set-Content -Path $TodayOkMarker -Value "OK $($localBackup.FullName)" -Encoding UTF8
+    Write-Log "Sauvegarde du jour OK apres nouvelle tentative : $($localBackup.FullName)"
+    exit 0
 }
 
-Set-Content -Path $TodayOkMarker -Value "OK $($localBackup.FullName)" -Encoding UTF8
-Write-Log "Sauvegarde du jour OK apres nouvelle tentative : $($localBackup.FullName)"
+Write-Log "Sauvegarde locale creee mais copie Drive encore incomplete. Nouvelle verification horaire necessaire."
+exit 1

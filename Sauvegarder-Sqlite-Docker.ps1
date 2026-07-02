@@ -69,11 +69,21 @@ if (-not $SkipDockerConsistentBackup) {
     if ($docker) {
         try {
             $containerBackupPath = "/data/.backup-temp/$backupFileName"
-            $phpCode = "`$db = new PDO('sqlite:/data/database.sqlite'); `$db->exec(""VACUUM INTO '$containerBackupPath'"");"
+            $tempPhpScriptPath = Join-Path $TempRoot "vacuum-$backupFileName.php"
+            $phpScript = @"
+<?php
+`$db = new PDO('sqlite:/data/database.sqlite');
+`$db->exec("VACUUM INTO '$containerBackupPath'");
+"@
+
+            Set-Content -Path $tempPhpScriptPath -Value $phpScript -Encoding UTF8
 
             Push-Location $ProjectRoot
-            & docker compose exec -T laravel php -r $phpCode
-            Pop-Location
+            try {
+                & docker compose exec -T laravel php "/data/.backup-temp/$(Split-Path -Leaf $tempPhpScriptPath)"
+            } finally {
+                Pop-Location
+            }
 
             if (Test-Path $tempBackupPath) {
                 Copy-Item -Path $tempBackupPath -Destination $localBackupPath -Force
@@ -84,6 +94,10 @@ if (-not $SkipDockerConsistentBackup) {
         } catch {
             try { Pop-Location } catch {}
             Write-Log "Sauvegarde Docker indisponible, copie fichier directe utilisee. Detail : $($_.Exception.Message)"
+        } finally {
+            if ($tempPhpScriptPath -and (Test-Path $tempPhpScriptPath)) {
+                Remove-Item -Path $tempPhpScriptPath -Force
+            }
         }
     } else {
         Write-Log "Docker introuvable dans le PATH, copie fichier directe utilisee."
@@ -96,10 +110,14 @@ if (-not $backupCreatedByDocker) {
 }
 
 if ($DriveBackupRoot) {
-    New-Item -ItemType Directory -Force -Path $DriveBackupRoot | Out-Null
-    $driveBackupPath = Join-Path $DriveBackupRoot $backupFileName
-    Copy-Item -Path $localBackupPath -Destination $driveBackupPath -Force
-    Write-Log "Copie Google Drive/local cloud : $driveBackupPath"
+    try {
+        New-Item -ItemType Directory -Force -Path $DriveBackupRoot | Out-Null
+        $driveBackupPath = Join-Path $DriveBackupRoot $backupFileName
+        Copy-Item -Path $localBackupPath -Destination $driveBackupPath -Force
+        Write-Log "Copie Google Drive/local cloud : $driveBackupPath"
+    } catch {
+        Write-Log "Avertissement : copie Drive impossible vers '$DriveBackupRoot'. La sauvegarde locale est conservee. Detail : $($_.Exception.Message)"
+    }
 }
 
 Remove-OldBackups -Root $BackupRoot
