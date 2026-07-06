@@ -2215,6 +2215,8 @@ class PMSController extends Controller
         $captureMatches = glob($root . DIRECTORY_SEPARATOR . 'Capture*.png') ?: [];
         $candidates = [
             $captureMatches[0] ?? null,
+            $root . DIRECTORY_SEPARATOR . 'logo.png',
+            $root . DIRECTORY_SEPARATOR . 'hestia_app' . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'logo.png',
             $root . DIRECTORY_SEPARATOR . 'hestia_app' . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'login_logo.png',
             base_path('public/logo.png'),
             storage_path('app/public/logo.png'),
