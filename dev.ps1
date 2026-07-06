@@ -90,11 +90,14 @@ Wait-ForUrl -Name "AI" -Url "http://127.0.0.1:8001/health" -Attempts 30
 
 Push-Location $LaravelDir
 $env:AI_ENGINE_URL = "http://127.0.0.1:8001"
+$env:DB_DATABASE = Join-Path $LaravelDir "database.sqlite"
+$env:CACHE_STORE = "file"
+$env:SESSION_DRIVER = "file"
 php artisan migrate --force | Out-File -FilePath $MigrateLog -Encoding utf8
 php artisan db:seed --force --class=Database\Seeders\KamoroHotelSeeder | Out-File -FilePath (Join-Path $LogDir "seed.log") -Encoding utf8
 $LaravelProcess = Start-Process -FilePath "php" -ArgumentList @("artisan", "serve", "--host=127.0.0.1", "--port=8000") -PassThru -WindowStyle Hidden -RedirectStandardOutput $LaravelLog -RedirectStandardError $LaravelLog
 Pop-Location
-Wait-ForUrl -Name "Laravel" -Url "http://127.0.0.1:8000/api/live-availability" -Attempts 30
+Wait-ForUrl -Name "Laravel" -Url "http://127.0.0.1:8000/api/health" -Attempts 30
 
 Push-Location $FlutterDir
 flutter build web --pwa-strategy=none --dart-define=API_BASE_URL=http://127.0.0.1:8000 | Out-File -FilePath $FlutterLog -Encoding utf8

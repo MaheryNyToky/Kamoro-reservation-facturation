@@ -105,13 +105,22 @@ ensure_laravel_dependencies() {
 
 echo "Lancement de l'environnement de développement..."
 
+cleanup() {
+    pkill -f "uvicorn main:app" 2>/dev/null || true
+    pkill -f "php artisan serve" 2>/dev/null || true
+    pkill -f "flutter_tools.*web-server" 2>/dev/null || true
+    pkill -f "flutter run -d web-server" 2>/dev/null || true
+    pkill -f "php -S localhost:8080" 2>/dev/null || true
+    pkill -f "php -S 127.0.0.1:8080" 2>/dev/null || true
+    pkill -f "php -S 0.0.0.0:8080" 2>/dev/null || true
+    pkill -f "php artisan serve --host=0.0.0.0 --port=8000" 2>/dev/null || true
+    pkill -f "php artisan serve --host=127.0.0.1 --port=8000" 2>/dev/null || true
+}
+
+trap cleanup EXIT INT TERM
+
 echo "Arrêt des anciens services éventuels..."
-pkill -f "uvicorn main:app" 2>/dev/null || true
-pkill -f "php artisan serve" 2>/dev/null || true
-pkill -f "flutter_tools.*web-server" 2>/dev/null || true
-pkill -f "flutter run -d web-server" 2>/dev/null || true
-pkill -f "php -S localhost:8080" 2>/dev/null || true
-pkill -f "php -S 127.0.0.1:8080" 2>/dev/null || true
+cleanup
 
 # 1. Moteur IA
 echo "[AI] Lancement sur le port 8001..."
@@ -122,34 +131,36 @@ AI_PYTHON="$(find_ai_python)" || {
     exit 1
 }
 nohup env MPLCONFIGDIR="$LOG_DIR/matplotlib" XDG_CACHE_HOME="$LOG_DIR/cache" WATCHFILES_FORCE_POLLING=true \
-    "$AI_PYTHON" -m uvicorn main:app --host 127.0.0.1 --port 8001 > "$LOG_DIR/ai.log" 2>&1 &
+    "$AI_PYTHON" -m uvicorn main:app --host 0.0.0.0 --port 8001 > "$LOG_DIR/ai.log" 2>&1 &
 AI_PID=$!
 wait_for_url "AI" "http://127.0.0.1:8001/health" "$LOG_DIR/ai.log" 30
 
 # 2. Backend Laravel
 echo "[Laravel] Lancement sur le port 8000..."
 cd "$PROJECT_ROOT/hestiapredict"
-touch "$PROJECT_ROOT/database.sqlite"
+touch "$PROJECT_ROOT/hestiapredict/database.sqlite"
+php scripts/sync_sqlite_database.php
 if ! ensure_laravel_dependencies; then
     exit 1
 fi
+php artisan optimize:clear > "$LOG_DIR/optimize-clear.log" 2>&1 || true
 echo "[Laravel] Migration de la base..."
-if ! php artisan migrate --force > "$LOG_DIR/migrate.log" 2>&1; then
+if ! env DB_DATABASE="$PROJECT_ROOT/hestiapredict/database.sqlite" CACHE_STORE=file php artisan migrate --force > "$LOG_DIR/migrate.log" 2>&1; then
     echo "[ERREUR] Migration Laravel impossible."
     echo "[LOG] Dernières lignes du log : $LOG_DIR/migrate.log"
     tail -n 40 "$LOG_DIR/migrate.log" 2>/dev/null || true
     exit 1
 fi
 echo "[Laravel] Création des comptes et données de base..."
-if ! php artisan db:seed --force --class=Database\\Seeders\\KamoroHotelSeeder > "$LOG_DIR/seed.log" 2>&1; then
+if ! env DB_DATABASE="$PROJECT_ROOT/hestiapredict/database.sqlite" CACHE_STORE=file php artisan db:seed --force --class=Database\\Seeders\\KamoroHotelSeeder > "$LOG_DIR/seed.log" 2>&1; then
     echo "[ERREUR] Seed Laravel impossible."
     echo "[LOG] Dernières lignes du log : $LOG_DIR/seed.log"
     tail -n 40 "$LOG_DIR/seed.log" 2>/dev/null || true
     exit 1
 fi
-nohup env AI_ENGINE_URL="http://127.0.0.1:8001" php artisan serve --host=127.0.0.1 --port=8000 > "$LOG_DIR/laravel.log" 2>&1 &
+nohup env AI_ENGINE_URL="http://127.0.0.1:8001" DB_DATABASE="$PROJECT_ROOT/hestiapredict/database.sqlite" CACHE_STORE=file SESSION_DRIVER=file php artisan serve --host=0.0.0.0 --port=8000 > "$LOG_DIR/laravel.log" 2>&1 &
 LARAVEL_PID=$!
-wait_for_url "Laravel" "http://127.0.0.1:8000/api/live-availability" "$LOG_DIR/laravel.log" 30
+wait_for_url "Laravel" "http://127.0.0.1:8000/api/health" "$LOG_DIR/laravel.log" 30
 
 # 3. Build Flutter Web puis serveur statique stable.
 # On désactive le mode PWA pour éviter qu'un ancien service worker
@@ -165,14 +176,14 @@ fi
 
 echo "[Flutter] Lancement sur le port 8080 (prêt pour Safari)..."
 cd "$PROJECT_ROOT/hestia_app/build/web"
-nohup php -S 127.0.0.1:8080 >> "$LOG_DIR/flutter.log" 2>&1 &
+nohup php -S 0.0.0.0:8080 >> "$LOG_DIR/flutter.log" 2>&1 &
 FLUTTER_PID=$!
-wait_for_url "Flutter" "http://127.0.0.1:8080/index.html" "$LOG_DIR/flutter.log" 90
+wait_for_url "Flutter" "http://localhost:8080/index.html" "$LOG_DIR/flutter.log" 90
 
 echo ""
 echo "[OK] Environnement prêt."
 echo "Liens à ouvrir dans Safari :"
-echo "   - App Flutter : http://127.0.0.1:8080/index.html"
+echo "   - App Flutter : http://localhost:8080/index.html"
 echo "   - Dashboard Laravel : http://127.0.0.1:8000/dashboard"
 echo "   - API IA : http://127.0.0.1:8001/docs"
 echo ""
@@ -187,4 +198,6 @@ echo "   - AI : $AI_PID"
 echo "   - Laravel : $LARAVEL_PID"
 echo "   - Flutter : $FLUTTER_PID"
 echo ""
-echo "Relancez simplement ./dev.sh pour arrêter les anciennes instances et reconstruire."
+echo "Gardez ce terminal ouvert. Utilisez Ctrl+C pour arrêter les services."
+
+wait

@@ -678,7 +678,7 @@ class _StaffDashboardState extends State<StaffDashboard> {
               },
               onDashboardTap: () {
                 Navigator.pop(context);
-                _launchURL('http://localhost:8000/dashboard');
+                _launchURL('http://127.0.0.1:8000/dashboard');
               },
               onManageStaff: () {
                 Navigator.pop(context);
@@ -726,7 +726,7 @@ class _StaffDashboardState extends State<StaffDashboard> {
                     _softRoute(AdminUsersPage(currentRole: widget.role)),
                   ),
                   onDashboardTap: () =>
-                      _launchURL('http://localhost:8000/dashboard'),
+                      _launchURL('http://127.0.0.1:8000/dashboard'),
                   onLogout: () async {
                     await SessionService().clear();
                     if (!context.mounted) return;

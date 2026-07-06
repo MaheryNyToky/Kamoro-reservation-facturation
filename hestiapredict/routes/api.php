@@ -6,6 +6,8 @@ use App\Http\Controllers\OrganizationController;
 use App\Http\Controllers\PMSController;
 use Illuminate\Support\Facades\Route;
 
+Route::get('/health', fn () => response()->json(['status' => 'ok']));
+
 Route::middleware('throttle:120,1')->group(function () {
     Route::get('/dashboard/predictions', [HotelManagementController::class, 'getAiPredictionsAndPricing']);
     Route::get('/dashboard/audit-date', [HotelManagementController::class, 'auditDate']);
