@@ -13,6 +13,7 @@ import 'models/client_profile.dart';
 import 'models/organization_profile.dart';
 import 'models/app_user.dart';
 import 'screens/admin_users_page.dart';
+import 'screens/organization_dossier_page.dart';
 import 'screens/reservations_list_page.dart';
 import 'screens/payment_summary_page.dart';
 import 'services/session_service.dart';
@@ -687,6 +688,18 @@ class _StaffDashboardState extends State<StaffDashboard> {
                   _softRoute(AdminUsersPage(currentRole: widget.role)),
                 );
               },
+              onDossierTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  _softRoute(
+                    OrganizationDossierPage(
+                      role: widget.role,
+                      userName: widget.userName,
+                    ),
+                  ),
+                );
+              },
               onLogout: () async {
                 await SessionService().clear();
                 if (!context.mounted) return;
@@ -724,6 +737,15 @@ class _StaffDashboardState extends State<StaffDashboard> {
                   onManageStaff: () => Navigator.push(
                     context,
                     _softRoute(AdminUsersPage(currentRole: widget.role)),
+                  ),
+                  onDossierTap: () => Navigator.push(
+                    context,
+                    _softRoute(
+                      OrganizationDossierPage(
+                        role: widget.role,
+                        userName: widget.userName,
+                      ),
+                    ),
                   ),
                   onDashboardTap: () =>
                       _launchURL('http://127.0.0.1:8000/dashboard'),
@@ -763,6 +785,7 @@ class _MobileReceptionDrawer extends StatelessWidget {
     required this.onSummaryTap,
     required this.onDashboardTap,
     required this.onManageStaff,
+    required this.onDossierTap,
     required this.onLogout,
   });
 
@@ -771,6 +794,7 @@ class _MobileReceptionDrawer extends StatelessWidget {
   final VoidCallback onSummaryTap;
   final VoidCallback onDashboardTap;
   final VoidCallback onManageStaff;
+  final VoidCallback onDossierTap;
   final Future<void> Function() onLogout;
 
   @override
@@ -812,6 +836,11 @@ class _MobileReceptionDrawer extends StatelessWidget {
               onTap: onManageStaff,
             ),
             ListTile(
+              leading: const Icon(Icons.folder_shared_outlined),
+              title: const Text('Dossier organisme'),
+              onTap: onDossierTap,
+            ),
+            ListTile(
               leading: const Icon(Icons.analytics_outlined),
               title: const Text('Manager'),
               onTap: onDashboardTap,
@@ -838,6 +867,7 @@ class _FrostedSideNav extends StatelessWidget {
     required this.onSummaryTap,
     required this.onDashboardTap,
     required this.onManageStaff,
+    required this.onDossierTap,
     required this.onLogout,
   });
 
@@ -846,6 +876,7 @@ class _FrostedSideNav extends StatelessWidget {
   final VoidCallback onSummaryTap;
   final VoidCallback onDashboardTap;
   final VoidCallback onManageStaff;
+  final VoidCallback onDossierTap;
   final Future<void> Function() onLogout;
 
   @override
@@ -930,6 +961,12 @@ class _FrostedSideNav extends StatelessWidget {
                     icon: Icons.manage_accounts_outlined,
                     label: 'Staff',
                     onTap: onManageStaff,
+                  ),
+                  const SizedBox(height: 10),
+                  _SideNavButton(
+                    icon: Icons.folder_shared_outlined,
+                    label: 'Dossier organisme',
+                    onTap: onDossierTap,
                   ),
                   const SizedBox(height: 10),
                   _SideNavButton(

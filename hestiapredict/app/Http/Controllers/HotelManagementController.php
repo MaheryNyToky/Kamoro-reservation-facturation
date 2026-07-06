@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Reservation;
+use App\Models\Organization;
 use App\Http\Resources\RoomResource;
 use App\Models\Room;
 use App\Models\User;
@@ -17,6 +18,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
@@ -464,6 +466,47 @@ class HotelManagementController extends Controller
         ]);
     }
 
+    public function organizationDossiers(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'q' => 'nullable|string|max:120',
+        ]);
+
+        $term = trim((string) ($validated['q'] ?? ''));
+        $cacheKey = 'dashboard:organization-dossiers:' . $this->availabilityService->getCacheVersion() . ':' . ($term !== '' ? Str::lower(Str::ascii($term)) : 'all');
+        $payload = Cache::remember($cacheKey, now()->addMinutes(2), function () use ($term) {
+            return $this->organizationDossierSummaries($term)->values()->all();
+        });
+
+        return response()->json([
+            'status' => 'success',
+            'organizations' => $payload,
+        ]);
+    }
+
+    public function organizationDossier(Request $request, Organization $organization): JsonResponse
+    {
+        $validated = $request->validate([
+            'scope' => 'nullable|string|in:month,all',
+            'month' => 'nullable|date_format:Y-m',
+        ]);
+
+        $scope = $validated['scope'] ?? 'month';
+        $month = $validated['month'] ?? now()->format('Y-m');
+        $payload = Cache::remember(
+            'dashboard:organization-dossier:' . $this->availabilityService->getCacheVersion() . ':' . $organization->id . ':' . $scope . ':' . $month,
+            now()->addMinutes(2),
+            function () use ($organization, $scope, $month) {
+                return $this->organizationDossierPayload($organization, $scope, $month);
+            }
+        );
+
+        return response()->json([
+            'status' => 'success',
+            ...$payload,
+        ]);
+    }
+
     private function clientHistorySignature(array $reservation): string
     {
         $parts = [
@@ -474,6 +517,151 @@ class HotelManagementController extends Controller
 
         $signature = implode('|', array_filter($parts, fn ($part) => $part !== ''));
         return $signature !== '' ? $signature : 'unknown:' . (string) ($reservation['reference'] ?? '');
+    }
+
+    private function organizationDossierSummaries(string $term = ''): Collection
+    {
+        $today = now()->startOfDay()->toDateString();
+        $query = Organization::query()
+            ->with([
+                'reservations' => function ($reservationQuery) use ($today): void {
+                    $reservationQuery
+                        ->with(['rooms', 'user', 'invoice.payments', 'latestAudit', 'latestCheckInAudit', 'latestModificationAudit'])
+                        ->whereDate('check_out_date', '<', $today)
+                        ->where('status', '!=', 'annule')
+                        ->orderBy('check_in_date')
+                        ->orderBy('created_at');
+                },
+            ]);
+
+        if ($term !== '') {
+            $like = '%' . Str::lower(Str::ascii($term)) . '%';
+            $query->where(function ($builder) use ($like): void {
+                $builder
+                    ->whereRaw('LOWER(name) LIKE ?', [$like])
+                    ->orWhereRaw('LOWER(contact_name) LIKE ?', [$like])
+                    ->orWhereRaw('LOWER(email) LIKE ?', [$like])
+                    ->orWhereRaw('LOWER(contact_email) LIKE ?', [$like]);
+            });
+        }
+
+        return $query->get()->map(function (Organization $organization) {
+            $reservations = $organization->reservations;
+            $months = $this->groupOrganizationReservationsByMonth($reservations);
+
+            return [
+                'id' => $organization->id,
+                'name' => $organization->name,
+                'contact_name' => $organization->contact_name,
+                'contact_phone' => $organization->contact_phone,
+                'contact_email' => $organization->contact_email,
+                'email' => $organization->email,
+                'billing_address' => $organization->billing_address,
+                'nif' => $organization->nif ?? $organization->tax_id,
+                'stat' => $organization->stat,
+                'tax_id' => $organization->tax_id,
+                'reservation_count' => $reservations->count(),
+                'month_count' => $months->count(),
+                'months' => $months->values()->all(),
+                'total_amount_ariary' => (int) $reservations->sum(fn (Reservation $reservation) => $this->reservationDisplayTotalAmount($reservation)),
+                'paid_amount_ariary' => (int) $reservations->sum(fn (Reservation $reservation) => (int) ($reservation->invoice?->paid_amount_ariary ?? 0)),
+                'balance_amount_ariary' => (int) $reservations->sum(fn (Reservation $reservation) => (int) ($reservation->invoice?->balance_amount_ariary ?? 0)),
+                'latest_check_in' => $reservations->first()?->check_in_date?->toDateString(),
+                'latest_check_out' => $reservations->first()?->check_out_date?->toDateString(),
+            ];
+        })->sortBy('name')->values();
+    }
+
+    private function organizationDossierPayload(Organization $organization, string $scope, string $month): array
+    {
+        $today = now()->startOfDay()->toDateString();
+        $query = $organization->reservations()
+            ->with(['rooms', 'user', 'invoice.payments', 'latestAudit', 'latestCheckInAudit', 'latestModificationAudit'])
+            ->whereDate('check_out_date', '<', $today)
+            ->where('status', '!=', 'annule')
+            ->orderBy('check_in_date')
+            ->orderBy('created_at');
+
+        if ($scope === 'month') {
+            $start = Carbon::createFromFormat('Y-m', $month)->startOfMonth();
+            $end = (clone $start)->endOfMonth();
+            $query->where('check_in_date', '<=', $end->toDateString())
+                ->where('check_out_date', '>=', $start->toDateString());
+        }
+
+        $reservations = $query->get();
+        $formatted = $reservations->map(fn (Reservation $reservation) => $this->bookingService->formatReservation($reservation));
+        $months = $this->groupOrganizationReservationsByMonth($reservations);
+        $scopeLabel = $scope === 'all' ? 'Historique complet' : $this->monthLabel($month);
+
+        return [
+            'organization' => [
+                'id' => $organization->id,
+                'name' => $organization->name,
+                'phone' => $organization->phone,
+                'contact_name' => $organization->contact_name,
+                'contact_phone' => $organization->contact_phone,
+                'contact_email' => $organization->contact_email,
+                'email' => $organization->email,
+                'billing_address' => $organization->billing_address,
+                'nif' => $organization->nif ?? $organization->tax_id,
+                'stat' => $organization->stat,
+                'tax_id' => $organization->tax_id,
+            ],
+            'scope' => $scope,
+            'month' => $month,
+            'scope_label' => $scopeLabel,
+            'available_months' => $months->pluck('key')->values()->all(),
+            'months' => $months->values()->all(),
+            'reservations' => $formatted->values()->all(),
+            'totals' => [
+                'reservation_count' => $formatted->count(),
+                'total_amount_ariary' => (int) $reservations->sum(fn (Reservation $reservation) => $this->reservationDisplayTotalAmount($reservation)),
+                'paid_amount_ariary' => (int) $reservations->sum(fn (Reservation $reservation) => (int) ($reservation->invoice?->paid_amount_ariary ?? 0)),
+                'balance_amount_ariary' => (int) $reservations->sum(fn (Reservation $reservation) => (int) ($reservation->invoice?->balance_amount_ariary ?? 0)),
+            ],
+            'grouped_reservations' => $months->map(fn (array $monthData) => $monthData['reservations'])->all(),
+        ];
+    }
+
+    private function groupOrganizationReservationsByMonth(Collection $reservations): Collection
+    {
+        return $reservations
+            ->groupBy(function (Reservation $reservation): string {
+                return Carbon::parse($reservation->check_in_date)->format('Y-m');
+            })
+            ->map(function (Collection $monthReservations, string $monthKey): array {
+                $formatted = $monthReservations->map(fn (Reservation $reservation) => $this->bookingService->formatReservation($reservation))->values();
+                return [
+                    'key' => $monthKey,
+                    'label' => $this->monthLabel($monthKey),
+                    'reservation_count' => $formatted->count(),
+                    'total_amount_ariary' => (int) $monthReservations->sum(fn (Reservation $reservation) => $this->reservationDisplayTotalAmount($reservation)),
+                    'paid_amount_ariary' => (int) $monthReservations->sum(fn (Reservation $reservation) => (int) ($reservation->invoice?->paid_amount_ariary ?? 0)),
+                    'balance_amount_ariary' => (int) $monthReservations->sum(fn (Reservation $reservation) => (int) ($reservation->invoice?->balance_amount_ariary ?? 0)),
+                    'reservations' => $formatted->all(),
+                ];
+            })
+            ->sortKeysDesc();
+    }
+
+    private function monthLabel(string $monthKey): string
+    {
+        try {
+            return Carbon::createFromFormat('Y-m', $monthKey)->locale('fr')->translatedFormat('F Y');
+        } catch (\Throwable) {
+            return $monthKey;
+        }
+    }
+
+    private function reservationDisplayTotalAmount(Reservation $reservation): int
+    {
+        $invoiceTotal = (int) ($reservation->invoice?->total_amount_ariary ?? 0);
+        if ($invoiceTotal > 0) {
+            return $invoiceTotal;
+        }
+
+        return (int) ($this->bookingService->formatReservation($reservation)['total_price'] ?? 0);
     }
 
     public function getUsers(): JsonResponse

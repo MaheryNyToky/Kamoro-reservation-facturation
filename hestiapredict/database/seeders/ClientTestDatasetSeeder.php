@@ -502,16 +502,6 @@ class ClientTestDatasetSeeder extends Seeder
                 ]);
             }
 
-            if ($taxAmount > 0) {
-                InvoiceItem::create([
-                    'invoice_id' => $invoice->id,
-                    'description' => 'Taxe de séjour',
-                    'type' => 'tax',
-                    'amount_ariary' => $taxAmount,
-                    'quantity' => 1,
-                ]);
-            }
-
             if (!empty($reservation['payment_amount'])) {
                 Payment::create([
                     'invoice_id' => $invoice->id,

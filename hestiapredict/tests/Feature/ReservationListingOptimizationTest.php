@@ -207,8 +207,8 @@ class ReservationListingOptimizationTest extends TestCase
         $reservationData = collect($response->json())->firstWhere('client_name', 'Nightly Extras Client');
 
         $this->assertNotNull($reservationData);
-        $this->assertSame(480000, (int) $reservationData['total_price']);
-        $this->assertSame(480000, (int) $reservationData['fixed_total_price']);
+        $this->assertSame(510000, (int) $reservationData['total_price']);
+        $this->assertSame(510000, (int) $reservationData['fixed_total_price']);
     }
 
     public function test_reservations_all_includes_the_checkin_actor_after_checkin(): void

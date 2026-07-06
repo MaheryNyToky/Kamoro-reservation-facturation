@@ -20,6 +20,7 @@ class OrganizationController extends Controller
         $searchDigits = preg_replace('/\D+/', '', $term);
 
         $organizations = Organization::query()
+            ->with(['reservations.invoices.payments'])
             ->where(function ($query) use ($normalized, $searchDigits) {
                 $nameLike = '%' . $normalized . '%';
                 $prefixLike = $searchDigits !== '' ? $searchDigits . '%' : null;
@@ -39,21 +40,40 @@ class OrganizationController extends Controller
             })
             ->limit(100)
             ->get()
-            ->map(fn (Organization $organization) => [
-                'id' => $organization->id,
-                'name' => $organization->name,
-                'phone' => $organization->phone,
-                'contact_name' => $organization->contact_name,
-                'contact_phone' => $organization->contact_phone,
-                'contact_email' => $organization->contact_email,
-                'email' => $organization->email,
-                'billing_address' => $organization->billing_address,
-                'nif' => $organization->nif ?? $organization->tax_id,
-                'stat' => $organization->stat,
-                'tax_id' => $organization->tax_id,
-            ])
-            ->sortByDesc(fn (array $organization) => $this->searchScore($organization, $normalized, $searchDigits))
+            ->map(function (Organization $organization) use ($normalized, $searchDigits) {
+                $payload = [
+                    'id' => $organization->id,
+                    'name' => $organization->name,
+                    'phone' => $organization->phone,
+                    'contact_name' => $organization->contact_name,
+                    'contact_phone' => $organization->contact_phone,
+                    'contact_email' => $organization->contact_email,
+                    'email' => $organization->email,
+                    'billing_address' => $organization->billing_address,
+                    'nif' => $organization->nif ?? $organization->tax_id,
+                    'stat' => $organization->stat,
+                    'tax_id' => $organization->tax_id,
+                    'outstanding_amount_ariary' => $this->organizationOutstandingAmount($organization),
+                ];
+                $payload['search_score'] = $this->searchScore($payload, $normalized, $searchDigits);
+
+                return $payload;
+            })
+            ->sort(function (array $left, array $right) {
+                $outstandingCompare = ($right['outstanding_amount_ariary'] ?? 0) <=> ($left['outstanding_amount_ariary'] ?? 0);
+                if ($outstandingCompare !== 0) {
+                    return $outstandingCompare;
+                }
+
+                $scoreCompare = ($right['search_score'] ?? 0) <=> ($left['search_score'] ?? 0);
+                if ($scoreCompare !== 0) {
+                    return $scoreCompare;
+                }
+
+                return strcmp((string) ($left['name'] ?? ''), (string) ($right['name'] ?? ''));
+            })
             ->take(20)
+            ->map(fn (array $organization) => collect($organization)->except(['search_score', 'outstanding_amount_ariary'])->all())
             ->values();
 
         return response()->json(['data' => $organizations]);
@@ -107,5 +127,12 @@ class OrganizationController extends Controller
         }
 
         return $score;
+    }
+
+    private function organizationOutstandingAmount(Organization $organization): int
+    {
+        return (int) $organization->reservations
+            ->flatMap(fn ($reservation) => $reservation->invoices ?? collect())
+            ->sum(fn ($invoice) => (int) $invoice->balance_amount_ariary);
     }
 }

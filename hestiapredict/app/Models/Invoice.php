@@ -30,6 +30,7 @@ class Invoice extends Model
         'invoice_kind',
         'parent_invoice_id',
         'booking_room_id',
+        'organization_billing_meta',
     ];
 
     protected $casts = [
@@ -39,6 +40,7 @@ class Invoice extends Model
         'discount_amount_ariary' => 'integer',
         'deposit_amount_ariary' => 'integer',
         'finalized_at' => 'datetime',
+        'organization_billing_meta' => 'array',
     ];
 
     protected $appends = [

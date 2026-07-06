@@ -930,7 +930,7 @@ class BookingService
     public function reservationsForDate(?string $date, string $statusFilter = 'all'): Collection
     {
         return Reservation::query()
-            ->with(['rooms', 'user', 'audits', 'invoice.payments', 'latestAudit', 'latestCheckInAudit', 'latestModificationAudit'])
+            ->with(['rooms', 'user', 'audits', 'invoice.items', 'invoice.payments', 'latestAudit', 'latestCheckInAudit', 'latestModificationAudit'])
             ->when($date && $date !== 'all', function ($query) use ($date) {
                 $query->where('check_in_date', '<=', $date)
                     ->where('check_out_date', '>=', $date);
@@ -963,7 +963,7 @@ class BookingService
     public function activeReservations(string $date): Collection
     {
         return Reservation::query()
-            ->with(['rooms', 'user', 'audits', 'invoice.payments', 'latestAudit', 'latestCheckInAudit', 'latestModificationAudit'])
+            ->with(['rooms', 'user', 'audits', 'invoice.items', 'invoice.payments', 'latestAudit', 'latestCheckInAudit', 'latestModificationAudit'])
             ->where('check_in_date', '<=', $date)
             ->where('check_out_date', '>=', $date)
             ->get()
@@ -1022,6 +1022,7 @@ class BookingService
 
     public function formatReservation(Reservation $reservation): array
     {
+        $reservation->loadMissing(['invoice.items']);
         $rooms = $reservation->rooms;
         $groupedRooms = $rooms
             ->groupBy(fn (Room $room) => $room->type . ' ' . $room->model)
@@ -1033,6 +1034,7 @@ class BookingService
             ->pluck('room_number')
             ->values()
             ->implode(', ');
+        $prestations = $this->reservationPrestationsSummary($reservation);
         $roomDetails = $rooms
             ->sortBy('room_number', SORT_NATURAL)
             ->map(fn (Room $room) => [
@@ -1097,6 +1099,9 @@ class BookingService
             $fixedTotalPrice = ($rooms->sum(fn (Room $room) => (int) $room->base_price_ariary) * $nights) + $extrasPrice;
         }
         $invoice = $reservation->invoice;
+        $invoiceTotalAmount = (int) ($invoice?->total_amount_ariary ?? 0);
+        $invoicePaidAmount = (int) ($invoice?->paid_amount_ariary ?? 0);
+        $invoiceBalanceAmount = (int) ($invoice?->balance_amount_ariary ?? 0);
         $paymentStatus = $reservation->payment_status ?? 'unbilled';
         $payments = $invoice?->relationLoaded('payments')
             ? $invoice->payments
@@ -1178,6 +1183,7 @@ class BookingService
             'cancelled_by_name' => $reservation->cancelled_by_name,
             'cancelled_at' => optional($reservation->cancelled_at)->toDateTimeString(),
             'rooms' => $groupedRooms,
+            'prestations' => $prestations,
             'room_ids' => $rooms->pluck('id')->values(),
             'room_details' => $roomDetails,
             'room_numbers' => $roomNumbers,
@@ -1202,8 +1208,11 @@ class BookingService
             'deposit_amount_ariary' => (int) ($invoice?->deposit_amount_ariary ?? 0),
             'total_price' => (int) $totalPrice,
             'fixed_total_price' => (int) $fixedTotalPrice,
-            'paid_amount_ariary' => (int) ($invoice?->paid_amount_ariary ?? 0),
-            'balance_amount_ariary' => (int) ($invoice?->balance_amount_ariary ?? 0),
+            'invoice_total_amount_ariary' => $invoice ? $invoiceTotalAmount : null,
+            'invoice_paid_amount_ariary' => $invoice ? $invoicePaidAmount : null,
+            'invoice_balance_amount_ariary' => $invoice ? $invoiceBalanceAmount : null,
+            'paid_amount_ariary' => $invoicePaidAmount,
+            'balance_amount_ariary' => $invoiceBalanceAmount,
             'is_booking' => $reservation->source === 'Booking',
             'receptionist' => $reservation->user?->name ?? 'N/A',
             'check_in_by' => $checkInAudit?->actor_name ?? 'N/A',
@@ -1250,6 +1259,44 @@ class BookingService
             'payment_methods_display' => $paymentMethodsDisplay,
             'created_at' => optional($reservation->created_at)->toDateTimeString(),
         ];
+    }
+
+    private function reservationPrestationsSummary(Reservation $reservation): string
+    {
+        $roomLabels = $reservation->rooms
+            ->sortBy('room_number', SORT_NATURAL)
+            ->pluck('room_number')
+            ->filter(fn ($roomNumber) => filled($roomNumber))
+            ->map(fn ($roomNumber) => (string) $roomNumber)
+            ->values()
+            ->all();
+
+        $extraLabels = $reservation->invoice?->items
+            ? $reservation->invoice->items
+                ->filter(fn ($item) => $item->type === 'extra')
+                ->map(function ($item) {
+                    $description = trim((string) $item->description);
+                    if ($description === '') {
+                        return null;
+                    }
+
+                    $quantity = max(1, (int) $item->quantity);
+                    return $quantity > 1 ? $description . ' x' . $quantity : $description;
+                })
+                ->filter()
+                ->values()
+                ->all()
+            : [];
+
+        $parts = [];
+        if (!empty($roomLabels)) {
+            $parts[] = 'Chambres ' . implode(', ', $roomLabels);
+        }
+        if (!empty($extraLabels)) {
+            $parts[] = 'Extras ' . implode(', ', $extraLabels);
+        }
+
+        return $parts !== [] ? implode(' | ', $parts) : 'N/A';
     }
 
     private function segmentNights(Room $room, Reservation $reservation): int

@@ -20,6 +20,9 @@ Route::middleware('throttle:120,1')->group(function () {
     Route::get('/available-room-suggestions', [HotelManagementController::class, 'getAvailableRoomSuggestions']);
     Route::get('/reservations/all', [HotelManagementController::class, 'getAllReservations']);
     Route::get('/active-reservations', [HotelManagementController::class, 'getActiveReservations']);
+    Route::get('/organization-dossiers', [HotelManagementController::class, 'organizationDossiers']);
+    Route::get('/organization-dossiers/{organization}', [HotelManagementController::class, 'organizationDossier']);
+    Route::post('/organization-dossiers/{organization}/invoice-pdf', [PMSController::class, 'organizationInvoicePdf']);
     Route::get('/clients/search', [ClientController::class, 'search']);
     Route::get('/organizations/search', [OrganizationController::class, 'search']);
     Route::get('/reservations/{id}/folio', [PMSController::class, 'getFolio']);

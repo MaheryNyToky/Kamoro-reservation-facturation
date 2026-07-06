@@ -17,6 +17,7 @@ use Carbon\Carbon;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
@@ -296,6 +297,218 @@ class PMSController extends Controller
         $invoice = $this->resolveFolioInvoice($reservation, request()->integer('invoice_id') ?: null);
 
         return response()->json($this->folioPayload($invoice));
+    }
+
+    public function organizationInvoicePdf(Request $request, Organization $organization)
+    {
+        $validated = $request->validate([
+            'reservation_ids' => 'required|array|min:1',
+            'reservation_ids.*' => 'integer|min:1',
+            'document_type' => 'nullable|in:facture,proforma',
+        ]);
+
+        $documentType = $validated['document_type'] ?? 'facture';
+        $today = now()->startOfDay()->toDateString();
+        $reservationIds = collect($validated['reservation_ids'])
+            ->map(fn ($value) => (int) $value)
+            ->filter(fn (int $value) => $value > 0)
+            ->unique()
+            ->values();
+
+        $reservations = Reservation::query()
+            ->with(['rooms', 'organization', 'invoice.items', 'invoice.payments'])
+            ->where('organization_id', $organization->id)
+            ->where('booking_type', 'organization')
+            ->whereIn('id', $reservationIds->all())
+            ->where('status', '!=', 'annule')
+            ->whereDate('check_out_date', '<', $today)
+            ->orderBy('check_in_date')
+            ->orderBy('created_at')
+            ->get();
+
+        if ($reservations->isEmpty()) {
+            return response()->json([
+                'message' => 'Aucun séjour valide sélectionné pour cette facture.',
+            ], 422);
+        }
+
+        [$totalAmount, $paidAmount] = $this->organizationInvoiceTotals($reservations);
+        $invoice = $this->persistOrganizationBillingInvoice(
+            $organization,
+            $reservations,
+            $reservationIds,
+            $documentType,
+            $totalAmount,
+            $paidAmount,
+        );
+        $organizationInvoiceHtml = "<?xml encoding='UTF-8'?>\n"
+            . $this->organizationInvoiceHtml($organization, $reservations, $documentType, $invoice);
+        $pdf = Pdf::setOption([
+            'defaultFont' => 'DejaVu Sans',
+            'isHtml5ParserEnabled' => true,
+            'isRemoteEnabled' => true,
+        ])->loadHTML($organizationInvoiceHtml, 'UTF-8');
+
+        $filename = ($invoice->invoice_number ?: ($documentType === 'proforma' ? 'proforma' : 'facture'))
+            . '.pdf';
+
+        if ($invoice->pdf_path) {
+            Storage::disk('local')->put($invoice->pdf_path, $pdf->output());
+        }
+
+        return response($pdf->output(), 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="' . $filename . '"',
+        ]);
+    }
+
+    private function organizationBillingSelectionKey(
+        Organization $organization,
+        Collection $reservationIds,
+        string $documentType,
+    ): string
+    {
+        return hash('sha256', implode('|', [
+            (string) $organization->id,
+            $documentType,
+            $reservationIds->sort()->implode(','),
+        ]));
+    }
+
+    private function organizationInvoiceTotals(Collection $reservations): array
+    {
+        $seenLineKeys = [];
+        $totalAmount = 0;
+        $paidAmount = 0;
+
+        foreach ($reservations as $reservation) {
+            $invoice = $reservation->invoice;
+            $invoiceItems = ($invoice?->items ?? collect())
+                ->reject(fn (InvoiceItem $item) => $item->type === 'tax')
+                ->values();
+            $roomItems = $invoiceItems->filter(fn (InvoiceItem $item) => $item->type === 'room')->keyBy(
+                fn (InvoiceItem $item) => (int) ($item->booking_room_id ?? 0)
+            );
+
+            foreach ($reservation->rooms as $room) {
+                $bookingRoomId = (int) ($room->pivot->id ?? 0);
+                $item = $bookingRoomId > 0 ? $roomItems->get($bookingRoomId) : null;
+                $unitAmount = (int) ($item?->amount_ariary ?? $room->pivot->price_snapshot_ariary ?? $room->base_price_ariary);
+                $quantity = max(1, (int) ($item?->quantity ?? 1));
+                $lineKey = implode('|', [
+                    $reservation->id,
+                    'room',
+                    (string) $bookingRoomId,
+                    (string) $unitAmount,
+                    (string) $quantity,
+                ]);
+                if (isset($seenLineKeys[$lineKey])) {
+                    continue;
+                }
+                $seenLineKeys[$lineKey] = true;
+                $totalAmount += $unitAmount * $quantity;
+            }
+
+            foreach ($invoiceItems->reject(fn (InvoiceItem $item) => $item->type === 'room' || $item->type === 'tax') as $item) {
+                $unitAmount = (int) $item->amount_ariary;
+                $quantity = max(1, (int) $item->quantity);
+                $lineKey = implode('|', [
+                    $reservation->id,
+                    $item->type,
+                    (string) ($item->booking_room_id ?? ''),
+                    (string) $unitAmount,
+                    (string) $quantity,
+                ]);
+                if (isset($seenLineKeys[$lineKey])) {
+                    continue;
+                }
+                $seenLineKeys[$lineKey] = true;
+                $totalAmount += $unitAmount * $quantity;
+            }
+
+            $paidAmount += (int) ($invoice?->paid_amount_ariary ?? 0);
+        }
+
+        return [$totalAmount, $paidAmount];
+    }
+
+    private function persistOrganizationBillingInvoice(
+        Organization $organization,
+        Collection $reservations,
+        Collection $reservationIds,
+        string $documentType,
+        int $totalAmount,
+        int $paidAmount,
+    ): Invoice
+    {
+        $selectionKey = $this->organizationBillingSelectionKey($organization, $reservationIds, $documentType);
+        $now = now();
+        $firstReservation = $reservations->first();
+        $meta = [
+            'selection_key' => $selectionKey,
+            'reservation_ids' => $reservationIds->values()->all(),
+            'range_start' => optional($reservations->pluck('check_in_date')->filter()->sort()->first())?->toDateString(),
+            'range_end' => optional($reservations->pluck('check_out_date')->filter()->sort()->last())?->toDateString(),
+            'reservations_count' => $reservations->count(),
+            'created_by' => [
+                'actor_user_id' => Auth::id(),
+                'actor_name' => Auth::user()?->name ?? 'Système',
+                'actor_role' => Auth::user()?->role ?? 'system',
+                'generated_at' => $now->toDateTimeString(),
+            ],
+        ];
+
+        return DB::transaction(function () use (
+            $organization,
+            $reservations,
+            $documentType,
+            $totalAmount,
+            $paidAmount,
+            $meta,
+            $selectionKey,
+            $now,
+            $firstReservation,
+        ): Invoice {
+            $invoice = Invoice::query()
+                ->where('organization_id', $organization->id)
+                ->where('billing_mode', 'grouped')
+                ->where('invoice_kind', 'master')
+                ->whereRaw("json_extract(organization_billing_meta, '$.selection_key') = ?", [$selectionKey])
+                ->lockForUpdate()
+                ->first();
+
+            if (!$invoice) {
+                $invoice = new Invoice();
+                $invoice->reservation_id = (int) ($firstReservation?->id ?? 0);
+                $invoice->organization_id = $organization->id;
+                $invoice->billing_mode = 'grouped';
+                $invoice->invoice_kind = 'master';
+                $invoice->invoice_number = $this->nextInvoiceNumber();
+            }
+
+            $invoice->forceFill([
+                'reservation_id' => (int) ($firstReservation?->id ?? $invoice->reservation_id ?? 0),
+                'organization_id' => $organization->id,
+                'total_amount_ariary' => $totalAmount,
+                'tax_amount_ariary' => 0,
+                'discount_mode' => null,
+                'discount_value' => null,
+                'discount_amount_ariary' => 0,
+                'deposit_amount_ariary' => 0,
+                'pdf_path' => 'invoices/' . ($invoice->invoice_number ?: $this->nextInvoiceNumber()) . '.pdf',
+                'finalized_at' => $now,
+                'status' => $paidAmount <= 0 ? 'open' : ($paidAmount < $totalAmount ? 'partial' : 'paid'),
+                'document_type' => $documentType,
+                'billing_mode' => 'grouped',
+                'invoice_kind' => 'master',
+                'parent_invoice_id' => null,
+                'booking_room_id' => null,
+                'organization_billing_meta' => $meta,
+            ]);
+            $invoice->save();
+
+            return $invoice;
+        });
     }
 
     public function manualCheckout(Request $request, int $id): JsonResponse
@@ -1165,7 +1378,7 @@ class PMSController extends Controller
         $occupantName = trim((string) ($room->pivot->occupant_name ?? ''));
         $occupantFirstName = trim((string) ($room->pivot->occupant_first_name ?? ''));
         if (($reservation->booking_type ?? '') === 'organization' && $occupantName !== '') {
-            $parts[] = trim($occupantName . ' ' . $occupantFirstName);
+            $parts[] = 'Occupant : ' . trim($occupantName . ' ' . $occupantFirstName);
         }
 
         $parts[] = sprintf('%d %s', $nights, $nights > 1 ? 'nuits' : 'nuit');
@@ -1173,18 +1386,374 @@ class PMSController extends Controller
         return implode(' - ', $parts);
     }
 
+    private function organizationInvoiceHtml(
+        Organization $organization,
+        Collection $reservations,
+        string $documentType = 'facture',
+        ?Invoice $invoice = null,
+    ): string {
+        $logoDataUri = $this->hotelLogoDataUri();
+        $isProforma = $documentType === 'proforma';
+        $amountLabel = $isProforma ? 'facture proforma' : 'facture';
+        $invoiceNumber = $invoice?->invoice_number ?? $this->nextInvoiceNumber();
+        $organizationBillingMeta = $invoice?->organization_billing_meta ?? [];
+        $generatedBy = is_array($organizationBillingMeta) ? ($organizationBillingMeta['created_by'] ?? []) : [];
+        $generatedByName = trim((string) ($generatedBy['actor_name'] ?? Auth::user()?->name ?? 'Systeme'));
+        $generatedByRole = trim((string) ($generatedBy['actor_role'] ?? Auth::user()?->role ?? 'system'));
+        $clientName = e($organization->name);
+        $contactParts = array_filter([
+            filled($organization->contact_name) ? 'Contact : ' . $organization->contact_name : null,
+            filled($organization->contact_phone) ? 'Tél : ' . $organization->contact_phone : null,
+            filled($organization->contact_email) ? $organization->contact_email : null,
+            filled($organization->billing_address) ? $organization->billing_address : null,
+        ], fn ($value) => filled($value));
+        $contactLine = $contactParts ? e(implode(' | ', $contactParts)) : '';
+        $lineRows = '';
+        $paymentRows = '';
+        $seenLineKeys = [];
+        $totalAmount = 0;
+        $paidAmount = 0;
+        $minCheckIn = $reservations->pluck('check_in_date')->filter()->sort()->first();
+        $maxCheckOut = $reservations->pluck('check_out_date')->filter()->sort()->last();
+        $dateLabel = $minCheckIn && $maxCheckOut
+            ? Carbon::parse($minCheckIn)->format('d-m-Y') . ' au ' . Carbon::parse($maxCheckOut)->format('d-m-Y')
+            : 'Sejours selectionnes';
+        $signatureDataUri = $isProforma ? $this->responsibleSignatureDataUri() : null;
+        $responsibleSignature = $signatureDataUri
+            ? "<img class='responsible-signature' src='{$signatureDataUri}' alt='Signature responsable'>"
+            : '';
+        $leftSignatureTitle = 'Client';
+        $rightSignatureTitle = 'Responsable';
+
+        foreach ($reservations as $reservation) {
+            $invoice = $reservation->invoice;
+            $reservationRef = $reservation->booking_reference ?: ('Réservation #' . $reservation->id);
+            $roomByBookingId = $reservation->rooms->mapWithKeys(function (Room $room) {
+                return [($room->pivot->id ?? $room->id) => $room];
+            });
+            $invoiceItems = $invoice?->items ?? collect();
+            $roomItems = $invoiceItems->filter(fn (InvoiceItem $item) => $item->type === 'room')->keyBy(
+                fn (InvoiceItem $item) => (int) ($item->booking_room_id ?? 0)
+            );
+
+            foreach ($reservation->rooms as $room) {
+                $bookingRoomId = (int) ($room->pivot->id ?? 0);
+                $item = $bookingRoomId > 0 ? $roomItems->get($bookingRoomId) : null;
+                $unitAmount = (int) ($item?->amount_ariary ?? $room->pivot->price_snapshot_ariary ?? $room->base_price_ariary);
+                $quantity = max(1, (int) ($item?->quantity ?? 1));
+                $lineTotal = $unitAmount * $quantity;
+                $nights = $this->bookingRoomNights($room, $reservation);
+                $description = $this->roomInvoiceDescription($room, $reservation, $nights);
+                $description = preg_replace('/\s-\s\d+\snuits?$/u', '', $description) ?: $description;
+                $segmentDateRange = $this->bookingRoomDateRange($room, $reservation);
+                $nightsLabel = $nights > 1 ? $nights . ' nuits' : $nights . ' nuit';
+
+                $lineKey = implode('|', [
+                    $reservation->id,
+                    'room',
+                    (string) $bookingRoomId,
+                    (string) $description,
+                    (string) $segmentDateRange,
+                    (string) $unitAmount,
+                    (string) $quantity,
+                ]);
+                if (isset($seenLineKeys[$lineKey])) {
+                    continue;
+                }
+                $seenLineKeys[$lineKey] = true;
+
+                $lineRows .= '<tr>'
+                    . '<td>' . e($description) . '</td>'
+                    . '<td>' . e($segmentDateRange) . '<span class="line-subnote">' . e($nightsLabel) . '</span></td>'
+                    . '<td class="num">' . $quantity . '</td>'
+                    . '<td class="num">' . $this->formatMoney($unitAmount, 'Ar') . '</td>'
+                    . '<td class="num">' . $this->formatMoney($lineTotal, 'Ar') . '</td>'
+                    . '</tr>';
+                $totalAmount += $lineTotal;
+            }
+
+            foreach ($invoiceItems->reject(fn (InvoiceItem $item) => $item->type === 'room') as $item) {
+                if (!$item instanceof InvoiceItem) {
+                    continue;
+                }
+
+                $unitAmount = (int) $item->amount_ariary;
+                $quantity = max(1, (int) $item->quantity);
+                $lineTotal = $unitAmount * $quantity;
+                $lineKey = implode('|', [
+                    $reservation->id,
+                    $item->type,
+                    (string) ($item->booking_room_id ?? ''),
+                    (string) $item->description,
+                    '',
+                    (string) $unitAmount,
+                    (string) $quantity,
+                ]);
+                if (isset($seenLineKeys[$lineKey])) {
+                    continue;
+                }
+                $seenLineKeys[$lineKey] = true;
+
+                $lineRows .= '<tr>'
+                    . '<td>' . e($item->description) . '</td>'
+                    . '<td></td>'
+                    . '<td class="num">' . $quantity . '</td>'
+                    . '<td class="num">' . $this->formatMoney($unitAmount, 'Ar') . '</td>'
+                    . '<td class="num">' . $this->formatMoney($lineTotal, 'Ar') . '</td>'
+                    . '</tr>';
+                $totalAmount += $lineTotal;
+            }
+
+            $paidAmount += (int) ($invoice?->paid_amount_ariary ?? 0);
+
+            foreach ($invoice?->payments ?? collect() as $payment) {
+                if (!$payment instanceof Payment) {
+                    continue;
+                }
+
+                $receivedAmount = (int) ($payment->amount_received_ariary ?? $payment->amount_ariary);
+                $appliedAmount = (int) $payment->amount_ariary;
+                $changeGiven = (int) ($payment->change_given_ariary ?? 0);
+                $paymentRows .= '<tr>'
+                    . '<td>' . optional($payment->created_at)->format('d/m/Y H:i') . '</td>'
+                    . '<td>' . e($reservationRef) . '</td>'
+                    . '<td>' . e($payment->payment_method . ($payment->payment_operator ? ' / ' . $payment->payment_operator : '')) . '</td>'
+                    . '<td>' . e(($payment->payment_context ?? 'payment') === 'deposit' ? 'Acompte' : 'Paiement') . '</td>'
+                    . '<td class="num">' . $this->formatMoney($receivedAmount, 'Ar') . '</td>'
+                    . '<td class="num">' . $this->formatMoney($changeGiven, 'Ar') . '</td>'
+                    . '<td class="num">' . $this->formatMoney($appliedAmount, 'Ar') . '</td>'
+                    . '<td>' . e($payment->processed_by_name ?? '-') . '</td>'
+                    . '<td>' . e($payment->reference ?? '-') . '</td>'
+                    . '</tr>';
+            }
+        }
+
+        $balanceAmount = max(0, $totalAmount - $paidAmount);
+        $amountInWords = e($this->amountInWords($totalAmount)) . ' (' . number_format($totalAmount, 0, ',', ' ') . ') Ariary';
+
+        if ($lineRows === '') {
+            $lineRows = '<tr><td colspan="5">Aucune ligne de facture disponible</td></tr>';
+        }
+
+        if ($paymentRows === '') {
+            $paymentRows = '<tr><td colspan="9">Aucun paiement enregistré</td></tr>';
+        }
+
+        $lineRowCount = substr_count($lineRows, '<tr>');
+        $paymentRowCount = substr_count($paymentRows, '<tr>');
+        $paymentStatus = $balanceAmount > 0 ? 'Non soldée' : 'Payée';
+        $paymentNotice = $balanceAmount > 0
+            ? 'Facture pas encore payée intégralement'
+            : 'Facture réglée intégralement';
+        $printedAt = now()->format('d/m/Y');
+
+        return "
+            <html>
+            <head>
+                <meta charset='utf-8'>
+                <style>
+                    @page { size: A4 portrait; margin: 12mm 14mm; }
+                    body { font-family: Helvetica, Arial, sans-serif; color: #1f2937; font-size: 11px; margin: 0; line-height: 1.25; }
+                    .document-ribbon { margin-bottom: 8px; padding: 6px 10px; background: #fff1f1; border: 1px solid #d10f0f; color: #111111; border-radius: 8px; text-align: center; font-size: 10px; font-weight: bold; letter-spacing: 0.7px; }
+                    .topbar { display: table; width: 100%; border-bottom: 2px solid #d10f0f; padding-bottom: 10px; margin-bottom: 12px; }
+                    .brand { display: table-cell; width: 62%; vertical-align: top; }
+                    .brand-logo { width: 130px; height: auto; display: block; margin-bottom: 2px; }
+                    .brand-fallback { margin: 0; color: #111111; font-size: 19px; letter-spacing: 0.4px; font-weight: bold; }
+                    .brand .subtitle { color: #64748b; font-size: 10px; margin-top: 3px; }
+                    .meta { display: table-cell; width: 38%; vertical-align: top; text-align: right; }
+                    .pill { display: inline-block; padding: 4px 8px; border-radius: 999px; background: #f6e2e2; color: #9f1d1d; font-weight: bold; font-size: 10px; }
+                    .pill.unpaid { background: #fef3c7; color: #92400e; }
+                    .info-grid { width: 100%; margin-bottom: 12px; }
+                    .info-grid td { vertical-align: top; padding: 0; border: 0; }
+                    .box { border: 1px solid #dbe4ea; border-radius: 8px; padding: 9px 11px; background: #fff; }
+                    .box-title { color: #64748b; font-size: 9px; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 4px; }
+                    table.lines { width: 100%; border-collapse: collapse; margin-top: 3px; }
+                    table.lines th, table.lines td { border-bottom: 1px solid #dbe4ea; padding: 5px 6px; text-align: left; line-height: 1.2; }
+                    table.lines th { background-color: #f8fafc; color: #0f172a; font-size: 10px; text-transform: uppercase; letter-spacing: 0.35px; }
+                    table.lines td.num, table.lines th.num { text-align: right; }
+                    .line-subnote { display: block; margin-top: 2px; color: #64748b; font-size: 9px; }
+                    table.lines tr { page-break-inside: avoid; }
+                    .section-title { margin: 10px 0 6px; color: #111111; font-size: 12px; font-weight: bold; }
+                    .summary-wrap { width: 100%; margin-top: 10px; }
+                    .summary { width: 48%; margin-left: auto; border: 1px solid #dbe4ea; border-radius: 8px; padding: 9px 11px; }
+                    .summary-row { display: table; width: 100%; margin-bottom: 4px; }
+                    .summary-row .label { display: table-cell; color: #475569; }
+                    .summary-row .value { display: table-cell; text-align: right; }
+                    .summary-row.total { margin-top: 6px; padding-top: 6px; border-top: 1px solid #cbd5e1; font-weight: bold; font-size: 12px; color: #0f172a; }
+                    .notice { margin: 8px 0 12px; padding: 8px 10px; border: 1px solid #cbd5e1; background: #f8fafc; color: #334155; border-radius: 8px; font-size: 10.5px; }
+                    .bank-details { margin: 8px 0 12px; padding: 8px 10px; border: 1px solid #d10f0f; background: #fff7f7; color: #111111; border-radius: 8px; font-size: 10.5px; line-height: 1.35; }
+                    .bank-details-title { font-size: 9px; text-transform: uppercase; letter-spacing: 0.6px; color: #64748b; margin-bottom: 3px; font-weight: bold; }
+                    .final-block { margin-top: 10px; page-break-inside: avoid; break-inside: avoid; display: block; width: 100%; padding-bottom: 4mm; }
+                    .footer-note { margin-top: 10px; margin-bottom: 8px; font-weight: bold; text-transform: uppercase; font-size: 10.5px; line-height: 1.25; }
+                    .invoice-footer { margin-top: 4px; margin-bottom: 0; page-break-inside: avoid; }
+                    .invoice-location { margin-top: 8px; font-weight: bold; text-align: right; color: #111111; font-size: 10.5px; }
+                    .legal-block { position: fixed; left: 0; right: 0; bottom: 0; padding-top: 5px; border-top: 1px solid #d10f0f; color: #111111; font-size: 9px; line-height: 1.2; }
+                    .legal-line { width: 100%; border-collapse: collapse; table-layout: fixed; }
+                    .legal-line td { border: 0; padding: 0 8px 0 0; vertical-align: top; }
+                    .legal-line td:last-child { padding-right: 0; }
+                    .legal-label { font-weight: bold; }
+                    .signature-wrap { width: 100%; margin-top: 12px; page-break-inside: avoid; }
+                    .signature-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+                    .signature-table td { border: 0; }
+                    .signature-cell { width: 50%; vertical-align: top; padding: 0 4px; }
+                    .signature-cell:first-child { padding-right: 12px; }
+                    .signature-cell:last-child { padding-left: 0; padding-right: 0; text-align: center; }
+                    .signature-box { min-height: 0; border: 0; border-radius: 0; padding: 0; background: transparent; display: flex; flex-direction: column; }
+                    .signature-title { margin-bottom: 6px; color: #111111; font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; }
+                    .responsible-signature { display: block; width: 112px; max-height: 58px; object-fit: contain; margin: 2px auto 0; }
+                    .signature-line { margin-top: 28px; padding-top: 5px; color: #475569; font-size: 10px; }
+                    .signature-box .responsible-signature + .signature-line { margin-top: 8px; }
+                </style>
+            </head>
+            <body>
+                " . ($isProforma ? "<div class='document-ribbon'>FACTURE PROFORMA</div>" : "") . "
+                <div class='topbar'>
+                    <div class='brand'>
+                        " . ($logoDataUri
+                            ? "<img class='brand-logo' src='{$logoDataUri}' alt='Kamoro Hotel'>"
+                            : "<div class='brand-fallback'>KAMORO HOTEL</div>") . "
+                    </div>
+                    <div class='meta'>
+                        <div style='margin-bottom: 6px; font-weight: bold; color: #111111;'>" . ($isProforma ? 'Proforma' : 'Facture') . " n° {$invoiceNumber}</div>
+                        <div style='margin-bottom: 6px; color: #475569; font-size: 9px;'>Generee par {$generatedByName}" . ($generatedByRole !== '' ? " ({$generatedByRole})" : '') . "</div>
+                        <span class='pill " . ($balanceAmount > 0 ? 'unpaid' : '') . "'>{$paymentStatus}</span>
+                    </div>
+                </div>
+                <div class='notice'>{$paymentNotice}</div>
+                <table class='info-grid'>
+                    <tr>
+                        <td style='width: 56%; padding-right: 10px;'>
+                            <div class='box'>
+                                <div class='box-title'>Client</div>
+                                <strong>{$clientName}</strong><br>
+                                " . ($contactLine ? "{$contactLine}<br>" : '') . "
+                                Periode : {$dateLabel}
+                            </div>
+                        </td>
+                        <td>
+                            <div class='box'>
+                                <div class='box-title'>Récapitulatif</div>
+                                Sejour effectue : " . $reservations->count() . "<br>
+                                Total prestations : " . $this->formatMoney($totalAmount, 'Ar') . "<br>
+                                " . ($isProforma ? 'Proforma en attente de règlement' : 'Facture finale') . "
+                            </div>
+                        </td>
+                    </tr>
+                </table>
+                " . (($organization->billing_address || $organization->contact_phone || $organization->contact_email || $organization->phone) ? "
+                <div class='bank-details'>
+                    <div class='bank-details-title'>Coordonnees bancaires</div>
+                    <strong>Compte BMOI</strong> 00004 00017 039579201 02 62<br>
+                    Kamoro hotel
+                </div>
+                " : '') . "
+                <table class='lines'>
+                    <thead>
+                        <tr>
+                            <th>Prestations</th>
+                            <th>Date</th>
+                            <th class='num'>Qté</th>
+                            <th class='num'>PU (Ar)</th>
+                            <th class='num'>Total (Ar)</th>
+                        </tr>
+                    </thead>
+                    <tbody>{$lineRows}</tbody>
+                </table>
+                <div class='final-block'>
+                    <div class='section-title'>Paiements</div>
+                    <table class='lines'>
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Séjour</th>
+                                <th>Méthode</th>
+                                <th>Type</th>
+                                <th class='num'>Reçu</th>
+                                <th class='num'>Rendu</th>
+                                <th class='num'>Net</th>
+                                <th>Par</th>
+                                <th>Réf.</th>
+                            </tr>
+                        </thead>
+                        <tbody>{$paymentRows}</tbody>
+                    </table>
+                    <div class='summary-wrap'>
+                        <div class='summary'>
+                            <div class='summary-row'>
+                                <div class='label'>Total prestations</div>
+                                <div class='value'>" . $this->formatMoney($totalAmount, 'Ar') . "</div>
+                            </div>
+                            <div class='summary-row'>
+                                <div class='label'>Total payé</div>
+                                <div class='value'>" . $this->formatMoney($paidAmount, 'Ar') . "</div>
+                            </div>
+                            <div class='summary-row total'>
+                                <div class='label'>Reste à payer</div>
+                                <div class='value'>" . $this->formatMoney($balanceAmount, 'Ar') . "</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class='footer-note'>
+                        Arretee la presente {$amountLabel} a la somme de : {$amountInWords}
+                    </div>
+                    <div class='signature-wrap'>
+                        <table class='signature-table'>
+                            <tr>
+                                <td class='signature-cell'>
+                                    <div class='signature-box'>
+                                        <div class='signature-title'>{$leftSignatureTitle}</div>
+                                        <div class='signature-line'>&nbsp;</div>
+                                    </div>
+                                </td>
+                                <td class='signature-cell'>
+                                    <div class='signature-box'>
+                                        <div class='signature-title'>{$rightSignatureTitle}</div>
+                                        {$responsibleSignature}
+                                        <div class='signature-line'>&nbsp;</div>
+                                    </div>
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
+                    <div class='invoice-footer'>
+                        <div class='invoice-location'>Fait a Ambondromamy le {$printedAt}</div>
+                    </div>
+                    <div class='legal-block'>
+                        <table class='legal-line'>
+                            <tr>
+                                <td style='width: 24%;'><span class='legal-label'>NIF :</span> 2000683017</td>
+                                <td style='width: 28%;'><span class='legal-label'>STAT :</span> 46101 11 2011</td>
+                                <td><span class='legal-label'>Siège social :</span> PK 2 Route de Mampikony, 403 AMBONDROMAMY</td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+            </body>
+            </html>
+        ";
+    }
+
     private function segmentExtraDescription(string $label, Room $room, Reservation $reservation): string
     {
         $nights = $this->bookingRoomNights($room, $reservation);
-
-        return sprintf(
-            '%s - Chambre %s (%s) - %d %s',
+        $start = Carbon::parse($room->pivot->segment_start_date ?? $reservation->check_in_date)->format('d-m-Y');
+        $end = Carbon::parse($room->pivot->segment_end_date ?? $reservation->check_out_date)->format('d-m-Y');
+        $occupantName = trim((string) ($room->pivot->occupant_name ?? ''));
+        $occupantFirstName = trim((string) ($room->pivot->occupant_first_name ?? ''));
+        $occupantLabel = $occupantName !== '' ? trim($occupantName . ' ' . $occupantFirstName) : '';
+        $parts = [
             $label,
-            $room->room_number,
-            $this->roomClassificationLabel($room),
-            $nights,
-            $nights > 1 ? 'nuits' : 'nuit',
-        );
+            sprintf('Chambre %s (%s)', $room->room_number, $this->roomClassificationLabel($room)),
+        ];
+
+        if ($occupantLabel !== '') {
+            $parts[] = 'Occupant : ' . $occupantLabel;
+        }
+
+        $parts[] = sprintf('%s à %s', $start, $end);
+        $parts[] = sprintf('%d %s', $nights, $nights > 1 ? 'nuits' : 'nuit');
+
+        return implode(' - ', $parts);
     }
 
     private function roomClassificationLabel(Room $room): string
@@ -1403,10 +1972,10 @@ class PMSController extends Controller
 
     private function bookingRoomDateRange(Room $room, Reservation $reservation): string
     {
-        $start = Carbon::parse($room->pivot->segment_start_date ?? $reservation->check_in_date)->format('d/m/Y');
-        $end = Carbon::parse($room->pivot->segment_end_date ?? $reservation->check_out_date)->format('d/m/Y');
+        $start = Carbon::parse($room->pivot->segment_start_date ?? $reservation->check_in_date)->format('d-m-Y');
+        $end = Carbon::parse($room->pivot->segment_end_date ?? $reservation->check_out_date)->format('d-m-Y');
 
-        return "{$start} → {$end}";
+        return "{$start} à {$end}";
     }
 
     private function hasSegmentedRoomDates(Reservation $reservation): bool
@@ -1858,8 +2427,8 @@ class PMSController extends Controller
         ], fn ($value) => filled($value) && $value !== 'N/A');
         $contactLine = $contactParts ? e(implode(' | ', $contactParts)) : '';
         $invoiceNumber = e($invoice->invoice_number);
-        $checkIn = $reservation->check_in_date->format('d/m/Y');
-        $checkOut = $reservation->check_out_date->format('d/m/Y');
+        $checkIn = $reservation->check_in_date->format('d-m-Y');
+        $checkOut = $reservation->check_out_date->format('d-m-Y');
         $paidAmount = (int) $invoice->paid_amount_ariary;
         $balanceAmount = (int) $invoice->balance_amount_ariary;
         $depositAmount = (int) $invoice->deposit_amount_ariary;
@@ -1883,7 +2452,7 @@ class PMSController extends Controller
             ? $this->formatMoney($displayTotal, $currencyLabel)
             : e($this->amountInWords($invoice->total_amount_ariary)) . " (" . number_format($invoice->total_amount_ariary, 0, ',', ' ') . ") Ariary";
         $isProforma = $documentType === 'proforma';
-        $documentLabel = $isProforma ? '' : 'Facture de séjour';
+        $documentLabel = '';
         $amountLabel = $isProforma ? 'facture proforma' : 'facture';
         $logoDataUri = $this->hotelLogoDataUri();
         $signatureDataUri = $this->responsibleSignatureDataUri();
@@ -2028,7 +2597,7 @@ class PMSController extends Controller
                         " . ($logoDataUri
                             ? "<img class='brand-logo' src='{$logoDataUri}' alt='Kamoro Hotel'>"
                             : "<div class='brand-fallback'>KAMORO HOTEL</div>") . "
-                        " . ($documentLabel ? "<div class='subtitle'>{$documentLabel}</div>" : "") . "
+                        
                     </div>
                     <div class='meta'>
                         <div style='margin-bottom: 8px; font-weight: bold; color: {$accentText};'>" . ($isProforma ? 'Proforma n° ' : 'Facture n° ') . "{$invoiceNumber}</div>
@@ -2036,7 +2605,7 @@ class PMSController extends Controller
                     </div>
 	                </div>
 	                <div class='notice'>{$paymentNotice}</div>
-                    " . (($isProforma && ($reservation->booking_type ?? '') === 'organization') ? "
+                    " . ((($reservation->booking_type ?? '') === 'organization') ? "
                     <div class='bank-details'>
                         <div class='bank-details-title'>Coordonnées bancaires</div>
                         <strong>Compte BMOI</strong> 00004 00017 039579201 02 62<br>
@@ -2049,7 +2618,7 @@ class PMSController extends Controller
                             <div class='box'>
                                 <div class='box-title'>Client</div>
                                 <strong>{$guestName}</strong><br>
-                                " . ($contactLine ? "Contact : {$contactLine}<br>" : '') . "
+                                " . ($contactLine ? "{$contactLine}<br>" : '') . "
                                 Séjour du {$checkIn} au {$checkOut}
                             </div>
                         </td>
@@ -2064,7 +2633,7 @@ class PMSController extends Controller
                 </table>
                 <table class='lines'>
                     <thead>
-                        <tr><th>Chambre</th>" . ($showSegmentDates ? "<th>Dates</th>" : "") . "<th class='num'>Qté</th><th class='num'>{$unitHeader}</th><th class='num'>{$totalHeader}</th></tr>
+                        <tr><th>Prestations</th>" . ($showSegmentDates ? "<th>Dates</th>" : "") . "<th class='num'>Qté</th><th class='num'>{$unitHeader}</th><th class='num'>{$totalHeader}</th></tr>
                     </thead>
                     <tbody>{$rows}</tbody>
                 </table>
@@ -2267,7 +2836,12 @@ class PMSController extends Controller
         }
 
         $invoice->load(['items', 'payments', 'reservation.guest', 'reservation.rooms']);
-        $pdf = Pdf::loadHTML($this->invoiceHtml($invoice, $documentType, $currencyMode));
+        $invoiceHtml = $this->invoiceHtml($invoice, $documentType, $currencyMode);
+        $pdf = Pdf::setOption([
+            'defaultFont' => 'DejaVu Sans',
+            'isHtml5ParserEnabled' => true,
+            'isRemoteEnabled' => true,
+        ])->loadHTML($invoiceHtml);
         $path = "invoices/{$invoice->invoice_number}.pdf";
         Storage::disk('local')->put($path, $pdf->output());
 

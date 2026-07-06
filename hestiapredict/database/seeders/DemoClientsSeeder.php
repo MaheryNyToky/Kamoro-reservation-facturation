@@ -161,14 +161,6 @@ class DemoClientsSeeder extends Seeder
                     'quantity' => 1,
                 ]);
 
-                InvoiceItem::create([
-                    'invoice_id' => $invoice->id,
-                    'description' => 'Taxe de séjour',
-                    'type' => 'tax',
-                    'amount_ariary' => $client['tax_amount'],
-                    'quantity' => 1,
-                ]);
-
                 Payment::create([
                     'invoice_id' => $invoice->id,
                     'amount_ariary' => $client['invoice_total'],

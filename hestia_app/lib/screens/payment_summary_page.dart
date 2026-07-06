@@ -406,7 +406,7 @@ class _PaymentSummaryPageState extends State<PaymentSummaryPage> {
           (payment) => [
             payment.reference,
             payment.clientName,
-            payment.rooms,
+            payment.prestations,
             payment.stayLabel,
             payment.displayMethod,
             payment.processedBy,
@@ -421,7 +421,7 @@ class _PaymentSummaryPageState extends State<PaymentSummaryPage> {
       headers: const [
         'Réservation',
         'Client',
-        'Chambres',
+        'Prestations',
         'Date séjour',
         'Mode',
         'Pris par',
@@ -457,7 +457,7 @@ class _PaymentSummaryPageState extends State<PaymentSummaryPage> {
           (reservation) => [
             reservation.reference,
             reservation.clientName,
-            reservation.rooms,
+            reservation.prestations,
             reservation.stayLabel,
             reservation.paymentStatusLabel,
             formatPrice(reservation.totalAmount),
@@ -473,7 +473,7 @@ class _PaymentSummaryPageState extends State<PaymentSummaryPage> {
       headers: const [
         'Réservation',
         'Client',
-        'Chambres',
+        'Prestations',
         'Date séjour',
         'Statut',
         'Total',
@@ -804,7 +804,7 @@ class _PaymentSummaryPageState extends State<PaymentSummaryPage> {
           columns: const [
             DataColumn(label: Text('Réservation')),
             DataColumn(label: Text('Client')),
-            DataColumn(label: Text('Chambres')),
+            DataColumn(label: Text('Prestations')),
             DataColumn(label: Text('Date séjour')),
             DataColumn(label: Text('Mode')),
             DataColumn(label: Text('Pris par')),
@@ -817,7 +817,7 @@ class _PaymentSummaryPageState extends State<PaymentSummaryPage> {
               cells: [
                 DataCell(Text(payment.reference)),
                 DataCell(Text(payment.clientName)),
-                DataCell(Text(payment.rooms)),
+                DataCell(Text(payment.prestations)),
                 DataCell(Text(payment.stayLabel)),
                 DataCell(Text(payment.displayMethod)),
                 DataCell(Text(payment.processedBy)),
@@ -848,7 +848,7 @@ class _PaymentSummaryPageState extends State<PaymentSummaryPage> {
           columns: const [
             DataColumn(label: Text('Réservation')),
             DataColumn(label: Text('Client')),
-            DataColumn(label: Text('Chambres')),
+            DataColumn(label: Text('Prestations')),
             DataColumn(label: Text('Date séjour')),
             DataColumn(label: Text('Statut')),
             DataColumn(label: Text('Total')),
@@ -862,7 +862,7 @@ class _PaymentSummaryPageState extends State<PaymentSummaryPage> {
               cells: [
                 DataCell(Text(reservation.reference)),
                 DataCell(Text(reservation.clientName)),
-                DataCell(Text(reservation.rooms)),
+                DataCell(Text(reservation.prestations)),
                 DataCell(Text(reservation.stayLabel)),
                 DataCell(Text(reservation.paymentStatusLabel)),
                 DataCell(Text(formatPrice(reservation.totalAmount))),
@@ -925,6 +925,7 @@ class _SummaryReservation {
     required this.reference,
     required this.clientName,
     required this.rooms,
+    required this.prestations,
     required this.status,
     required this.paymentStatus,
     required this.checkIn,
@@ -951,6 +952,9 @@ class _SummaryReservation {
       reference: json['reference']?.toString() ?? 'N/A',
       clientName: json['client_name']?.toString() ?? 'Client',
       rooms: rooms.isNotEmpty ? rooms : 'N/A',
+      prestations: (json['prestations'] ?? rooms).toString().trim().isNotEmpty
+          ? (json['prestations'] ?? rooms).toString().trim()
+          : (rooms.isNotEmpty ? rooms : 'N/A'),
       status: json['status']?.toString() ?? '',
       paymentStatus: json['payment_status']?.toString() ?? 'unbilled',
       checkIn: DateTime.tryParse((json['check_in'] ?? '').toString()),
@@ -967,6 +971,7 @@ class _SummaryReservation {
   final String reference;
   final String clientName;
   final String rooms;
+  final String prestations;
   final String status;
   final String paymentStatus;
   final DateTime? checkIn;
@@ -1021,6 +1026,7 @@ class _SummaryPayment {
     required this.reference,
     required this.clientName,
     required this.rooms,
+    required this.prestations,
     required this.checkIn,
     required this.checkOut,
     required this.paymentMethod,
@@ -1037,6 +1043,7 @@ class _SummaryPayment {
       reference: json['reference']?.toString() ?? 'N/A',
       clientName: 'Client',
       rooms: 'N/A',
+      prestations: 'N/A',
       checkIn: null,
       checkOut: null,
       paymentMethod: json['payment_method']?.toString() ?? 'N/A',
@@ -1055,6 +1062,7 @@ class _SummaryPayment {
   final String reference;
   final String clientName;
   final String rooms;
+  final String prestations;
   final DateTime? checkIn;
   final DateTime? checkOut;
   final String paymentMethod;
@@ -1070,6 +1078,7 @@ class _SummaryPayment {
       reference: reservation.reference,
       clientName: reservation.clientName,
       rooms: reservation.rooms,
+      prestations: reservation.prestations,
       checkIn: reservation.checkIn,
       checkOut: reservation.checkOut,
       paymentMethod: paymentMethod,
