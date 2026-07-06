@@ -117,8 +117,6 @@ cleanup() {
     pkill -f "php artisan serve --host=127.0.0.1 --port=8000" 2>/dev/null || true
 }
 
-trap cleanup EXIT INT TERM
-
 echo "Arrêt des anciens services éventuels..."
 cleanup
 
@@ -133,6 +131,7 @@ AI_PYTHON="$(find_ai_python)" || {
 nohup env MPLCONFIGDIR="$LOG_DIR/matplotlib" XDG_CACHE_HOME="$LOG_DIR/cache" WATCHFILES_FORCE_POLLING=true \
     "$AI_PYTHON" -m uvicorn main:app --host 0.0.0.0 --port 8001 > "$LOG_DIR/ai.log" 2>&1 &
 AI_PID=$!
+disown "$AI_PID" 2>/dev/null || true
 wait_for_url "AI" "http://127.0.0.1:8001/health" "$LOG_DIR/ai.log" 30
 
 # 2. Backend Laravel
@@ -160,6 +159,7 @@ if ! env DB_DATABASE="$PROJECT_ROOT/hestiapredict/database.sqlite" CACHE_STORE=f
 fi
 nohup env AI_ENGINE_URL="http://127.0.0.1:8001" DB_DATABASE="$PROJECT_ROOT/hestiapredict/database.sqlite" CACHE_STORE=file SESSION_DRIVER=file php artisan serve --host=0.0.0.0 --port=8000 > "$LOG_DIR/laravel.log" 2>&1 &
 LARAVEL_PID=$!
+disown "$LARAVEL_PID" 2>/dev/null || true
 wait_for_url "Laravel" "http://127.0.0.1:8000/api/health" "$LOG_DIR/laravel.log" 30
 
 # 3. Build Flutter Web puis serveur statique stable.
@@ -178,6 +178,7 @@ echo "[Flutter] Lancement sur le port 8080 (prêt pour Safari)..."
 cd "$PROJECT_ROOT/hestia_app/build/web"
 nohup php -S 0.0.0.0:8080 >> "$LOG_DIR/flutter.log" 2>&1 &
 FLUTTER_PID=$!
+disown "$FLUTTER_PID" 2>/dev/null || true
 wait_for_url "Flutter" "http://localhost:8080/index.html" "$LOG_DIR/flutter.log" 90
 
 echo ""
@@ -198,6 +199,4 @@ echo "   - AI : $AI_PID"
 echo "   - Laravel : $LARAVEL_PID"
 echo "   - Flutter : $FLUTTER_PID"
 echo ""
-echo "Gardez ce terminal ouvert. Utilisez Ctrl+C pour arrêter les services."
-
-wait
+echo "Relancez simplement ./dev.sh pour arrêter les anciennes instances et reconstruire."
