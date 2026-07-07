@@ -394,7 +394,9 @@ class PMSController extends Controller
                 $bookingRoomId = (int) ($room->pivot->id ?? 0);
                 $item = $bookingRoomId > 0 ? $roomItems->get($bookingRoomId) : null;
                 $unitAmount = (int) ($item?->amount_ariary ?? $room->pivot->price_snapshot_ariary ?? $room->base_price_ariary);
-                $quantity = max(1, (int) ($item?->quantity ?? 1));
+                // En facture organisme, la ligne chambre doit suivre les nuits réellement consommées.
+                // La quantité persistée sur l'item peut être obsolète, notamment après des modifications.
+                $quantity = $this->bookingRoomNights($room, $reservation);
                 $lineKey = implode('|', [
                     $reservation->id,
                     'room',
@@ -1440,7 +1442,8 @@ class PMSController extends Controller
                 $bookingRoomId = (int) ($room->pivot->id ?? 0);
                 $item = $bookingRoomId > 0 ? $roomItems->get($bookingRoomId) : null;
                 $unitAmount = (int) ($item?->amount_ariary ?? $room->pivot->price_snapshot_ariary ?? $room->base_price_ariary);
-                $quantity = max(1, (int) ($item?->quantity ?? 1));
+                // Même règle que pour le rendu: la quantité chambre représente les nuits du séjour.
+                $quantity = $this->bookingRoomNights($room, $reservation);
                 $lineTotal = $unitAmount * $quantity;
                 $nights = $this->bookingRoomNights($room, $reservation);
                 $description = $this->roomInvoiceDescription($room, $reservation, $nights);

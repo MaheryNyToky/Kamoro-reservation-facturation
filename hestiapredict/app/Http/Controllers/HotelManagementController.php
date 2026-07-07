@@ -491,7 +491,7 @@ class HotelManagementController extends Controller
             'month' => 'nullable|date_format:Y-m',
         ]);
 
-        $scope = $validated['scope'] ?? 'month';
+        $scope = $validated['scope'] ?? 'all';
         $month = $validated['month'] ?? now()->format('Y-m');
         $payload = Cache::remember(
             'dashboard:organization-dossier:' . $this->availabilityService->getCacheVersion() . ':' . $organization->id . ':' . $scope . ':' . $month,

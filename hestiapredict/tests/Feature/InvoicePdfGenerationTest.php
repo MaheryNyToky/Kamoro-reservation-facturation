@@ -13,6 +13,7 @@ use App\Models\User;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Collection;
 use Tests\TestCase;
 
 class InvoicePdfGenerationTest extends TestCase
@@ -961,6 +962,94 @@ class InvoicePdfGenerationTest extends TestCase
         $this->assertStringContainsString('2 nuits', $html);
     }
 
+    public function test_organization_invoice_counts_room_lines_by_nights_even_if_item_quantity_is_stale(): void
+    {
+        $organization = Organization::create([
+            'name' => 'Organisme 7 nuits',
+        ]);
+
+        $user = User::create([
+            'name' => 'Admin Org Nights Test',
+            'email' => 'admin-org-nights-test@example.com',
+            'password' => 'password',
+            'role' => 'admin',
+            'is_blacklisted' => false,
+        ]);
+
+        $room = Room::create([
+            'room_number' => '807',
+            'type' => 'Chambre Double',
+            'model' => 'Standard',
+            'base_price_ariary' => 110000,
+            'is_fixed_price' => false,
+        ]);
+
+        $reservation = Reservation::create([
+            'user_id' => $user->id,
+            'organization_id' => $organization->id,
+            'client_name' => 'Organisme 7 nuits',
+            'client_phone' => '0340000097',
+            'customer_phone' => '0340000097',
+            'customer_email' => 'organisme7@example.com',
+            'booking_reference' => 'BR-' . uniqid(),
+            'booking_type' => 'organization',
+            'source' => 'Appel',
+            'check_in_date' => '2026-04-21',
+            'check_out_date' => '2026-04-28',
+            'status' => 'arrive',
+            'payment_status' => 'unbilled',
+            'extra_beds' => 0,
+            'extra_mattresses' => 0,
+        ]);
+
+        $reservation->rooms()->attach($room->id, [
+            'price_snapshot_ariary' => 110000,
+            'occupant_name' => 'RAZAFIARISON',
+            'occupant_first_name' => 'ANGELOT',
+        ]);
+
+        $reservation->refresh()->load('rooms', 'organization', 'invoice.items', 'invoice.payments');
+        $bookingRoomId = $reservation->rooms->first()->pivot->id;
+
+        $invoice = Invoice::create([
+            'reservation_id' => $reservation->id,
+            'organization_id' => $organization->id,
+            'invoice_number' => null,
+            'total_amount_ariary' => 110000,
+            'tax_amount_ariary' => 0,
+            'discount_mode' => null,
+            'discount_value' => null,
+            'discount_amount_ariary' => 0,
+            'deposit_amount_ariary' => 0,
+            'pdf_path' => null,
+            'finalized_at' => null,
+            'status' => 'open',
+            'document_type' => 'facture',
+            'billing_mode' => 'grouped',
+            'invoice_kind' => 'master',
+        ]);
+
+        InvoiceItem::create([
+            'invoice_id' => $invoice->id,
+            'booking_room_id' => $bookingRoomId,
+            'description' => 'Séjour chambre',
+            'type' => 'room',
+            'amount_ariary' => 110000,
+            'quantity' => 1,
+        ]);
+
+        $reservations = collect([$reservation->fresh(['rooms', 'organization', 'invoice.items', 'invoice.payments'])]);
+        [$totalAmount, $paidAmount] = $this->organizationInvoiceTotalsForTest($reservations);
+
+        $this->assertSame(770000, $totalAmount);
+        $this->assertSame(0, $paidAmount);
+
+        $html = $this->organizationInvoiceHtmlForTest($organization, $reservations, 'facture', $invoice->fresh(['items', 'payments', 'reservation.rooms', 'reservation.organization']));
+
+        $this->assertStringContainsString('7 nuits', $html);
+        $this->assertStringContainsString('770 000 Ar', $html);
+    }
+
     private function invoiceHtmlForTest(Invoice $invoice, string $documentType, string $currencyMode): string
     {
         $controller = app(PMSController::class);
@@ -968,5 +1057,23 @@ class InvoicePdfGenerationTest extends TestCase
         $method->setAccessible(true);
 
         return $method->invoke($controller, $invoice->fresh(['items', 'payments', 'reservation.guest', 'reservation.rooms']), $documentType, $currencyMode);
+    }
+
+    private function organizationInvoiceHtmlForTest(Organization $organization, Collection $reservations, string $documentType, ?Invoice $invoice = null): string
+    {
+        $controller = app(PMSController::class);
+        $method = new \ReflectionMethod($controller, 'organizationInvoiceHtml');
+        $method->setAccessible(true);
+
+        return $method->invoke($controller, $organization, $reservations, $documentType, $invoice);
+    }
+
+    private function organizationInvoiceTotalsForTest(Collection $reservations): array
+    {
+        $controller = app(PMSController::class);
+        $method = new \ReflectionMethod($controller, 'organizationInvoiceTotals');
+        $method->setAccessible(true);
+
+        return $method->invoke($controller, $reservations);
     }
 }

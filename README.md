@@ -66,7 +66,7 @@ Si FastAPI ne répond pas, Laravel renvoie automatiquement des prix planchers vi
 ├── dev.sh                   # Lancement complet en mode développement
 ├── start_project.sh         # Lancement simple avec build Flutter web existant
 ├── docker-compose.yml       # Base Docker expérimentale
-└── database.sqlite          # Base SQLite locale créée sur chaque machine
+└── hestiapredict/database.sqlite # Base SQLite locale Laravel
 ```
 
 ## Prérequis
@@ -116,16 +116,15 @@ Par défaut, le projet utilise SQLite :
 
 ```env
 DB_CONNECTION=sqlite
-DB_DATABASE=../database.sqlite
+DB_DATABASE=database.sqlite
 AI_ENGINE_URL=http://127.0.0.1:8001
 ```
 
 La base SQLite n'est pas versionnée dans Git. Chaque machine doit créer sa propre copie locale si elle n'existe pas :
 
 ```bash
-cd ..
-touch database.sqlite
 cd hestiapredict
+touch database.sqlite
 php artisan migrate
 php artisan db:seed
 ```
@@ -279,7 +278,7 @@ Fichier : `hestiapredict/.env`
 | `APP_DEBUG` | Affichage des erreurs détaillées | `true` |
 | `APP_KEY` | Clé applicative Laravel | générée par `php artisan key:generate` |
 | `DB_CONNECTION` | Driver de base de données | `sqlite` |
-| `DB_DATABASE` | Chemin de la base SQLite | `../database.sqlite` |
+| `DB_DATABASE` | Chemin de la base SQLite | `database.sqlite` |
 | `AI_ENGINE_URL` | URL du moteur FastAPI | `http://127.0.0.1:8001` |
 | `CORS_ALLOWED_ORIGINS` | Origines autorisées pour Flutter | `http://localhost:8080,http://127.0.0.1:8080` |
 
@@ -444,8 +443,8 @@ Si l'import échoue :
 Depuis la racine :
 
 ```bash
-touch database.sqlite
 cd hestiapredict
+touch database.sqlite
 php artisan migrate
 ```
 

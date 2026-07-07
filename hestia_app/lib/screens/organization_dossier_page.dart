@@ -52,7 +52,7 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
   final _searchController = TextEditingController();
   bool _isLoading = true;
   String _errorMessage = '';
-  String _viewMode = 'month';
+  String _viewMode = 'all';
   String _paymentFilter = 'all';
   String? _selectedOrganizationKey;
   String _monthKey = _monthKeyFromDate(DateTime.now());
@@ -72,8 +72,7 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
     super.dispose();
   }
 
-  bool get _canAccess =>
-      widget.role == 'admin' || widget.role == 'superadmin';
+  bool get _canAccess => widget.role == 'admin' || widget.role == 'superadmin';
 
   List<_DossierReservation> get _organizationReservations {
     final today = DateTime.now();
@@ -102,21 +101,22 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
       map.putIfAbsent(reservation.organizationKey, () => []).add(reservation);
     }
 
-    final orgs = map.entries
-        .map(
-          (entry) => _DossierOrganization(
-            key: entry.key,
-            name: entry.value.first.organizationName,
-            reservations: entry.value,
-            organization: entry.value.first.organization,
-          ),
-        )
-        .toList()
-      ..sort((a, b) {
-        final totalCompare = b.totalAmount.compareTo(a.totalAmount);
-        if (totalCompare != 0) return totalCompare;
-        return a.name.compareTo(b.name);
-      });
+    final orgs =
+        map.entries
+            .map(
+              (entry) => _DossierOrganization(
+                key: entry.key,
+                name: entry.value.first.organizationName,
+                reservations: entry.value,
+                organization: entry.value.first.organization,
+              ),
+            )
+            .toList()
+          ..sort((a, b) {
+            final totalCompare = b.totalAmount.compareTo(a.totalAmount);
+            if (totalCompare != 0) return totalCompare;
+            return a.name.compareTo(b.name);
+          });
 
     return orgs;
   }
@@ -156,8 +156,8 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
   ) {
     final scoped = _viewMode == 'month'
         ? reservations
-            .where((reservation) => reservation.monthKey == _monthKey)
-            .toList()
+              .where((reservation) => reservation.monthKey == _monthKey)
+              .toList()
         : reservations.toList();
 
     return scoped.where(_matchesPaymentFilter).toList();
@@ -168,8 +168,8 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
       'paid' => reservation.paymentStatus == 'paid',
       'unpaid' =>
         reservation.paymentStatus == 'unpaid' ||
-        reservation.paymentStatus == 'partial' ||
-        reservation.paymentStatus == 'unbilled',
+            reservation.paymentStatus == 'partial' ||
+            reservation.paymentStatus == 'unbilled',
       _ => true,
     };
   }
@@ -182,7 +182,9 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
       return const [];
     }
     return visible
-        .where((reservation) => _selectedReservationIds.contains(reservation.id))
+        .where(
+          (reservation) => _selectedReservationIds.contains(reservation.id),
+        )
         .toList()
       ..sort((a, b) {
         final aCheckIn = a.checkIn ?? DateTime.fromMillisecondsSinceEpoch(0);
@@ -196,12 +198,13 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
   List<String> get _availableMonthKeys {
     final organization = _selectedOrganization;
     if (organization == null) return const [];
-    final keys = organization.reservations
-        .map((reservation) => reservation.monthKey)
-        .where((key) => key.isNotEmpty)
-        .toSet()
-        .toList()
-      ..sort((a, b) => b.compareTo(a));
+    final keys =
+        organization.reservations
+            .map((reservation) => reservation.monthKey)
+            .where((key) => key.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort((a, b) => b.compareTo(a));
     return keys;
   }
 
@@ -211,13 +214,17 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
   int get _paidAmount =>
       _selectedReservations.fold<int>(0, (sum, item) => sum + item.paidAmount);
 
-  int get _balanceAmount =>
-      _selectedReservations.fold<int>(0, (sum, item) => sum + item.balanceAmount);
+  int get _balanceAmount => _selectedReservations.fold<int>(
+    0,
+    (sum, item) => sum + item.balanceAmount,
+  );
 
   int get _reservationCount => _selectedReservations.length;
 
   void _syncSelectionToVisibleReservations({bool clearSelection = false}) {
-    final visibleIds = _visibleReservations.map((reservation) => reservation.id).toSet();
+    final visibleIds = _visibleReservations
+        .map((reservation) => reservation.id)
+        .toSet();
     setState(() {
       if (clearSelection) {
         _selectedReservationIds.clear();
@@ -255,7 +262,9 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
     setState(() {
       _selectedReservationIds
         ..clear()
-        ..addAll(organization.reservations.map((reservation) => reservation.id));
+        ..addAll(
+          organization.reservations.map((reservation) => reservation.id),
+        );
     });
   }
 
@@ -274,9 +283,7 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
     const cacheKey = 'organization_dossier:reservations_all';
     try {
       final response = await http
-          .get(
-            Uri.parse('$_baseUrl/api/reservations/all?date=all&status=all'),
-          )
+          .get(Uri.parse('$_baseUrl/api/reservations/all?date=all&status=all'))
           .timeout(const Duration(seconds: 8));
       if (response.statusCode != 200) {
         throw Exception('Erreur ${response.statusCode}');
@@ -341,12 +348,13 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
   void _selectOrganization(_DossierOrganization organization) {
     setState(() {
       _selectedOrganizationKey = organization.key;
-      final availableMonths = organization.reservations
-          .map((reservation) => reservation.monthKey)
-          .where((value) => value.isNotEmpty)
-          .toSet()
-          .toList()
-        ..sort((a, b) => b.compareTo(a));
+      final availableMonths =
+          organization.reservations
+              .map((reservation) => reservation.monthKey)
+              .where((value) => value.isNotEmpty)
+              .toSet()
+              .toList()
+            ..sort((a, b) => b.compareTo(a));
       if (availableMonths.isNotEmpty && !availableMonths.contains(_monthKey)) {
         _monthKey = availableMonths.first;
       }
@@ -385,13 +393,17 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
           },
           body: json.encode({
             'document_type': 'facture',
-            'reservation_ids': reservations.map((reservation) => reservation.id).toList(),
+            'reservation_ids': reservations
+                .map((reservation) => reservation.id)
+                .toList(),
           }),
         )
         .timeout(const Duration(seconds: 15));
 
     if (response.statusCode != 200 || response.bodyBytes.isEmpty) {
-      final decoded = response.body.isNotEmpty ? json.decode(response.body) : null;
+      final decoded = response.body.isNotEmpty
+          ? json.decode(response.body)
+          : null;
       final message = decoded is Map && decoded['message'] != null
           ? decoded['message'].toString()
           : 'Impossible de générer la facture.';
@@ -471,12 +483,13 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
           : 'Sélectionne des séjours pour générer la facture';
     }
 
-    final months = _selectedReservations
-        .map((reservation) => reservation.monthKey)
-        .where((value) => value.isNotEmpty)
-        .toSet()
-        .toList()
-      ..sort((a, b) => a.compareTo(b));
+    final months =
+        _selectedReservations
+            .map((reservation) => reservation.monthKey)
+            .where((value) => value.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort((a, b) => a.compareTo(b));
 
     if (months.length == 1) {
       return 'Facture des séjours de ${_monthKeyLabel(months.first)}';
@@ -522,9 +535,7 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
   Widget build(BuildContext context) {
     if (!_canAccess) {
       return const Scaffold(
-        body: Center(
-          child: Text('Accès réservé aux administrateurs.'),
-        ),
+        body: Center(child: Text('Accès réservé aux administrateurs.')),
       );
     }
 
@@ -646,9 +657,9 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Text(
               'Organismes',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w900,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
             ),
           ),
           const SizedBox(height: 8),
@@ -694,7 +705,9 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
                                 spacing: 6,
                                 runSpacing: 6,
                                 children: [
-                                  _smallChip('${org.reservations.length} séjours'),
+                                  _smallChip(
+                                    '${org.reservations.length} séjours',
+                                  ),
                                   _smallChip(formatPrice(org.totalAmount)),
                                 ],
                               ),
@@ -711,7 +724,8 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
                         ),
                       );
                     },
-                    separatorBuilder: (context, index) => const SizedBox(height: 10),
+                    separatorBuilder: (context, index) =>
+                        const SizedBox(height: 10),
                     itemCount: filteredOrganizations.length,
                   ),
           ),
@@ -757,7 +771,8 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
                     children: [
                       Text(
                         organization.name,
-                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                        style: Theme.of(context).textTheme.headlineSmall
+                            ?.copyWith(
                               fontWeight: FontWeight.w900,
                               color: _ink,
                             ),
@@ -766,9 +781,9 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
                       Text(
                         'Séjours à facturer',
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: _muted,
-                              fontWeight: FontWeight.w600,
-                            ),
+                          color: _muted,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ],
                   ),
@@ -832,10 +847,7 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
               children: [
                 const Text(
                   'Paiement',
-                  style: TextStyle(
-                    color: _muted,
-                    fontWeight: FontWeight.w800,
-                  ),
+                  style: TextStyle(color: _muted, fontWeight: FontWeight.w800),
                 ),
                 SegmentedButton<String>(
                   segments: const [
@@ -891,12 +903,16 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
               runSpacing: 10,
               children: [
                 OutlinedButton.icon(
-                  onPressed: _selectedReservations.isEmpty ? null : _openPreview,
+                  onPressed: _selectedReservations.isEmpty
+                      ? null
+                      : _openPreview,
                   icon: const Icon(Icons.visibility_outlined),
                   label: const Text('Aperçu facture'),
                 ),
                 OutlinedButton.icon(
-                  onPressed: _selectedReservations.isEmpty ? null : _downloadPdf,
+                  onPressed: _selectedReservations.isEmpty
+                      ? null
+                      : _downloadPdf,
                   icon: const Icon(Icons.download_outlined),
                   label: const Text('Télécharger facture'),
                 ),
@@ -923,56 +939,62 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
                 child: _viewMode == 'all'
                     ? _buildMonthGroupedList(organization)
                     : visibleReservations.isEmpty
-                        ? const Center(
-                            child: Text('Aucun séjour pour ce mois.'),
-                          )
-                        : SingleChildScrollView(
-                            padding: const EdgeInsets.all(12),
-                            child: SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: DataTable(
-                                columnSpacing: 18,
-                                dataRowMinHeight: 44,
-                                headingRowHeight: 42,
-                                columns: const [
-                                  DataColumn(label: Text('Sélect.')),
-                                  DataColumn(label: Text('Réf')),
-                                  DataColumn(label: Text('Séjour')),
-                                  DataColumn(label: Text('Prestations')),
-                                  DataColumn(label: Text('Total')),
-                                  DataColumn(label: Text('Payé')),
-                                  DataColumn(label: Text('Reste')),
-                                  DataColumn(label: Text('Statut')),
-                                ],
-                                rows: visibleReservations.map((reservation) {
-                                  return DataRow(
-                                    cells: [
-                                      DataCell(
-                                        Checkbox(
-                                          value: _isReservationSelected(
+                    ? const Center(child: Text('Aucun séjour pour ce mois.'))
+                    : SingleChildScrollView(
+                        padding: const EdgeInsets.all(12),
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: DataTable(
+                            columnSpacing: 18,
+                            dataRowMinHeight: 44,
+                            headingRowHeight: 42,
+                            columns: const [
+                              DataColumn(label: Text('Sélect.')),
+                              DataColumn(label: Text('Réf')),
+                              DataColumn(label: Text('Séjour')),
+                              DataColumn(label: Text('Prestations')),
+                              DataColumn(label: Text('Total')),
+                              DataColumn(label: Text('Payé')),
+                              DataColumn(label: Text('Reste')),
+                              DataColumn(label: Text('Statut')),
+                            ],
+                            rows: visibleReservations.map((reservation) {
+                              return DataRow(
+                                cells: [
+                                  DataCell(
+                                    Checkbox(
+                                      value: _isReservationSelected(
+                                        reservation,
+                                      ),
+                                      onChanged: (_) =>
+                                          _toggleReservationSelection(
                                             reservation,
                                           ),
-                                          onChanged: (_) =>
-                                              _toggleReservationSelection(
-                                                reservation,
-                                              ),
-                                        ),
-                                      ),
-                                      DataCell(Text(reservation.reference)),
-                                      DataCell(Text(reservation.stayLabel)),
-                                      DataCell(Text(reservation.prestations)),
-                                      DataCell(Text(formatPrice(reservation.totalAmount))),
-                                      DataCell(Text(formatPrice(reservation.paidAmount))),
-                                      DataCell(
-                                        Text(formatPrice(reservation.balanceAmount)),
-                                      ),
-                                      DataCell(Text(reservation.paymentStatusLabel)),
-                                    ],
-                                  );
-                                }).toList(),
-                              ),
-                            ),
+                                    ),
+                                  ),
+                                  DataCell(Text(reservation.reference)),
+                                  DataCell(Text(reservation.stayLabel)),
+                                  DataCell(Text(reservation.prestations)),
+                                  DataCell(
+                                    Text(formatPrice(reservation.totalAmount)),
+                                  ),
+                                  DataCell(
+                                    Text(formatPrice(reservation.paidAmount)),
+                                  ),
+                                  DataCell(
+                                    Text(
+                                      formatPrice(reservation.balanceAmount),
+                                    ),
+                                  ),
+                                  DataCell(
+                                    Text(reservation.paymentStatusLabel),
+                                  ),
+                                ],
+                              );
+                            }).toList(),
                           ),
+                        ),
+                      ),
               ),
             ),
           ],
@@ -986,9 +1008,7 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
       _filteredReservationsForScope(organization.reservations),
     );
     if (grouped.isEmpty) {
-      return const Center(
-        child: Text('Aucun séjour pour cet organisme.'),
-      );
+      return const Center(child: Text('Aucun séjour pour cet organisme.'));
     }
 
     return ListView.separated(
@@ -1011,8 +1031,8 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
                   value: reservations.every(_isReservationSelected)
                       ? true
                       : (reservations.any(_isReservationSelected)
-                          ? null
-                          : false),
+                            ? null
+                            : false),
                   tristate: true,
                   onChanged: (_) {
                     setState(() {
@@ -1054,10 +1074,9 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
                   _monthKey = reservations.first.monthKey;
                   _selectedReservationIds
                     ..removeWhere(
-                      (id) =>
-                          !_visibleReservations.any(
-                            (reservation) => reservation.id == id,
-                          ),
+                      (id) => !_visibleReservations.any(
+                        (reservation) => reservation.id == id,
+                      ),
                     )
                     ..addAll(reservations.map((reservation) => reservation.id));
                 });
@@ -1134,12 +1153,13 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
   }
 
   String _monthSummary(_DossierOrganization organization) {
-    final months = organization.reservations
-        .map((reservation) => reservation.monthKey)
-        .where((value) => value.isNotEmpty)
-        .toSet()
-        .toList()
-      ..sort((a, b) => b.compareTo(a));
+    final months =
+        organization.reservations
+            .map((reservation) => reservation.monthKey)
+            .where((value) => value.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort((a, b) => b.compareTo(a));
     if (months.isEmpty) return 'Aucun mois disponible';
     if (months.length == 1) return _monthKeyLabel(months.first);
     return '${_monthKeyLabel(months.first)} et ${months.length - 1} autre(s)';
@@ -1205,8 +1225,10 @@ class _DossierOrganization {
 
   int get organizationId => _asInt(organization?['id']);
 
-  int get totalAmount =>
-      reservations.fold<int>(0, (sum, reservation) => sum + reservation.totalAmount);
+  int get totalAmount => reservations.fold<int>(
+    0,
+    (sum, reservation) => sum + reservation.totalAmount,
+  );
 }
 
 class _DossierReservation {
@@ -1228,7 +1250,9 @@ class _DossierReservation {
   });
 
   factory _DossierReservation.fromJson(Map<String, dynamic> json) {
-    final rooms = (json['room_numbers'] ?? json['rooms'] ?? '').toString().trim();
+    final rooms = (json['room_numbers'] ?? json['rooms'] ?? '')
+        .toString()
+        .trim();
     final prestations = (json['prestations'] ?? rooms).toString().trim();
     final organization = json['organization'] is Map<String, dynamic>
         ? Map<String, dynamic>.from(json['organization'] as Map)
@@ -1238,7 +1262,9 @@ class _DossierReservation {
       reference: json['reference']?.toString() ?? 'N/A',
       clientName: json['client_name']?.toString() ?? 'Client',
       rooms: rooms.isNotEmpty ? rooms : 'N/A',
-      prestations: prestations.isNotEmpty ? prestations : (rooms.isNotEmpty ? rooms : 'N/A'),
+      prestations: prestations.isNotEmpty
+          ? prestations
+          : (rooms.isNotEmpty ? rooms : 'N/A'),
       status: json['status']?.toString() ?? '',
       paymentStatus: json['payment_status']?.toString() ?? 'unbilled',
       checkIn: DateTime.tryParse((json['check_in'] ?? '').toString()),
@@ -1359,9 +1385,9 @@ class _MonthPickerDialogState extends State<_MonthPickerDialog> {
                 ),
                 Text(
                   '$_year',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w900,
-                      ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
                 ),
                 IconButton(
                   onPressed: () => setState(() => _year += 1),

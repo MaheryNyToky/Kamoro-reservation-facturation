@@ -6,7 +6,6 @@ $LogDir = Join-Path $ProjectRoot ".dev-logs"
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $LogDir "matplotlib") | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $LogDir "cache") | Out-Null
-New-Item -ItemType File -Force -Path (Join-Path $ProjectRoot "database.sqlite") | Out-Null
 
 function Stop-ProcessOnPort {
     param([int]$Port)
