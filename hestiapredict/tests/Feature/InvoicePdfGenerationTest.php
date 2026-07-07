@@ -707,8 +707,9 @@ class InvoicePdfGenerationTest extends TestCase
         $this->assertStringContainsString('Fait à Ambondromamy le ', $html);
         $this->assertStringContainsString("class='legal-block'", $html);
         $this->assertStringContainsString("class='legal-line'", $html);
-        $this->assertStringContainsString("<span class='legal-label'>NIF :</span> 2000683017", $html);
-        $this->assertStringContainsString("<span class='legal-label'>STAT :</span> 46101 11 2011", $html);
+        $this->assertStringNotContainsString('<span class="legal-label">NIF:</span>', $html);
+        $this->assertStringContainsString("<span class='legal-label'>NIF:</span> 2000683017", $html);
+        $this->assertStringContainsString("<span class='legal-label'>STAT:</span>4601 11 2011 0 10939", $html);
         $this->assertStringContainsString("<span class='legal-label'>Siège social :</span> PK 2 Route de Mampikony, 403 AMBONDROMAMY", $html);
         $this->assertLessThan(
             strpos($html, 'Fait à Ambondromamy le '),
@@ -725,6 +726,75 @@ class InvoicePdfGenerationTest extends TestCase
         $this->assertStringContainsString("class='signature-title'>Client</div>", $html);
         $this->assertStringContainsString("class='signature-title'>Responsable</div>", $html);
         $this->assertStringNotContainsString("class='responsible-signature'", $html);
+    }
+
+    public function test_invoice_html_does_not_show_organization_billing_identifiers_when_missing(): void
+    {
+        $user = User::create([
+            'name' => 'Admin No Billing Info Test',
+            'email' => 'admin-no-billing-info-test@example.com',
+            'password' => 'password',
+            'role' => 'admin',
+            'is_blacklisted' => false,
+        ]);
+
+        $room = Room::create([
+            'room_number' => '804',
+            'type' => 'Chambre Double',
+            'model' => 'Standard',
+            'base_price_ariary' => 50000,
+            'is_fixed_price' => false,
+        ]);
+
+        $reservation = Reservation::create([
+            'user_id' => $user->id,
+            'client_name' => 'No Billing Info Client',
+            'client_phone' => '0340000095',
+            'customer_phone' => '0340000095',
+            'customer_email' => 'nobilling@example.com',
+            'booking_reference' => 'BR-' . uniqid(),
+            'source' => 'Appel',
+            'check_in_date' => '2026-06-22',
+            'check_out_date' => '2026-06-23',
+            'status' => 'arrive',
+            'payment_status' => 'unbilled',
+            'extra_beds' => 0,
+            'extra_mattresses' => 0,
+        ]);
+
+        $reservation->rooms()->attach($room->id, [
+            'price_snapshot_ariary' => 50000,
+        ]);
+
+        $invoice = Invoice::create([
+            'reservation_id' => $reservation->id,
+            'invoice_number' => null,
+            'total_amount_ariary' => 50000,
+            'tax_amount_ariary' => 0,
+            'discount_mode' => null,
+            'discount_value' => null,
+            'discount_amount_ariary' => 0,
+            'deposit_amount_ariary' => 0,
+            'pdf_path' => null,
+            'finalized_at' => null,
+            'status' => 'open',
+            'document_type' => 'facture',
+        ]);
+
+        InvoiceItem::create([
+            'invoice_id' => $invoice->id,
+            'description' => 'Séjour chambre',
+            'type' => 'room',
+            'amount_ariary' => 50000,
+            'quantity' => 1,
+        ]);
+
+        $html = $this->invoiceHtmlForTest($invoice, 'facture', 'ariary');
+
+        $this->assertStringNotContainsString('<span class="legal-label">NIF:</span>', $html);
+        $this->assertStringNotContainsString('<span class="legal-label">STAT:</span>', $html);
+        $this->assertStringContainsString("<span class='legal-label'>NIF:</span> 2000683017", $html);
+        $this->assertStringContainsString("<span class='legal-label'>STAT:</span>4601 11 2011 0 10939", $html);
     }
 
     public function test_proforma_pdf_header_and_signature_are_proforma_specific(): void
@@ -821,6 +891,8 @@ class InvoicePdfGenerationTest extends TestCase
             'contact_phone' => '0340000093',
             'contact_email' => 'org@example.com',
             'billing_address' => 'Antananarivo',
+            'nif' => 'NIF-ORG-900',
+            'stat' => 'STAT-ORG-900',
         ]);
 
         $room = Room::create([
@@ -882,9 +954,96 @@ class InvoicePdfGenerationTest extends TestCase
         $this->assertStringContainsString('Compte BMOI', $html);
         $this->assertStringContainsString('00004 00017 039579201 02 62', $html);
         $this->assertStringContainsString('Kamoro hotel', $html);
+        $this->assertStringContainsString('<span class="legal-label">NIF:</span> NIF-ORG-900', $html);
+        $this->assertStringContainsString('<span class="legal-label">STAT:</span> STAT-ORG-900', $html);
         $this->assertStringContainsString("class='signature-title'>Client</div>", $html);
         $this->assertStringContainsString("class='signature-title'>Responsable</div>", $html);
         $this->assertStringContainsString("class='responsible-signature'", $html);
+    }
+
+    public function test_organization_invoice_hides_bank_details_when_balance_is_zero(): void
+    {
+        $user = User::create([
+            'name' => 'Admin Org Paid Test',
+            'email' => 'admin-org-paid-test@example.com',
+            'password' => 'password',
+            'role' => 'admin',
+            'is_blacklisted' => false,
+        ]);
+
+        $organization = Organization::create([
+            'name' => 'Organisme Soldé',
+        ]);
+
+        $room = Room::create([
+            'room_number' => '806',
+            'type' => 'Chambre Double',
+            'model' => 'Standard',
+            'base_price_ariary' => 50000,
+            'is_fixed_price' => false,
+        ]);
+
+        $reservation = Reservation::create([
+            'user_id' => $user->id,
+            'organization_id' => $organization->id,
+            'client_name' => 'Organisme Soldé',
+            'client_phone' => '0340000096',
+            'customer_phone' => '0340000096',
+            'customer_email' => 'org-paid@example.com',
+            'booking_reference' => 'BR-' . uniqid(),
+            'booking_type' => 'organization',
+            'source' => 'Appel',
+            'check_in_date' => '2026-06-22',
+            'check_out_date' => '2026-06-23',
+            'status' => 'arrive',
+            'payment_status' => 'paid',
+            'extra_beds' => 0,
+            'extra_mattresses' => 0,
+        ]);
+
+        $reservation->rooms()->attach($room->id, [
+            'price_snapshot_ariary' => 50000,
+        ]);
+
+        $invoice = Invoice::create([
+            'reservation_id' => $reservation->id,
+            'invoice_number' => null,
+            'total_amount_ariary' => 50000,
+            'tax_amount_ariary' => 0,
+            'discount_mode' => null,
+            'discount_value' => null,
+            'discount_amount_ariary' => 0,
+            'deposit_amount_ariary' => 0,
+            'pdf_path' => null,
+            'finalized_at' => null,
+            'status' => 'paid',
+            'document_type' => 'facture',
+        ]);
+
+        InvoiceItem::create([
+            'invoice_id' => $invoice->id,
+            'description' => 'Séjour chambre',
+            'type' => 'room',
+            'amount_ariary' => 50000,
+            'quantity' => 1,
+        ]);
+
+        Payment::create([
+            'invoice_id' => $invoice->id,
+            'amount_ariary' => 50000,
+            'amount_received_ariary' => 50000,
+            'change_given_ariary' => 0,
+            'payment_method' => 'Espèces',
+            'payment_context' => 'payment',
+            'processed_by_name' => 'Réception Test',
+            'processed_by_role' => 'receptionist',
+        ]);
+
+        $html = $this->invoiceHtmlForTest($invoice, 'facture', 'ariary');
+
+        $this->assertStringContainsString('Facture réglée intégralement', $html);
+        $this->assertStringNotContainsString('Compte BMOI', $html);
+        $this->assertStringNotContainsString('00004 00017 039579201 02 62', $html);
     }
 
     public function test_organization_room_invoice_description_includes_first_name_when_present(): void
@@ -1056,7 +1215,7 @@ class InvoicePdfGenerationTest extends TestCase
         $method = new \ReflectionMethod($controller, 'invoiceHtml');
         $method->setAccessible(true);
 
-        return $method->invoke($controller, $invoice->fresh(['items', 'payments', 'reservation.guest', 'reservation.rooms']), $documentType, $currencyMode);
+        return $method->invoke($controller, $invoice->fresh(['items', 'payments', 'reservation.guest', 'reservation.organization', 'reservation.rooms']), $documentType, $currencyMode);
     }
 
     private function organizationInvoiceHtmlForTest(Organization $organization, Collection $reservations, string $documentType, ?Invoice $invoice = null): string

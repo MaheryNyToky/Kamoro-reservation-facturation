@@ -37,6 +37,8 @@ class PMSController extends Controller
     private const EXTRA_MATTRESS_PRICE_EUR = 7.0;
     private const EUR_TO_ARIARY_RATE = 5000;
     private const RECEPTIONIST_ITEM_EDIT_WINDOW_SECONDS = 7;
+    private const LEGAL_NIF_NUMBER = '2000683017';
+    private const LEGAL_STAT_NUMBER = '4601 11 2011 0 10939';
     private static bool $hotelLogoLoaded = false;
     private static ?string $hotelLogoDataUri = null;
     private static bool $responsibleSignatureLoaded = false;
@@ -1380,7 +1382,7 @@ class PMSController extends Controller
         $occupantName = trim((string) ($room->pivot->occupant_name ?? ''));
         $occupantFirstName = trim((string) ($room->pivot->occupant_first_name ?? ''));
         if (($reservation->booking_type ?? '') === 'organization' && $occupantName !== '') {
-            $parts[] = 'Occupant : ' . trim($occupantName . ' ' . $occupantFirstName);
+            $parts[] = trim($occupantName . ' ' . $occupantFirstName);
         }
 
         $parts[] = sprintf('%d %s', $nights, $nights > 1 ? 'nuits' : 'nuit');
@@ -1403,6 +1405,7 @@ class PMSController extends Controller
         $generatedByName = trim((string) ($generatedBy['actor_name'] ?? Auth::user()?->name ?? 'Systeme'));
         $generatedByRole = trim((string) ($generatedBy['actor_role'] ?? Auth::user()?->role ?? 'system'));
         $clientName = e($organization->name);
+        $billingInfoLine = $this->organizationBillingInfoHtml($organization);
         $contactParts = array_filter([
             filled($organization->contact_name) ? 'Contact : ' . $organization->contact_name : null,
             filled($organization->contact_phone) ? 'Tél : ' . $organization->contact_phone : null,
@@ -1618,7 +1621,6 @@ class PMSController extends Controller
                     </div>
                     <div class='meta'>
                         <div style='margin-bottom: 6px; font-weight: bold; color: #111111;'>" . ($isProforma ? 'Proforma' : 'Facture') . " n° {$invoiceNumber}</div>
-                        <div style='margin-bottom: 6px; color: #475569; font-size: 9px;'>Generee par {$generatedByName}" . ($generatedByRole !== '' ? " ({$generatedByRole})" : '') . "</div>
                         <span class='pill " . ($balanceAmount > 0 ? 'unpaid' : '') . "'>{$paymentStatus}</span>
                     </div>
                 </div>
@@ -1630,6 +1632,7 @@ class PMSController extends Controller
                                 <div class='box-title'>Client</div>
                                 <strong>{$clientName}</strong><br>
                                 " . ($contactLine ? "{$contactLine}<br>" : '') . "
+                                " . ($billingInfoLine ? "{$billingInfoLine}<br>" : '') . "
                                 Periode : {$dateLabel}
                             </div>
                         </td>
@@ -1721,15 +1724,7 @@ class PMSController extends Controller
                     <div class='invoice-footer'>
                         <div class='invoice-location'>Fait a Ambondromamy le {$printedAt}</div>
                     </div>
-                    <div class='legal-block'>
-                        <table class='legal-line'>
-                            <tr>
-                                <td style='width: 24%;'><span class='legal-label'>NIF :</span> 2000683017</td>
-                                <td style='width: 28%;'><span class='legal-label'>STAT :</span> 46101 11 2011</td>
-                                <td><span class='legal-label'>Siège social :</span> PK 2 Route de Mampikony, 403 AMBONDROMAMY</td>
-                            </tr>
-                        </table>
-                    </div>
+                    {$this->legalFooterHtml()}
                 </div>
             </body>
             </html>
@@ -1739,21 +1734,11 @@ class PMSController extends Controller
     private function segmentExtraDescription(string $label, Room $room, Reservation $reservation): string
     {
         $nights = $this->bookingRoomNights($room, $reservation);
-        $start = Carbon::parse($room->pivot->segment_start_date ?? $reservation->check_in_date)->format('d-m-Y');
-        $end = Carbon::parse($room->pivot->segment_end_date ?? $reservation->check_out_date)->format('d-m-Y');
-        $occupantName = trim((string) ($room->pivot->occupant_name ?? ''));
-        $occupantFirstName = trim((string) ($room->pivot->occupant_first_name ?? ''));
-        $occupantLabel = $occupantName !== '' ? trim($occupantName . ' ' . $occupantFirstName) : '';
         $parts = [
             $label,
             sprintf('Chambre %s (%s)', $room->room_number, $this->roomClassificationLabel($room)),
         ];
 
-        if ($occupantLabel !== '') {
-            $parts[] = 'Occupant : ' . $occupantLabel;
-        }
-
-        $parts[] = sprintf('%s à %s', $start, $end);
         $parts[] = sprintf('%d %s', $nights, $nights > 1 ? 'nuits' : 'nuit');
 
         return implode(' - ', $parts);
@@ -2421,6 +2406,7 @@ class PMSController extends Controller
             ?? $reservation->client_name;
         $guestName = e($clientName);
         $seatPhone = $reservation->organization?->phone ?? null;
+        $billingInfoLine = $this->organizationBillingInfoHtml($reservation->organization);
         $contactParts = array_filter([
             $reservation->booking_type === 'organization' && filled($seatPhone)
                 ? 'Siège : ' . $seatPhone
@@ -2451,6 +2437,7 @@ class PMSController extends Controller
         $displayTotal = $showEuro ? max(0, $displaySubtotal - $displayDiscount) : $invoice->total_amount_ariary;
         $displayPaid = $showEuro ? $this->ariaryToEuro($paidAmount) : $paidAmount;
         $displayBalance = $showEuro ? max(0, $displayTotal - $displayPaid) : $balanceAmount;
+        $showBankDetails = ($reservation->booking_type ?? '') === 'organization' && $displayBalance > 0;
         $amountInWords = $showEuro
             ? $this->formatMoney($displayTotal, $currencyLabel)
             : e($this->amountInWords($invoice->total_amount_ariary)) . " (" . number_format($invoice->total_amount_ariary, 0, ',', ' ') . ") Ariary";
@@ -2608,7 +2595,7 @@ class PMSController extends Controller
                     </div>
 	                </div>
 	                <div class='notice'>{$paymentNotice}</div>
-                    " . ((($reservation->booking_type ?? '') === 'organization') ? "
+                    " . ($showBankDetails ? "
                     <div class='bank-details'>
                         <div class='bank-details-title'>Coordonnées bancaires</div>
                         <strong>Compte BMOI</strong> 00004 00017 039579201 02 62<br>
@@ -2622,6 +2609,7 @@ class PMSController extends Controller
                                 <div class='box-title'>Client</div>
                                 <strong>{$guestName}</strong><br>
                                 " . ($contactLine ? "{$contactLine}<br>" : '') . "
+                                " . ($billingInfoLine ? "{$billingInfoLine}<br>" : '') . "
                                 Séjour du {$checkIn} au {$checkOut}
                             </div>
                         </td>
@@ -2719,15 +2707,7 @@ class PMSController extends Controller
                 <div class='invoice-footer'>
                     <div class='invoice-location'>Fait à Ambondromamy le {$printedAt}</div>
                 </div>
-                <div class='legal-block'>
-                    <table class='legal-line'>
-                        <tr>
-                            <td style='width: 24%;'><span class='legal-label'>NIF :</span> 2000683017</td>
-                            <td style='width: 28%;'><span class='legal-label'>STAT :</span> 46101 11 2011</td>
-                            <td><span class='legal-label'>Siège social :</span> PK 2 Route de Mampikony, 403 AMBONDROMAMY</td>
-                        </tr>
-                    </table>
-                </div>
+                {$this->legalFooterHtml()}
             </body>
             </html>
         ";
@@ -2754,6 +2734,42 @@ class PMSController extends Controller
             'Matelas supplémentaire' => self::EXTRA_MATTRESS_PRICE_EUR,
             default => $this->ariaryToEuro((int) $item->amount_ariary),
         };
+    }
+
+    private function organizationBillingInfoHtml(?Organization $organization): string
+    {
+        if (!$organization) {
+            return '';
+        }
+
+        $lines = [];
+        $nif = trim((string) ($organization->nif ?: $organization->tax_id));
+        $stat = trim((string) ($organization->stat ?? ''));
+
+        if ($nif !== '') {
+            $lines[] = '<span class="legal-label">NIF:</span> ' . e($nif);
+        }
+
+        if ($stat !== '') {
+            $lines[] = '<span class="legal-label">STAT:</span> ' . e($stat);
+        }
+
+        return implode('<br>', $lines);
+    }
+
+    private function legalFooterHtml(): string
+    {
+        return "
+                <div class='legal-block'>
+                    <table class='legal-line'>
+                        <tr>
+                            <td style='width: 24%;'><span class='legal-label'>NIF:</span> " . self::LEGAL_NIF_NUMBER . "</td>
+                            <td style='width: 28%;'><span class='legal-label'>STAT:</span>" . self::LEGAL_STAT_NUMBER . "</td>
+                            <td><span class='legal-label'>Siège social :</span> PK 2 Route de Mampikony, 403 AMBONDROMAMY</td>
+                        </tr>
+                    </table>
+                </div>
+        ";
     }
 
     private function ariaryToEuro(int $amount): float
