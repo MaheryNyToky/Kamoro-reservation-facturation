@@ -109,6 +109,44 @@ class ClientHistorySearchTest extends TestCase
         $this->assertSame($older->id, (int) $response->json('data.1.id'));
     }
 
+    public function test_checked_in_reservation_without_invoice_shows_stay_price_as_balance(): void
+    {
+        $user = User::create([
+            'name' => 'Reception Test',
+            'email' => 'reception-no-invoice@example.com',
+            'password' => 'password',
+            'role' => 'receptionist',
+            'is_blacklisted' => false,
+        ]);
+
+        $room = Room::create([
+            'room_number' => '103',
+            'type' => 'Chambre Double',
+            'model' => 'Standard',
+            'base_price_ariary' => 100000,
+            'is_fixed_price' => false,
+        ]);
+
+        $reservation = $this->createReservation(
+            $user->id,
+            $room->id,
+            'HERIMANAMPISOA LALATIANA MAHARAVO',
+            '2026-07-21',
+            '2026-07-22',
+        );
+        $reservation->rooms()->updateExistingPivot($room->id, [
+            'price_snapshot_ariary' => 100000,
+        ]);
+        $reservation->update(['status' => 'arrive']);
+
+        $response = $this->getJson('/api/dashboard/client-history?q=HERIMANAMPISOA');
+
+        $response->assertOk();
+        $response->assertJsonPath('data.0.invoice_number', null);
+        $response->assertJsonPath('data.0.invoice_balance_amount_ariary', null);
+        $response->assertJsonPath('data.0.balance_amount_ariary', 100000);
+    }
+
     protected function tearDown(): void
     {
         Carbon::setTestNow();

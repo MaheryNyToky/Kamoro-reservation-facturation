@@ -799,7 +799,7 @@
         function loadReservations() {
             const date = document.getElementById('global-date').value;
             const cacheKey = cacheKeyFor('/api/active-reservations', date);
-            safeFetchJson(`/api/active-reservations?date=${date}`, cacheKey, { timeoutMs: 4000 })
+            safeFetchJson(`/api/active-reservations?date=${date}`, cacheKey, { timeoutMs: 15000 })
                 .then(({ data, fromCache }) => {
                     allReservationsData = data;
                     renderReservationsTable(data);
@@ -1427,7 +1427,7 @@
                 : `/api/dashboard/client-history?q=${encodeURIComponent(query)}`;
 
             safeFetchJson(url, cacheKey, {
-                timeoutMs: 4500,
+                timeoutMs: 15000,
             })
                 .then(({ data, fromCache }) => {
                     if (data.status !== 'success') {

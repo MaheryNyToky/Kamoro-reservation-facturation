@@ -375,7 +375,16 @@ class HotelManagementController extends Controller
         $cacheKey = 'dashboard:client-history:' . $this->availabilityService->getCacheVersion() . ':' . $cacheSuffix;
         $reservations = Cache::remember($cacheKey, now()->addMinutes(1), function () use ($normalizedTerm, $today, $term, $mode) {
             $query = Reservation::query()
-                ->with(['rooms', 'user', 'guest', 'invoice.payments', 'latestAudit', 'latestCheckInAudit', 'latestModificationAudit']);
+                ->with([
+                    'rooms',
+                    'user',
+                    'guest',
+                    'organization',
+                    'invoice.payments',
+                    'latestAudit',
+                    'latestCheckInAudit',
+                    'latestModificationAudit',
+                ]);
 
             if ($mode !== 'all' && $term !== '') {
                 $query->where(function ($query) use ($normalizedTerm) {

@@ -930,7 +930,18 @@ class BookingService
     public function reservationsForDate(?string $date, string $statusFilter = 'all'): Collection
     {
         return Reservation::query()
-            ->with(['rooms', 'user', 'audits', 'invoice.items', 'invoice.payments', 'latestAudit', 'latestCheckInAudit', 'latestModificationAudit'])
+            ->with([
+                'rooms',
+                'user',
+                'guest',
+                'organization',
+                'audits',
+                'invoice.items',
+                'invoice.payments',
+                'latestAudit',
+                'latestCheckInAudit',
+                'latestModificationAudit',
+            ])
             ->when($date && $date !== 'all', function ($query) use ($date) {
                 $query->where('check_in_date', '<=', $date)
                     ->where('check_out_date', '>=', $date);
@@ -963,7 +974,18 @@ class BookingService
     public function activeReservations(string $date): Collection
     {
         return Reservation::query()
-            ->with(['rooms', 'user', 'audits', 'invoice.items', 'invoice.payments', 'latestAudit', 'latestCheckInAudit', 'latestModificationAudit'])
+            ->with([
+                'rooms',
+                'user',
+                'guest',
+                'organization',
+                'audits',
+                'invoice.items',
+                'invoice.payments',
+                'latestAudit',
+                'latestCheckInAudit',
+                'latestModificationAudit',
+            ])
             ->where('check_in_date', '<=', $date)
             ->where('check_out_date', '>=', $date)
             ->get()
@@ -1101,7 +1123,11 @@ class BookingService
         $invoice = $reservation->invoice;
         $invoiceTotalAmount = (int) ($invoice?->total_amount_ariary ?? 0);
         $invoicePaidAmount = (int) ($invoice?->paid_amount_ariary ?? 0);
-        $invoiceBalanceAmount = (int) ($invoice?->balance_amount_ariary ?? 0);
+        $invoiceBalanceAmount = $invoice
+            ? (int) $invoice->balance_amount_ariary
+            : (in_array($reservation->status, ['arrive', 'check_out_manuel'], true)
+                ? (int) $totalPrice
+                : 0);
         $paymentStatus = $reservation->payment_status ?? 'unbilled';
         $payments = $invoice?->relationLoaded('payments')
             ? $invoice->payments

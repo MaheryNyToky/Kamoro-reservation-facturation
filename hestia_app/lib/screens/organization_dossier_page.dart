@@ -283,14 +283,29 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
     const cacheKey = 'organization_dossier:reservations_all';
     try {
       final response = await http
-          .get(Uri.parse('$_baseUrl/api/reservations/all?date=all&status=all'))
-          .timeout(const Duration(seconds: 8));
+          .get(Uri.parse('$_baseUrl/api/organization-dossiers'))
+          .timeout(const Duration(seconds: 20));
       if (response.statusCode != 200) {
         throw Exception('Erreur ${response.statusCode}');
       }
 
       final decoded = json.decode(response.body);
-      final data = decoded is List ? decoded : const [];
+      final data = <dynamic>[];
+      if (decoded is Map<String, dynamic>) {
+        final organizations = decoded['organizations'];
+        if (organizations is List) {
+          for (final organization in organizations.whereType<Map>()) {
+            final months = organization['months'];
+            if (months is! List) continue;
+            for (final month in months.whereType<Map>()) {
+              final reservations = month['reservations'];
+              if (reservations is List) {
+                data.addAll(reservations);
+              }
+            }
+          }
+        }
+      }
       final reservations = data
           .whereType<Map>()
           .map(
