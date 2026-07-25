@@ -34,7 +34,6 @@ class KamoroHotelSeeder extends Seeder
             ['room_number' => '24', 'type' => 'Chambre Double', 'model' => 'Standard', 'price' => 110000, 'fixed' => false],
             ['room_number' => '25', 'type' => 'Chambre Double', 'model' => 'Standard (état dégradé)', 'price' => 95000, 'fixed' => true],
             ['room_number' => '26', 'type' => 'Chambre Double', 'model' => 'Standard', 'price' => 110000, 'fixed' => false],
-            ['room_number' => '27', 'type' => 'Chambre Double', 'model' => 'Standard', 'price' => 110000, 'fixed' => false],
             ['room_number' => '101', 'type' => 'Chambre Double', 'model' => 'Supérieure', 'price' => 125000, 'fixed' => false],
             ['room_number' => '102', 'type' => 'Chambre Triple', 'model' => 'Supérieure (3 Petits lits)', 'price' => 155000, 'fixed' => false],
             ['room_number' => '103', 'type' => 'Chambre Familiale', 'model' => 'Supérieure', 'price' => 205000, 'fixed' => false],
@@ -53,7 +52,6 @@ class KamoroHotelSeeder extends Seeder
             ['room_number' => '304', 'type' => 'Chambre Familiale', 'model' => 'Supérieure', 'price' => 205000, 'fixed' => false],
             ['room_number' => '305', 'type' => 'Chambre Double', 'model' => 'Supérieure', 'price' => 125000, 'fixed' => false],
             ['room_number' => '306', 'type' => 'Chambre Double', 'model' => 'Supérieure', 'price' => 125000, 'fixed' => false],
-            ['room_number' => '307', 'type' => 'Chambre Double', 'model' => 'Supérieure', 'price' => 125000, 'fixed' => false],
         ];
 
         foreach ($roomsData as $roomData) {
