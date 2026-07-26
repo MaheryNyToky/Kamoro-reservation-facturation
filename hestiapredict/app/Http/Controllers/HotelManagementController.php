@@ -536,6 +536,7 @@ class HotelManagementController extends Controller
                 'reservations' => function ($reservationQuery) use ($today): void {
                     $reservationQuery
                         ->with(['rooms', 'user', 'invoice.payments', 'latestAudit', 'latestCheckInAudit', 'latestModificationAudit'])
+                        ->whereHas('rooms')
                         ->whereDate('check_out_date', '<', $today)
                         ->where('status', '!=', 'annule')
                         ->orderBy('check_in_date')
@@ -586,6 +587,7 @@ class HotelManagementController extends Controller
         $today = now()->startOfDay()->toDateString();
         $query = $organization->reservations()
             ->with(['rooms', 'user', 'invoice.payments', 'latestAudit', 'latestCheckInAudit', 'latestModificationAudit'])
+            ->whereHas('rooms')
             ->whereDate('check_out_date', '<', $today)
             ->where('status', '!=', 'annule')
             ->orderBy('check_in_date')

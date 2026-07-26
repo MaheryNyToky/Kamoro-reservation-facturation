@@ -328,24 +328,77 @@ class BookingService
             return null;
         }
 
-        if (Carbon::parse($reservation->check_out_date)->lt(now()->startOfDay())) {
-            throw ValidationException::withMessages([
-                'reservation' => 'Seules les réservations non terminées peuvent être modifiées.',
-            ]);
-        }
-
         $isCheckedIn = $reservation->status === 'arrive';
         $currentCheckIn = Carbon::parse($reservation->check_in_date)->toDateString();
         $currentCheckOut = Carbon::parse($reservation->check_out_date)->toDateString();
         $submittedCheckIn = (string) ($data['check_in'] ?? $currentCheckIn);
         $submittedCheckOut = (string) ($data['check_out'] ?? $currentCheckOut);
+        $actorRole = (string) ($data['modified_by_role'] ?? '');
+        $isAdmin = in_array($actorRole, ['admin', 'superadmin'], true);
+        $isFinished = Carbon::parse($currentCheckOut)->lt(now()->startOfDay());
+        $isRetroactiveAdminExtension = $isFinished
+            && $isCheckedIn
+            && $isAdmin
+            && Carbon::parse($submittedCheckOut)->gt(Carbon::parse($currentCheckOut));
+
+        if ($isFinished && !$isRetroactiveAdminExtension) {
+            throw ValidationException::withMessages([
+                'reservation' => $isAdmin && $isCheckedIn
+                    ? 'Après la fin du séjour, seule une prolongation corrective de la date de départ est autorisée.'
+                    : 'Seules les réservations non terminées peuvent être modifiées.',
+            ]);
+        }
+
         $checkIn = $isCheckedIn
             ? $currentCheckIn
             : $submittedCheckIn;
         $checkOut = $submittedCheckOut;
         $roomIds = collect($data['room_ids'])->map(fn ($roomId) => (int) $roomId)->values();
-        $roomSegments = $this->normalizeRoomSegments($data, $checkIn, $checkOut, $roomIds);
-        $hasCustomSegments = filled($data['room_segments'] ?? null);
+        $existingRoomIds = $reservation->rooms
+            ->pluck('id')
+            ->map(fn ($roomId) => (int) $roomId)
+            ->sort()
+            ->values();
+
+        if ($isRetroactiveAdminExtension && $roomIds->sort()->values()->all() !== $existingRoomIds->all()) {
+            throw ValidationException::withMessages([
+                'room_ids' => 'Une prolongation corrective conserve obligatoirement les chambres déjà associées au séjour.',
+            ]);
+        }
+
+        if (
+            $isRetroactiveAdminExtension
+            && (
+                (int) ($data['extra_beds'] ?? $reservation->extra_beds) !== (int) $reservation->extra_beds
+                || (int) ($data['extra_mattresses'] ?? $reservation->extra_mattresses) !== (int) $reservation->extra_mattresses
+            )
+        ) {
+            throw ValidationException::withMessages([
+                'reservation' => 'Une prolongation corrective ne peut modifier que la date de départ.',
+            ]);
+        }
+
+        if ($isRetroactiveAdminExtension) {
+            $data['extra_beds'] = (int) $reservation->extra_beds;
+            $data['extra_mattresses'] = (int) $reservation->extra_mattresses;
+            $hasCustomSegments = false;
+            $roomSegments = $reservation->rooms
+                ->map(fn (Room $room) => [
+                    'room_id' => (int) $room->id,
+                    'segment_start_date' => Carbon::parse(
+                        $room->pivot->segment_start_date ?? $reservation->check_in_date
+                    )->toDateString(),
+                    'segment_end_date' => Carbon::parse(
+                        $room->pivot->segment_end_date ?? $reservation->check_out_date
+                    )->toDateString(),
+                    'segment_extra_beds' => (int) ($room->pivot->segment_extra_beds ?? 0),
+                    'segment_extra_mattresses' => (int) ($room->pivot->segment_extra_mattresses ?? 0),
+                ]);
+        } else {
+            $roomSegments = $this->normalizeRoomSegments($data, $checkIn, $checkOut, $roomIds);
+            $hasCustomSegments = filled($data['room_segments'] ?? null);
+        }
+
         if ($isCheckedIn && Carbon::parse($checkOut)->gt(Carbon::parse($currentCheckOut))) {
             $roomSegments = $this->extendLatestSegmentsToCheckOut($roomSegments, $checkOut);
         }
@@ -379,7 +432,9 @@ class BookingService
                 ]);
             }
 
-            $roomSegments = $this->retainConsumedRoomSegments($reservation, $roomSegments);
+            if (!$isRetroactiveAdminExtension) {
+                $roomSegments = $this->retainConsumedRoomSegments($reservation, $roomSegments);
+            }
         }
 
         $this->assertSegmentsDoNotOverlap($roomSegments);
@@ -426,7 +481,7 @@ class BookingService
             $reservation->id,
         );
 
-        return DB::transaction(function () use ($reservation, $data, $roomIds, $isCheckedIn, $roomSegments, $hasCustomSegments, $checkOut) {
+        return DB::transaction(function () use ($reservation, $data, $roomIds, $isCheckedIn, $isRetroactiveAdminExtension, $roomSegments, $hasCustomSegments, $checkOut) {
             $customerPhone = PhoneNumber::normalize($data['customer_phone'] ?? null);
             $previousPivots = $reservation->rooms
                 ->mapWithKeys(fn (Room $room) => [$room->id => $this->pivotSnapshot($room)]);
@@ -488,7 +543,20 @@ class BookingService
             }
 
             $reservation->update($updateData);
-            $this->syncRoomSegments($reservation, $roomSegments, $previousPivots);
+            if ($isRetroactiveAdminExtension) {
+                foreach ($roomSegments as $segment) {
+                    $reservation->rooms()->updateExistingPivot(
+                        (int) $segment['room_id'],
+                        ['segment_end_date' => $segment['segment_end_date']],
+                    );
+                }
+                $changeSet['retroactive_extension'] = [
+                    'before' => false,
+                    'after' => true,
+                ];
+            } else {
+                $this->syncRoomSegments($reservation, $roomSegments, $previousPivots);
+            }
 
             if (!empty($changeSet)) {
                 ReservationAudit::create([

@@ -2816,6 +2816,12 @@ class _NewBookingPageState extends State<NewBookingPage> {
       return;
     }
 
+    final confirmed = await _confirmBookingIdentity(
+      phone: effectivePhone,
+      roomIds: roomIds,
+    );
+    if (!confirmed || !mounted) return;
+
     setState(() {
       _loadingRooms = true;
       _savingBooking = true;
@@ -2938,6 +2944,58 @@ class _NewBookingPageState extends State<NewBookingPage> {
         });
       }
     }
+  }
+
+  Future<bool> _confirmBookingIdentity({
+    required String phone,
+    required List<int> roomIds,
+  }) async {
+    final roomNumbers = roomIds
+        .map((roomId) => _roomById(roomId)?['room_number']?.toString())
+        .whereType<String>()
+        .where((roomNumber) => roomNumber.trim().isNotEmpty)
+        .join(', ');
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Confirmer la réservation'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${_isOrganizationBooking ? 'Organisme' : 'Client'} : ${_clientName()}',
+            ),
+            const SizedBox(height: 8),
+            Text('Téléphone : $phone'),
+            const SizedBox(height: 8),
+            Text(
+              'Chambre${roomIds.length > 1 ? 's' : ''} : '
+              '${roomNumbers.isEmpty ? roomIds.join(', ') : roomNumbers}',
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Vérifie surtout le nom avant de confirmer.',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Corriger'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Enregistrer'),
+          ),
+        ],
+      ),
+    );
+
+    return confirmed == true;
   }
 
   int _getSuggestedPrice(dynamic room) {
@@ -3383,6 +3441,18 @@ class _NewBookingPageState extends State<NewBookingPage> {
                         labelText: 'Numéro de la personne à contacter',
                         prefixIcon: Icon(Icons.phone),
                         border: OutlineInputBorder(),
+                      ),
+                    )
+                  else if (_selectedClient != null)
+                    TextField(
+                      controller: _phoneController,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(
+                        labelText: 'Téléphone du client sélectionné',
+                        prefixIcon: Icon(Icons.phone),
+                        border: OutlineInputBorder(),
+                        helperText:
+                            'Modifie ce numéro pour rechercher un autre profil.',
                       ),
                     )
                   else

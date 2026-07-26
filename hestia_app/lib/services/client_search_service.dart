@@ -29,11 +29,11 @@ class ClientSearchService {
 
       for (final item in rawList.whereType<Map>()) {
         final client = ClientProfile.fromJson(Map<String, dynamic>.from(item));
-        final key = client.dedupKey;
-        if (key.isEmpty || seenKeys.contains(key)) {
+        final keys = client.dedupKeys;
+        if (keys.isEmpty || keys.any(seenKeys.contains)) {
           continue;
         }
-        seenKeys.add(key);
+        seenKeys.addAll(keys);
         results.add(client);
       }
 

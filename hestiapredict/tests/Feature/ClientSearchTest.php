@@ -133,6 +133,142 @@ class ClientSearchTest extends TestCase
         $response->assertJsonPath('data.0.full_name', 'Alice Dupont');
     }
 
+    public function test_search_deduplicates_same_document_and_keeps_latest_phone_number(): void
+    {
+        $user = User::create([
+            'name' => 'Reception Document Test',
+            'email' => 'reception-document-test@example.com',
+            'password' => 'password',
+            'role' => 'receptionist',
+            'is_blacklisted' => false,
+        ]);
+
+        $oldReservationId = $this->createReservation(
+            $user->id,
+            'Vololonirina Manoa Andriamanamihaja',
+            '0340000100',
+        );
+        $latestReservationId = $this->createReservation(
+            $user->id,
+            'Vololonirina Manoa Andriamanamihaja',
+            '0320000200',
+        );
+
+        $oldGuest = Guest::create([
+            'reservation_id' => $oldReservationId,
+            'full_name' => 'Vololonirina Manoa Andriamanamihaja',
+            'first_name' => 'Manoa',
+            'last_name' => 'Vololonirina Andriamanamihaja',
+            'phone_number' => '0340000100',
+            'sex' => 'Femme',
+            'id_document_number' => '101 242 110 130',
+            'loyalty_count' => 9,
+            'date_of_birth' => '1980-12-23',
+            'id_type' => 'CIN',
+            'id_number' => '101 242 110 130',
+            'id_photo_path' => null,
+        ]);
+        $oldGuest->forceFill([
+            'created_at' => '2026-01-01 10:00:00',
+            'updated_at' => '2026-01-01 10:00:00',
+        ])->saveQuietly();
+
+        $latestGuest = Guest::create([
+            'reservation_id' => $latestReservationId,
+            'full_name' => 'Vololonirina Manoa Andriamanamihaja',
+            'first_name' => 'Manoa',
+            'last_name' => 'Vololonirina Andriamanamihaja',
+            'phone_number' => '0320000200',
+            'sex' => 'Femme',
+            'id_document_number' => '101242110130',
+            'loyalty_count' => 1,
+            'date_of_birth' => '1980-12-23',
+            'id_type' => 'CIN',
+            'id_number' => '101242110130',
+            'id_photo_path' => null,
+        ]);
+        $latestGuest->forceFill([
+            'created_at' => '2026-07-26 10:00:00',
+            'updated_at' => '2026-07-26 10:00:00',
+        ])->saveQuietly();
+
+        $response = $this->getJson('/api/clients/search?q=Vololonirina');
+
+        $response->assertOk();
+        $response->assertJsonCount(1, 'data');
+        $response->assertJsonPath('data.0.id', $latestGuest->id);
+        $response->assertJsonPath('data.0.phone_number', '0320000200');
+        $response->assertJsonPath('data.0.id_number', '101242110130');
+    }
+
+    public function test_search_returns_an_organization_room_occupant_without_a_guest_profile(): void
+    {
+        $user = User::create([
+            'name' => 'Reception Occupant Test',
+            'email' => 'reception-occupant-test@example.com',
+            'password' => 'password',
+            'role' => 'receptionist',
+            'is_blacklisted' => false,
+        ]);
+
+        $reservationId = $this->createReservation(
+            $user->id,
+            'Organisme Recherche',
+            '0341000020',
+        );
+        DB::table('reservations')->where('id', $reservationId)->update([
+            'booking_type' => 'organization',
+        ]);
+
+        $roomId = DB::table('rooms')->insertGetId([
+            'room_number' => 'SEARCH-OCC-01',
+            'type' => 'Double',
+            'model' => 'Standard',
+            'base_price_ariary' => 120000,
+            'is_fixed_price' => false,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('booking_room')->insert([
+            'reservation_id' => $reservationId,
+            'room_id' => $roomId,
+            'price_snapshot_ariary' => 120000,
+            'occupant_name' => 'Rakoto',
+            'occupant_first_name' => 'Secondaire',
+            'occupant_phone' => '0341000021',
+            'occupant_date_of_birth' => '1993-04-05',
+            'occupant_sex' => 'Femme',
+            'occupant_id_type' => 'Passeport',
+            'occupant_id_number' => 'PP-OCC-SEARCH-001',
+            'occupant_passport_valid_from' => '2026-01-01',
+            'occupant_passport_valid_until' => '2031-01-01',
+            'checked_in_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->assertDatabaseMissing('guests', [
+            'reservation_id' => $reservationId,
+        ]);
+
+        $response = $this->getJson('/api/clients/search?q=Secondaire');
+
+        $response->assertOk();
+        $response->assertJsonCount(1, 'data');
+        $response->assertJsonPath('data.0.full_name', 'Rakoto Secondaire');
+        $response->assertJsonPath('data.0.first_name', 'Secondaire');
+        $response->assertJsonPath('data.0.last_name', 'Rakoto');
+        $response->assertJsonPath('data.0.date_of_birth', '1993-04-05');
+        $response->assertJsonPath('data.0.sex', 'Femme');
+        $response->assertJsonPath('data.0.id_type', 'Passeport');
+        $response->assertJsonPath('data.0.id_number', 'PP-OCC-SEARCH-001');
+        $response->assertJsonPath(
+            'data.0.passport_valid_until',
+            '2031-01-01',
+        );
+    }
+
     private function createReservation(int $userId, string $clientName, string $clientPhone): int
     {
         return DB::table('reservations')->insertGetId([

@@ -322,6 +322,7 @@ class PMSController extends Controller
             ->where('organization_id', $organization->id)
             ->where('booking_type', 'organization')
             ->whereIn('id', $reservationIds->all())
+            ->whereHas('rooms')
             ->where('status', '!=', 'annule')
             ->whereDate('check_out_date', '<', $today)
             ->orderBy('check_in_date')

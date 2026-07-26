@@ -101,6 +101,11 @@ class _EditReservationPageState extends State<EditReservationPage> {
   bool get _isPostCheckIn =>
       (widget.reservation['status'] ?? '').toString() == 'arrive';
 
+  bool get _isAdmin => widget.role == 'admin' || widget.role == 'superadmin';
+
+  bool get _canRetroactivelyExtend =>
+      _isPostCheckIn && _isAdmin && !_reservation.isEditable;
+
   bool get _canEditCheckIn => widget.role != 'receptionist' && !_isPostCheckIn;
 
   @override
@@ -649,9 +654,11 @@ class _EditReservationPageState extends State<EditReservationPage> {
   }
 
   Future<void> _pickCheckOut() async {
-    final firstDate = _isPostCheckIn
-        ? _reservation.checkOut
-        : _checkIn.add(const Duration(days: 1));
+    final firstDate = _canRetroactivelyExtend
+        ? _reservation.checkOut.add(const Duration(days: 1))
+        : (_isPostCheckIn
+              ? _reservation.checkOut
+              : _checkIn.add(const Duration(days: 1)));
     final initialDate = _checkOut.isBefore(firstDate) ? firstDate : _checkOut;
     final selected = await showDatePicker(
       context: context,
@@ -676,7 +683,7 @@ class _EditReservationPageState extends State<EditReservationPage> {
   }
 
   Future<void> _saveChanges() async {
-    if (!_reservation.isEditable) {
+    if (!_reservation.isEditable && !_canRetroactivelyExtend) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -943,8 +950,10 @@ class _EditReservationPageState extends State<EditReservationPage> {
                     ),
                     if (_isPostCheckIn) ...[
                       const SizedBox(height: 8),
-                      const Text(
-                        'Après check-in, le départ peut être prolongé. Les nuits déjà passées restent conservées.',
+                      Text(
+                        _canRetroactivelyExtend
+                            ? 'Correction administrateur : seule la date de départ peut être prolongée. Les chambres et les nuits déjà enregistrées restent conservées.'
+                            : 'Après check-in, le départ peut être prolongé. Les nuits déjà passées restent conservées.',
                         style: TextStyle(
                           color: _muted,
                           fontWeight: FontWeight.w700,
@@ -1464,7 +1473,9 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
       if (occupantName.isEmpty) continue;
 
       final firstName = (room['occupant_first_name'] ?? '').toString().trim();
-      occupants.add([occupantName, firstName].where((value) => value.isNotEmpty).join(' '));
+      occupants.add(
+        [occupantName, firstName].where((value) => value.isNotEmpty).join(' '),
+      );
     }
 
     if (occupants.isEmpty) return null;
@@ -1614,7 +1625,21 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
 
   bool _canEditReservation(Map<String, dynamic> reservation) {
     final status = (reservation['status'] ?? '').toString();
-    return status == 'en_attente' || status == 'arrive';
+    if (status == 'en_attente') return true;
+    if (status != 'arrive') return false;
+
+    final checkOut = DateTime.tryParse(
+      (reservation['check_out'] ?? reservation['check_out_date'] ?? '')
+          .toString(),
+    );
+    if (checkOut == null) return true;
+
+    final today = DateTime.now();
+    final todayOnly = DateTime(today.year, today.month, today.day);
+    final checkOutOnly = DateTime(checkOut.year, checkOut.month, checkOut.day);
+    if (!checkOutOnly.isBefore(todayOnly)) return true;
+
+    return widget.role == 'admin' || widget.role == 'superadmin';
   }
 
   bool _canCancelReservation(Map<String, dynamic> reservation) {

@@ -16,6 +16,20 @@ class ReservationEndToEndFlowTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Carbon::setTestNow(Carbon::parse('2026-06-15 10:00:00'));
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+
+        parent::tearDown();
+    }
+
     public function test_individual_and_organization_flows_work_end_to_end(): void
     {
         $user = $this->createReceptionUser();

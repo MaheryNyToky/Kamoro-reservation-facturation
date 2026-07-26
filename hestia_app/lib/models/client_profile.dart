@@ -49,7 +49,14 @@ class ClientProfile {
 
   String get searchLabel => '$displayName - ID: $displayDocumentNumber';
 
-  String get dedupKey {
+  List<String> get dedupKeys {
+    final keys = <String>[];
+    final document =
+        _normalizeDocument(idDocumentNumber) ?? _normalizeDocument(idNumber);
+    if (document != null) {
+      keys.add('doc:$document');
+    }
+
     final name =
         _normalize(fullName) ??
         [
@@ -59,19 +66,14 @@ class ClientProfile {
     final phone = _normalizePhone(phoneNumber);
 
     if (name.isNotEmpty && phone != null && phone.isNotEmpty) {
-      return 'name-phone:$name|$phone';
+      keys.add('name-phone:$name|$phone');
     }
 
-    final document = _normalize(idDocumentNumber) ?? _normalize(idNumber);
-    if (document != null) {
-      return 'doc:$document';
+    if (keys.isEmpty && name.isNotEmpty) {
+      keys.add('name:$name');
     }
 
-    if (name.isNotEmpty) {
-      return 'name:$name';
-    }
-
-    return '';
+    return keys;
   }
 
   factory ClientProfile.fromJson(Map<String, dynamic> json) {
@@ -110,6 +112,12 @@ class ClientProfile {
     if (normalized == null || normalized.isEmpty) {
       return null;
     }
+    return normalized;
+  }
+
+  static String? _normalizeDocument(String? value) {
+    final normalized = _normalize(value)?.replaceAll(RegExp(r'[^a-z0-9]+'), '');
+    if (normalized == null || normalized.isEmpty) return null;
     return normalized;
   }
 

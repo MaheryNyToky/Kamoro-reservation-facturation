@@ -157,8 +157,9 @@ class _CheckInPageState extends State<CheckInPage> {
       occupant.nameController.text = (room['occupant_name'] ?? defaultName)
           .toString()
           .trim();
-      occupant.firstNameController.text =
-          (room['occupant_first_name'] ?? '').toString().trim();
+      occupant.firstNameController.text = (room['occupant_first_name'] ?? '')
+          .toString()
+          .trim();
       occupant.idType = (room['occupant_id_type'] ?? 'CIN').toString();
       occupant.idNumberController.text =
           (room['occupant_id_number'] ?? _idNumberController.text)
@@ -456,6 +457,37 @@ class _CheckInPageState extends State<CheckInPage> {
     });
   }
 
+  void _applyRoomOccupantClient(
+    _RoomOccupantDraft draft,
+    ClientProfile client,
+  ) {
+    setState(() {
+      final lastName = client.lastName?.trim() ?? '';
+      final firstName = client.firstName?.trim() ?? '';
+
+      draft.nameController.text = lastName.isNotEmpty
+          ? lastName
+          : client.displayName.trim();
+      draft.firstNameController.text = firstName;
+      draft.idNumberController.text = client.displayDocumentNumber;
+      draft.dateOfBirth = client.dateOfBirth ?? draft.dateOfBirth;
+      draft.passportValidFrom =
+          client.passportValidFrom ?? draft.passportValidFrom;
+      draft.passportValidUntil =
+          client.passportValidUntil ?? draft.passportValidUntil;
+
+      final sex = client.sex?.trim();
+      if (sex != null && _sexes.contains(sex)) {
+        draft.sex = sex;
+      }
+
+      final idType = client.idType?.trim();
+      if (idType != null && _idTypes.contains(idType)) {
+        draft.idType = idType;
+      }
+    });
+  }
+
   (String, String) _splitName(String rawName) {
     final normalized = rawName.trim().replaceAll(RegExp(r'\s+'), ' ');
     if (normalized.isEmpty) return ('', '');
@@ -740,14 +772,19 @@ class _CheckInPageState extends State<CheckInPage> {
               style: const TextStyle(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 12),
-            TextFormField(
+            ClientAutocompleteField(
               controller: draft.nameController,
-              decoration: const InputDecoration(
-                labelText: 'Nom de l’occupant',
-                prefixIcon: Icon(Icons.person_outline),
-              ),
+              labelText: 'Nom de l’occupant',
+              prefixIcon: Icons.person_outline,
               keyboardType: TextInputType.name,
               textInputAction: TextInputAction.next,
+              valueBuilder: (client) {
+                final lastName = client.lastName?.trim() ?? '';
+                return lastName.isNotEmpty
+                    ? lastName
+                    : client.displayName.trim();
+              },
+              onSelected: (client) => _applyRoomOccupantClient(draft, client),
               validator: (value) {
                 if (!_needsRoomOccupants) return null;
                 return value == null || value.trim().isEmpty
@@ -756,17 +793,18 @@ class _CheckInPageState extends State<CheckInPage> {
               },
             ),
             const SizedBox(height: 12),
-            TextFormField(
+            ClientAutocompleteField(
               controller: draft.firstNameController,
-              decoration: const InputDecoration(
-                labelText: 'Prénom de l’occupant',
-                prefixIcon: Icon(Icons.badge_outlined),
-              ),
+              labelText: 'Prénom de l’occupant',
+              prefixIcon: Icons.badge_outlined,
               keyboardType: TextInputType.name,
               textInputAction: TextInputAction.next,
+              valueBuilder: (client) => client.firstName?.trim() ?? '',
+              onSelected: (client) => _applyRoomOccupantClient(draft, client),
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
+              key: ValueKey('occupant-sex-${draft.roomId}-${draft.sex}'),
               initialValue: draft.sex,
               decoration: const InputDecoration(
                 labelText: 'Sexe',
@@ -783,6 +821,7 @@ class _CheckInPageState extends State<CheckInPage> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
+              key: ValueKey('occupant-id-type-${draft.roomId}-${draft.idType}'),
               initialValue: draft.idType,
               decoration: const InputDecoration(
                 labelText: 'Type de pièce d\'identité',
@@ -863,12 +902,14 @@ class _CheckInPageState extends State<CheckInPage> {
               ),
               const SizedBox(height: 12),
             ],
-            TextFormField(
+            ClientAutocompleteField(
               controller: draft.idNumberController,
-              decoration: const InputDecoration(
-                labelText: 'Numéro de pièce',
-                prefixIcon: Icon(Icons.badge_outlined),
-              ),
+              labelText: 'Numéro de pièce',
+              prefixIcon: Icons.badge_outlined,
+              keyboardType: TextInputType.text,
+              textInputAction: TextInputAction.next,
+              valueBuilder: (client) => client.displayDocumentNumber,
+              onSelected: (client) => _applyRoomOccupantClient(draft, client),
               validator: (value) {
                 if (!_needsRoomOccupants) return null;
                 return value == null || value.trim().isEmpty
