@@ -23,11 +23,8 @@ services:
     volumes:
       - ./hestiapredict/database:/data
       - laravel_storage:/app/storage
-    depends_on:
-      ai-engine:
-        condition: service_healthy
-
   ai-engine:
+    profiles: ["ai"]
     build:
       context: .
       dockerfile: docker/ai/Dockerfile

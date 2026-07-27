@@ -4,6 +4,8 @@ $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $LogDir = Join-Path $ProjectRoot ".startup-logs"
 $StdOutLog = Join-Path $LogDir "auto-start.out.log"
 $StdErrLog = Join-Path $LogDir "auto-start.err.log"
+$AiStdOutLog = Join-Path $LogDir "ai.out.log"
+$AiStdErrLog = Join-Path $LogDir "ai.err.log"
 $LogFile = Join-Path $LogDir "auto-start.log"
 $AppUrl = "http://127.0.0.1:8080/index.html"
 $DockerConfigDir = Join-Path $env:TEMP "Kamoro-Docker-Config"
@@ -165,6 +167,32 @@ function Stop-ExistingComposeStack {
     }
 }
 
+function Stop-PortListeners {
+    $Ports = @(8000, 8001, 8080)
+    $Connections = @()
+
+    try {
+        $Connections = Get-NetTCPConnection -State Listen -LocalPort $Ports -ErrorAction Stop
+    } catch {
+        Write-Log "Impossible d'inspecter les ports avec Get-NetTCPConnection : $($_.Exception.Message)"
+        return
+    }
+
+    $ProcessIds = $Connections |
+        Select-Object -ExpandProperty OwningProcess -Unique |
+        Where-Object { $_ -and $_ -ne $PID -and $_ -ne 0 }
+
+    foreach ($ProcessId in $ProcessIds) {
+        try {
+            $Process = Get-Process -Id $ProcessId -ErrorAction Stop
+            Write-Log "Liberation du port utilise par $($Process.ProcessName) (PID $ProcessId)."
+            Stop-Process -Id $ProcessId -Force -ErrorAction Stop
+        } catch {
+            Write-Log "Impossible de terminer le processus PID $ProcessId : $($_.Exception.Message)"
+        }
+    }
+}
+
 function Wait-ForAppPort {
     param(
         [int]$TimeoutSeconds = 120,
@@ -206,6 +234,29 @@ function Test-AppPortOpen {
     }
 }
 
+function Start-OptionalAiEngine {
+    param([string]$DockerExe)
+
+    Write-Log "Demarrage optionnel du moteur IA en arriere-plan..."
+    try {
+        $AiProcess = Start-Process -FilePath $DockerExe -ArgumentList @(
+            "compose",
+            "--progress",
+            "plain",
+            "--profile",
+            "ai",
+            "up",
+            "-d",
+            "--build",
+            "ai-engine"
+        ) -WorkingDirectory $ProjectRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $AiStdOutLog -RedirectStandardError $AiStdErrLog
+
+        Write-Log "Moteur IA lance en arriere-plan (PID $($AiProcess.Id)). Les prix statiques restent disponibles s'il echoue."
+    } catch {
+        Write-Log "Impossible de lancer le moteur IA optionnel : $($_.Exception.Message). Laravel continuera avec les prix statiques."
+    }
+}
+
 Set-Location $ProjectRoot
 
 try {
@@ -228,6 +279,7 @@ try {
     Wait-ForDocker
 
     Stop-ExistingComposeStack -DockerExe $DockerExe
+    Stop-PortListeners
 
     try {
         $SourceRevision = (& git rev-parse --short HEAD 2>$null | Select-Object -First 1).Trim()
@@ -251,25 +303,33 @@ try {
         "-d",
         "--build",
         "--force-recreate",
-        "--remove-orphans"
+        "--remove-orphans",
+        "laravel",
+        "frontend"
     ) -WorkingDirectory $ProjectRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $StdOutLog -RedirectStandardError $StdErrLog
 
-    if (-not $ComposeProcess.WaitForExit(20 * 60 * 1000)) {
+    if (-not $ComposeProcess.WaitForExit(45 * 60 * 1000)) {
         try {
             $ComposeProcess.Kill()
         } catch {
             # Ignore les erreurs de terminaison forcée.
         }
 
-        throw "docker compose n'a pas termine dans le delai imparti."
+        throw "docker compose n'a pas termine dans le delai imparti de 45 minutes. Consultez $StdErrLog."
     }
 
     $ComposeExitCode = $ComposeProcess.ExitCode
 
     if ($ComposeExitCode -ne $null -and $ComposeExitCode -ne 0) {
-        Write-Log "docker compose a rendu un code $ComposeExitCode. Verification de l'application avant echec."
+        Write-Log "docker compose a rendu un code $ComposeExitCode. Arret du lancement."
+        $ComposeError = Get-Content -Path $StdErrLog -Tail 80 -ErrorAction SilentlyContinue | Out-String
+        if ($ComposeError.Trim()) {
+            Write-Log "Dernieres erreurs docker compose :`n$($ComposeError.Trim())"
+        }
+        throw "docker compose a echoue avec le code $ComposeExitCode. Consultez $StdErrLog."
     } elseif ($ComposeExitCode -eq $null) {
-        Write-Log "docker compose a termine sans code de sortie exploitable. Verification de l'application."
+        Write-Log "docker compose a termine sans code de sortie exploitable. Arret du lancement."
+        throw "docker compose n'a pas fourni de code de sortie. Consultez $StdErrLog."
     }
 
     Write-Log "Verification finale de la stabilite Docker apres le lancement..."
@@ -280,6 +340,7 @@ try {
         throw "Lancement automatique Kamoro echoue."
     }
 
+    Start-OptionalAiEngine -DockerExe $DockerExe
     Write-Log "Kamoro est lance via Docker."
     Open-AppUrl -Url $AppUrl
 } catch {
@@ -296,5 +357,3 @@ try {
         $LauncherMutex.Dispose()
     }
 }
-
-
