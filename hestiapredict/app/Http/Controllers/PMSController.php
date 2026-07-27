@@ -1089,13 +1089,13 @@ class PMSController extends Controller
 
     public function downloadPdf(int $id): StreamedResponse
     {
-        $invoice = Invoice::findOrFail($id);
-        abort_unless($invoice->pdf_path && Storage::disk('local')->exists($invoice->pdf_path), 404);
+        $invoice = $this->ensureStoredInvoicePdf(Invoice::findOrFail($id));
 
-        return Storage::disk('local')->download(
+        return Storage::disk('local')->response(
             $invoice->pdf_path,
             ($invoice->invoice_number ?? 'facture') . '.pdf',
             ['Content-Type' => 'application/pdf'],
+            'inline',
         );
     }
 
@@ -1105,8 +1105,9 @@ class PMSController extends Controller
             'email' => 'required|email|max:190',
         ]);
 
-        $invoice = Invoice::with('reservation.guest')->findOrFail($id);
-        abort_unless($invoice->pdf_path && Storage::disk('local')->exists($invoice->pdf_path), 404);
+        $invoice = $this->ensureStoredInvoicePdf(
+            Invoice::with('reservation.guest')->findOrFail($id),
+        );
 
         Mail::raw(
             "Bonjour,\n\nVeuillez trouver ci-joint votre facture {$invoice->invoice_number}.\n\nCordialement,\nKamoro Hotel",
@@ -2869,6 +2870,110 @@ class PMSController extends Controller
             'document_type' => $documentType,
             'pdf_path' => $path,
         ]);
+    }
+
+    private function ensureStoredInvoicePdf(Invoice $invoice): Invoice
+    {
+        if (
+            $invoice->pdf_path
+            && Storage::disk('local')->exists($invoice->pdf_path)
+        ) {
+            return $invoice;
+        }
+
+        $organizationMeta = $invoice->organization_billing_meta ?? [];
+        $organizationReservationIds = collect(
+            is_array($organizationMeta)
+                ? ($organizationMeta['reservation_ids'] ?? [])
+                : [],
+        )
+            ->map(fn ($reservationId) => (int) $reservationId)
+            ->filter(fn (int $reservationId) => $reservationId > 0)
+            ->unique()
+            ->values();
+
+        if (
+            $invoice->organization_id
+            && $organizationReservationIds->isNotEmpty()
+        ) {
+            $this->regenerateStoredOrganizationInvoicePdf(
+                $invoice,
+                $organizationReservationIds,
+            );
+        } else {
+            $this->ensureInvoicePdf(
+                $invoice->load([
+                    'items',
+                    'payments',
+                    'reservation.guest',
+                    'reservation.organization',
+                    'reservation.rooms',
+                ]),
+                $invoice->document_type ?? 'facture',
+            );
+        }
+
+        $invoice->refresh();
+        abort_unless(
+            $invoice->pdf_path
+            && Storage::disk('local')->exists($invoice->pdf_path),
+            500,
+            'Le PDF de la facture n’a pas pu être régénéré.',
+        );
+
+        return $invoice;
+    }
+
+    private function regenerateStoredOrganizationInvoicePdf(
+        Invoice $invoice,
+        Collection $reservationIds,
+    ): void {
+        $organization = Organization::query()->findOrFail(
+            (int) $invoice->organization_id,
+        );
+        $reservations = Reservation::query()
+            ->with([
+                'rooms',
+                'organization',
+                'invoice.items',
+                'invoice.payments',
+            ])
+            ->where('organization_id', $organization->id)
+            ->where('booking_type', 'organization')
+            ->whereIn('id', $reservationIds->all())
+            ->whereHas('rooms')
+            ->where('status', '!=', 'annule')
+            ->orderBy('check_in_date')
+            ->orderBy('created_at')
+            ->get();
+
+        abort_if(
+            $reservations->isEmpty(),
+            404,
+            'Les séjours associés à cette facture organisme sont introuvables.',
+        );
+
+        $documentType = $invoice->document_type ?? 'facture';
+        $html = "<?xml encoding='UTF-8'?>\n"
+            . $this->organizationInvoiceHtml(
+                $organization,
+                $reservations,
+                $documentType,
+                $invoice,
+            );
+        $pdf = Pdf::setOption([
+            'defaultFont' => 'DejaVu Sans',
+            'isHtml5ParserEnabled' => true,
+            'isRemoteEnabled' => true,
+        ])->loadHTML($html, 'UTF-8');
+        $path = $invoice->pdf_path
+            ?: "invoices/{$invoice->invoice_number}.pdf";
+
+        Storage::disk('local')->put($path, $pdf->output());
+
+        if ($invoice->pdf_path !== $path) {
+            $invoice->update(['pdf_path' => $path]);
+        }
     }
 
     private function invalidateInvoiceDocumentArtifacts(Invoice $invoice): void

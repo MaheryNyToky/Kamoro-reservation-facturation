@@ -654,11 +654,15 @@ class _EditReservationPageState extends State<EditReservationPage> {
   }
 
   Future<void> _pickCheckOut() async {
+    final today = _dateOnly(DateTime.now());
+    final firstStayDate = _checkIn.add(const Duration(days: 1));
     final firstDate = _canRetroactivelyExtend
         ? _reservation.checkOut.add(const Duration(days: 1))
         : (_isPostCheckIn
-              ? _reservation.checkOut
-              : _checkIn.add(const Duration(days: 1)));
+              ? (_isAdmin
+                    ? (today.isAfter(firstStayDate) ? today : firstStayDate)
+                    : _reservation.checkOut)
+              : firstStayDate);
     final initialDate = _checkOut.isBefore(firstDate) ? firstDate : _checkOut;
     final selected = await showDatePicker(
       context: context,
@@ -674,6 +678,12 @@ class _EditReservationPageState extends State<EditReservationPage> {
       if (selected.isAfter(previousCheckOut)) {
         for (final draft in _segmentDrafts.values) {
           if (_dateOnly(draft.endDate) == _dateOnly(previousCheckOut)) {
+            draft.endDate = selected;
+          }
+        }
+      } else if (selected.isBefore(previousCheckOut) && _isAdmin) {
+        for (final draft in _segmentDrafts.values) {
+          if (draft.endDate.isAfter(selected)) {
             draft.endDate = selected;
           }
         }
@@ -953,7 +963,9 @@ class _EditReservationPageState extends State<EditReservationPage> {
                       Text(
                         _canRetroactivelyExtend
                             ? 'Correction administrateur : seule la date de départ peut être prolongée. Les chambres et les nuits déjà enregistrées restent conservées.'
-                            : 'Après check-in, le départ peut être prolongé. Les nuits déjà passées restent conservées.',
+                            : (_isAdmin
+                                  ? 'Après check-in, un administrateur peut avancer le départ jusqu’à aujourd’hui ou prolonger le séjour. Les nuits déjà passées restent conservées.'
+                                  : 'Après check-in, le départ peut uniquement être prolongé. Les nuits déjà passées restent conservées.'),
                         style: TextStyle(
                           color: _muted,
                           fontWeight: FontWeight.w700,

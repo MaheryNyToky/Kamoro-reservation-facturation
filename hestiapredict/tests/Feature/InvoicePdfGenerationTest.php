@@ -97,6 +97,201 @@ class InvoicePdfGenerationTest extends TestCase
         $this->assertTrue(Storage::disk('local')->exists($refreshed->pdf_path));
     }
 
+    public function test_missing_stored_pdf_is_regenerated_and_displayed_inline_without_changing_invoice_data(): void
+    {
+        Storage::fake('local');
+
+        $user = User::create([
+            'name' => 'Admin Missing PDF',
+            'email' => 'admin-missing-pdf@example.com',
+            'password' => 'password',
+            'role' => 'admin',
+            'is_blacklisted' => false,
+        ]);
+        $room = Room::create([
+            'room_number' => 'PDF-MISSING-01',
+            'type' => 'Chambre Double',
+            'model' => 'Standard',
+            'base_price_ariary' => 125000,
+            'is_fixed_price' => false,
+        ]);
+        $reservation = Reservation::create([
+            'user_id' => $user->id,
+            'client_name' => 'Client Ancien PDF',
+            'client_phone' => '0340000201',
+            'customer_phone' => '0340000201',
+            'customer_email' => 'ancien-pdf@example.com',
+            'booking_reference' => 'RES-PDF-MISSING',
+            'source' => 'Appel',
+            'check_in_date' => '2026-07-05',
+            'check_out_date' => '2026-07-06',
+            'status' => 'check_out_manuel',
+            'payment_status' => 'paid',
+            'extra_beds' => 0,
+            'extra_mattresses' => 0,
+        ]);
+        $reservation->rooms()->attach($room->id, [
+            'price_snapshot_ariary' => 125000,
+            'segment_start_date' => '2026-07-05',
+            'segment_end_date' => '2026-07-06',
+        ]);
+        $bookingRoomId = (int) $reservation->rooms()->firstOrFail()->pivot->id;
+        $invoice = Invoice::create([
+            'reservation_id' => $reservation->id,
+            'invoice_number' => 'FACT-PDF-MISSING-01',
+            'total_amount_ariary' => 160000,
+            'tax_amount_ariary' => 0,
+            'discount_mode' => null,
+            'discount_value' => null,
+            'discount_amount_ariary' => 0,
+            'deposit_amount_ariary' => 0,
+            'pdf_path' => 'invoices/FACT-PDF-MISSING-01.pdf',
+            'finalized_at' => now(),
+            'status' => 'paid',
+            'document_type' => 'facture',
+        ]);
+        InvoiceItem::create([
+            'invoice_id' => $invoice->id,
+            'booking_room_id' => $bookingRoomId,
+            'description' => 'Chambre PDF-MISSING-01 - 1 nuit',
+            'type' => 'room',
+            'amount_ariary' => 125000,
+            'quantity' => 1,
+        ]);
+        InvoiceItem::create([
+            'invoice_id' => $invoice->id,
+            'booking_room_id' => $bookingRoomId,
+            'description' => 'Matelas supplémentaire - 1 nuit',
+            'type' => 'extra',
+            'amount_ariary' => 35000,
+            'quantity' => 1,
+        ]);
+
+        Storage::disk('local')->assertMissing($invoice->pdf_path);
+
+        $response = $this->get("/api/invoices/{$invoice->id}/pdf");
+
+        $response->assertOk();
+        $response->assertHeader('content-type', 'application/pdf');
+        $this->assertStringContainsString(
+            'inline',
+            (string) $response->headers->get('content-disposition'),
+        );
+        $this->assertStringStartsWith('%PDF-', $response->streamedContent());
+        Storage::disk('local')->assertExists($invoice->pdf_path);
+
+        $invoice->refresh();
+        $reservation->refresh()->load('rooms');
+        $this->assertSame(160000, (int) $invoice->total_amount_ariary);
+        $this->assertSame('paid', $invoice->status);
+        $this->assertCount(1, $reservation->rooms);
+        $this->assertSame(
+            $bookingRoomId,
+            (int) $reservation->rooms->first()->pivot->id,
+        );
+    }
+
+    public function test_missing_organization_dossier_pdf_is_regenerated_from_saved_selection(): void
+    {
+        Storage::fake('local');
+
+        $organization = Organization::create([
+            'name' => 'Organisme PDF Historique',
+        ]);
+        $user = User::create([
+            'name' => 'Admin Org Missing PDF',
+            'email' => 'admin-org-missing-pdf@example.com',
+            'password' => 'password',
+            'role' => 'admin',
+            'is_blacklisted' => false,
+        ]);
+        $room = Room::create([
+            'room_number' => 'PDF-ORG-01',
+            'type' => 'Chambre Double',
+            'model' => 'Standard',
+            'base_price_ariary' => 110000,
+            'is_fixed_price' => false,
+        ]);
+        $reservation = Reservation::create([
+            'user_id' => $user->id,
+            'organization_id' => $organization->id,
+            'client_name' => $organization->name,
+            'client_phone' => '0340000202',
+            'customer_phone' => '0340000202',
+            'customer_email' => 'org-pdf@example.com',
+            'booking_reference' => 'RES-ORG-PDF-MISSING',
+            'booking_type' => 'organization',
+            'source' => 'Appel',
+            'check_in_date' => '2026-07-01',
+            'check_out_date' => '2026-07-03',
+            'status' => 'check_out_manuel',
+            'payment_status' => 'unbilled',
+            'extra_beds' => 0,
+            'extra_mattresses' => 0,
+        ]);
+        $reservation->rooms()->attach($room->id, [
+            'price_snapshot_ariary' => 110000,
+            'segment_start_date' => '2026-07-01',
+            'segment_end_date' => '2026-07-03',
+            'occupant_name' => 'Occupant Historique',
+        ]);
+        $bookingRoomId = (int) $reservation->rooms()->firstOrFail()->pivot->id;
+        $invoice = Invoice::create([
+            'reservation_id' => $reservation->id,
+            'organization_id' => $organization->id,
+            'invoice_number' => 'FACT-ORG-PDF-MISSING-01',
+            'total_amount_ariary' => 220000,
+            'tax_amount_ariary' => 0,
+            'discount_mode' => null,
+            'discount_value' => null,
+            'discount_amount_ariary' => 0,
+            'deposit_amount_ariary' => 0,
+            'pdf_path' => 'invoices/FACT-ORG-PDF-MISSING-01.pdf',
+            'finalized_at' => now(),
+            'status' => 'open',
+            'document_type' => 'facture',
+            'billing_mode' => 'grouped',
+            'invoice_kind' => 'master',
+            'organization_billing_meta' => [
+                'selection_key' => 'saved-selection-key',
+                'reservation_ids' => [$reservation->id],
+                'reservations_count' => 1,
+            ],
+        ]);
+        InvoiceItem::create([
+            'invoice_id' => $invoice->id,
+            'booking_room_id' => $bookingRoomId,
+            'description' => 'Chambre PDF-ORG-01 - 2 nuits',
+            'type' => 'room',
+            'amount_ariary' => 110000,
+            'quantity' => 2,
+        ]);
+
+        $response = $this->get("/api/invoices/{$invoice->id}/pdf");
+
+        $response->assertOk();
+        $response->assertHeader('content-type', 'application/pdf');
+        $this->assertStringContainsString(
+            'inline',
+            (string) $response->headers->get('content-disposition'),
+        );
+        $this->assertStringStartsWith('%PDF-', $response->streamedContent());
+        Storage::disk('local')->assertExists($invoice->pdf_path);
+
+        $invoice->refresh();
+        $reservation->refresh()->load('rooms');
+        $this->assertSame(220000, (int) $invoice->total_amount_ariary);
+        $this->assertSame(
+            [$reservation->id],
+            $invoice->organization_billing_meta['reservation_ids'],
+        );
+        $this->assertCount(1, $reservation->rooms);
+        $this->assertSame(
+            $bookingRoomId,
+            (int) $reservation->rooms->first()->pivot->id,
+        );
+    }
+
     public function test_receptionist_can_generate_pdf_without_discount(): void
     {
         $user = User::create([

@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Models\Invoice;
+use App\Models\Payment;
 use App\Models\Reservation;
 use App\Models\Room;
 use App\Services\AvailabilityService;
@@ -211,6 +213,103 @@ class YieldServiceTest extends TestCase
         $this->assertSame(
             ['2026-07-02', '2026-07-03'],
             array_column($rows, 'date'),
+        );
+    }
+
+    public function test_audit_date_returns_collected_and_pending_revenue_from_start_of_selected_year(): void
+    {
+        $room = Room::query()->create([
+            'room_number' => 'CA-YTD-01',
+            'type' => 'Chambre Double',
+            'model' => 'Standard',
+            'base_price_ariary' => 100000,
+            'is_fixed_price' => false,
+        ]);
+
+        $stays = [
+            ['2025-12-30', '2026-01-02', 'check_out_manuel'],
+            ['2026-01-10', '2026-01-13', 'check_out_manuel'],
+            ['2026-07-26', '2026-07-29', 'arrive'],
+            ['2026-02-01', '2026-02-03', 'en_attente'],
+            ['2026-03-01', '2026-03-03', 'annule'],
+            ['2026-07-28', '2026-07-30', 'arrive'],
+        ];
+
+        $createdReservations = [];
+        foreach ($stays as $index => [$checkIn, $checkOut, $status]) {
+            $reservation = Reservation::query()->create([
+                'client_name' => "Client CA {$index}",
+                'client_phone' => '03400003' . str_pad(
+                    (string) $index,
+                    2,
+                    '0',
+                    STR_PAD_LEFT,
+                ),
+                'check_in_date' => $checkIn,
+                'check_out_date' => $checkOut,
+                'status' => $status,
+                'source' => 'direct',
+            ]);
+            $reservation->rooms()->attach($room->id, [
+                'price_snapshot_ariary' => 100000,
+                'segment_start_date' => $checkIn,
+                'segment_end_date' => $checkOut,
+            ]);
+            $createdReservations[$index] = $reservation;
+        }
+
+        $createInvoice = function (
+            Reservation $reservation,
+            int $total,
+            ?int $payment = null,
+            ?string $paymentDate = null,
+        ): Invoice {
+            $invoice = Invoice::query()->create([
+                'reservation_id' => $reservation->id,
+                'invoice_number' => 'FACT-CA-' . $reservation->id,
+                'total_amount_ariary' => $total,
+                'tax_amount_ariary' => 0,
+                'discount_amount_ariary' => 0,
+                'deposit_amount_ariary' => 0,
+                'status' => $payment !== null && $payment >= $total ? 'paid' : 'partial',
+                'document_type' => 'facture',
+                'invoice_kind' => 'master',
+            ]);
+
+            if ($payment !== null) {
+                $record = Payment::query()->create([
+                    'invoice_id' => $invoice->id,
+                    'amount_ariary' => $payment,
+                    'amount_received_ariary' => $payment,
+                    'change_given_ariary' => 0,
+                    'payment_method' => 'cash',
+                ]);
+                $record->forceFill([
+                    'created_at' => $paymentDate,
+                    'updated_at' => $paymentDate,
+                ])->saveQuietly();
+            }
+
+            return $invoice;
+        };
+
+        $createInvoice($createdReservations[0], 200000, 50000, '2026-01-02 10:00:00');
+        $createInvoice($createdReservations[1], 300000, 100000, '2026-02-10 10:00:00');
+        $createInvoice($createdReservations[2], 400000, 100000, '2025-12-31 10:00:00');
+        $createInvoice($createdReservations[3], 500000);
+        $createInvoice($createdReservations[5], 600000, 25000, '2026-07-20 10:00:00');
+
+        $result = (new YieldService(new AvailabilityService()))
+            ->auditDate('2026-07-27');
+
+        $this->assertSame(100000, $result['daily_ca_official']);
+        $this->assertSame(175000, $result['collected_ca']);
+        $this->assertSame(1150000, $result['pending_payment_ca']);
+        $this->assertSame(1325000, $result['collected_plus_pending_ca']);
+        $this->assertSame(1325000, $result['total_ca']);
+        $this->assertSame(
+            'Du 01/01/2026 au 27/07/2026',
+            $result['period'],
         );
     }
 

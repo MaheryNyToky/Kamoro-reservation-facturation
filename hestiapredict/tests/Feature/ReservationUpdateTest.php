@@ -228,6 +228,166 @@ class ReservationUpdateTest extends TestCase
         ], $segments['602']);
     }
 
+    public function test_admin_can_shorten_an_active_stay_to_today_and_recalculate_the_same_folio(): void
+    {
+        $this->travelTo(Carbon::parse('2026-07-22 20:00:00'));
+
+        [$user, $room, $reservation] = $this->createActiveThreeNightStay(
+            'Admin Séjour Court',
+            'admin-shortening@example.com',
+            'SHORT-801',
+            'admin',
+        );
+        $initialBookingRoomId = (int) $reservation->rooms->first()->pivot->id;
+
+        $initialFolio = $this->getJson(
+            "/api/reservations/{$reservation->id}/folio",
+        )->assertOk();
+        $invoiceId = $initialFolio->json('id');
+        $initialFolio->assertJsonPath('total_amount_ariary', 150000);
+        $initialFolio->assertJsonPath('items.0.quantity', 3);
+
+        $this->putJson("/api/reservations/{$reservation->id}", [
+            'client_name' => $reservation->client_name,
+            'customer_phone' => $reservation->customer_phone,
+            'customer_email' => $reservation->customer_email,
+            'check_in' => '2026-07-20',
+            'check_out' => '2026-07-22',
+            'room_ids' => [$room->id],
+            'room_segments' => [
+                [
+                    'room_id' => $room->id,
+                    'segment_start_date' => '2026-07-20',
+                    'segment_end_date' => '2026-07-22',
+                    'segment_extra_beds' => 0,
+                    'segment_extra_mattresses' => 0,
+                ],
+            ],
+            'extra_beds' => 0,
+            'extra_mattresses' => 0,
+            'modified_by_name' => $user->name,
+            'modified_by_role' => 'admin',
+        ])->assertOk();
+
+        $reservation->refresh()->load('rooms');
+        $this->assertSame(
+            '2026-07-22',
+            $reservation->check_out_date->toDateString(),
+        );
+        $this->assertCount(1, $reservation->rooms);
+        $this->assertSame($room->id, $reservation->rooms->first()->id);
+        $this->assertSame(
+            $initialBookingRoomId,
+            (int) $reservation->rooms->first()->pivot->id,
+        );
+        $this->assertSame(
+            '2026-07-22',
+            $reservation->rooms->first()->pivot->segment_end_date->toDateString(),
+        );
+
+        $audit = ReservationAudit::query()
+            ->where('reservation_id', $reservation->id)
+            ->where('action', 'modified')
+            ->latest('id')
+            ->firstOrFail();
+        $this->assertSame('admin', $audit->actor_role);
+        $this->assertSame(
+            '2026-07-23',
+            $audit->details['check_out']['before'],
+        );
+        $this->assertSame(
+            '2026-07-22',
+            $audit->details['check_out']['after'],
+        );
+        $this->assertTrue($audit->details['admin_stay_shortening']['after']);
+
+        $updatedFolio = $this->getJson(
+            "/api/reservations/{$reservation->id}/folio",
+        )->assertOk();
+        $this->assertSame($invoiceId, $updatedFolio->json('id'));
+        $updatedFolio->assertJsonPath('total_amount_ariary', 100000);
+        $updatedFolio->assertJsonPath('items.0.quantity', 2);
+    }
+
+    public function test_receptionist_cannot_shorten_an_active_checked_in_stay(): void
+    {
+        $this->travelTo(Carbon::parse('2026-07-22 20:00:00'));
+
+        [$user, $room, $reservation] = $this->createActiveThreeNightStay(
+            'Réception Séjour Court',
+            'reception-shortening@example.com',
+            'SHORT-802',
+            'receptionist',
+        );
+
+        $this->putJson("/api/reservations/{$reservation->id}", [
+            'client_name' => $reservation->client_name,
+            'customer_phone' => $reservation->customer_phone,
+            'customer_email' => $reservation->customer_email,
+            'check_in' => '2026-07-20',
+            'check_out' => '2026-07-22',
+            'room_ids' => [$room->id],
+            'extra_beds' => 0,
+            'extra_mattresses' => 0,
+            'modified_by_name' => $user->name,
+            'modified_by_role' => 'receptionist',
+        ])->assertStatus(422);
+
+        $reservation->refresh()->load('rooms');
+        $this->assertSame(
+            '2026-07-23',
+            $reservation->check_out_date->toDateString(),
+        );
+        $this->assertSame(
+            '2026-07-23',
+            $reservation->rooms->first()->pivot->segment_end_date->toDateString(),
+        );
+
+        $folio = $this->getJson(
+            "/api/reservations/{$reservation->id}/folio",
+        )->assertOk();
+        $folio->assertJsonPath('total_amount_ariary', 150000);
+        $folio->assertJsonPath('items.0.quantity', 3);
+    }
+
+    public function test_admin_cannot_shorten_an_active_stay_before_today(): void
+    {
+        $this->travelTo(Carbon::parse('2026-07-22 20:00:00'));
+
+        [$user, $room, $reservation] = $this->createActiveThreeNightStay(
+            'Admin Séjour Antérieur',
+            'admin-past-shortening@example.com',
+            'SHORT-803',
+            'admin',
+        );
+
+        $response = $this->putJson("/api/reservations/{$reservation->id}", [
+            'client_name' => $reservation->client_name,
+            'customer_phone' => $reservation->customer_phone,
+            'customer_email' => $reservation->customer_email,
+            'check_in' => '2026-07-20',
+            'check_out' => '2026-07-21',
+            'room_ids' => [$room->id],
+            'extra_beds' => 0,
+            'extra_mattresses' => 0,
+            'modified_by_name' => $user->name,
+            'modified_by_role' => 'admin',
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('check_out');
+
+        $reservation->refresh()->load('rooms');
+        $this->assertSame(
+            '2026-07-23',
+            $reservation->check_out_date->toDateString(),
+        );
+        $this->assertSame(
+            '2026-07-23',
+            $reservation->rooms->first()->pivot->segment_end_date->toDateString(),
+        );
+    }
+
     public function test_admin_can_retroactively_extend_a_finished_stay_without_replacing_its_room_link(): void
     {
         $this->travelTo(Carbon::parse('2026-07-26 10:00:00'));
@@ -446,6 +606,50 @@ class ReservationUpdateTest extends TestCase
             'price_snapshot_ariary' => 50000,
             'segment_start_date' => '2026-07-23',
             'segment_end_date' => '2026-07-24',
+        ]);
+
+        return [$user, $room, $reservation->refresh()->load('rooms')];
+    }
+
+    private function createActiveThreeNightStay(
+        string $userName,
+        string $email,
+        string $roomNumber,
+        string $role,
+    ): array {
+        $user = User::create([
+            'name' => $userName,
+            'email' => $email,
+            'password' => 'password',
+            'role' => $role,
+            'is_blacklisted' => false,
+        ]);
+        $room = Room::create([
+            'room_number' => $roomNumber,
+            'type' => 'Chambre Double',
+            'model' => 'Standard',
+            'base_price_ariary' => 50000,
+            'is_fixed_price' => false,
+        ]);
+        $reservation = Reservation::create([
+            'user_id' => $user->id,
+            'client_name' => 'Client ' . $userName,
+            'client_phone' => '0340000081',
+            'customer_phone' => '0340000081',
+            'customer_email' => 'client-' . $email,
+            'booking_reference' => 'BR-' . uniqid(),
+            'source' => 'Appel',
+            'check_in_date' => '2026-07-20',
+            'check_out_date' => '2026-07-23',
+            'status' => 'arrive',
+            'payment_status' => 'unbilled',
+            'extra_beds' => 0,
+            'extra_mattresses' => 0,
+        ]);
+        $reservation->rooms()->attach($room->id, [
+            'price_snapshot_ariary' => 50000,
+            'segment_start_date' => '2026-07-20',
+            'segment_end_date' => '2026-07-23',
         ]);
 
         return [$user, $room, $reservation->refresh()->load('rooms')];

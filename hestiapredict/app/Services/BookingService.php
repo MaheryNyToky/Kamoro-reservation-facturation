@@ -336,10 +336,22 @@ class BookingService
         $actorRole = (string) ($data['modified_by_role'] ?? '');
         $isAdmin = in_array($actorRole, ['admin', 'superadmin'], true);
         $isFinished = Carbon::parse($currentCheckOut)->lt(now()->startOfDay());
+        $isAdminStayShortening = $isCheckedIn
+            && $isAdmin
+            && Carbon::parse($submittedCheckOut)->lt(Carbon::parse($currentCheckOut));
         $isRetroactiveAdminExtension = $isFinished
             && $isCheckedIn
             && $isAdmin
             && Carbon::parse($submittedCheckOut)->gt(Carbon::parse($currentCheckOut));
+
+        if (
+            $isAdminStayShortening
+            && Carbon::parse($submittedCheckOut)->lt(now()->startOfDay())
+        ) {
+            throw ValidationException::withMessages([
+                'check_out' => 'La nouvelle date de départ ne peut pas être antérieure à aujourd’hui.',
+            ]);
+        }
 
         if ($isFinished && !$isRetroactiveAdminExtension) {
             throw ValidationException::withMessages([
@@ -360,25 +372,28 @@ class BookingService
             ->sort()
             ->values();
 
-        if ($isRetroactiveAdminExtension && $roomIds->sort()->values()->all() !== $existingRoomIds->all()) {
+        if (
+            ($isRetroactiveAdminExtension || $isAdminStayShortening)
+            && $roomIds->sort()->values()->all() !== $existingRoomIds->all()
+        ) {
             throw ValidationException::withMessages([
-                'room_ids' => 'Une prolongation corrective conserve obligatoirement les chambres déjà associées au séjour.',
+                'room_ids' => 'Une correction de la date de départ conserve obligatoirement les chambres déjà associées au séjour.',
             ]);
         }
 
         if (
-            $isRetroactiveAdminExtension
+            ($isRetroactiveAdminExtension || $isAdminStayShortening)
             && (
                 (int) ($data['extra_beds'] ?? $reservation->extra_beds) !== (int) $reservation->extra_beds
                 || (int) ($data['extra_mattresses'] ?? $reservation->extra_mattresses) !== (int) $reservation->extra_mattresses
             )
         ) {
             throw ValidationException::withMessages([
-                'reservation' => 'Une prolongation corrective ne peut modifier que la date de départ.',
+                'reservation' => 'Une correction de séjour ne peut modifier que la date de départ.',
             ]);
         }
 
-        if ($isRetroactiveAdminExtension) {
+        if ($isRetroactiveAdminExtension || $isAdminStayShortening) {
             $data['extra_beds'] = (int) $reservation->extra_beds;
             $data['extra_mattresses'] = (int) $reservation->extra_mattresses;
             $hasCustomSegments = false;
@@ -394,6 +409,28 @@ class BookingService
                     'segment_extra_beds' => (int) ($room->pivot->segment_extra_beds ?? 0),
                     'segment_extra_mattresses' => (int) ($room->pivot->segment_extra_mattresses ?? 0),
                 ]);
+
+            if ($isAdminStayShortening) {
+                $roomSegments = $roomSegments->map(function (array $segment) use ($checkOut) {
+                    if (
+                        Carbon::parse($segment['segment_start_date'])
+                            ->gte(Carbon::parse($checkOut))
+                    ) {
+                        throw ValidationException::withMessages([
+                            'check_out' => 'La nouvelle date de départ précède une tranche de chambre déjà associée au séjour.',
+                        ]);
+                    }
+
+                    if (
+                        Carbon::parse($segment['segment_end_date'])
+                            ->gt(Carbon::parse($checkOut))
+                    ) {
+                        $segment['segment_end_date'] = $checkOut;
+                    }
+
+                    return $segment;
+                });
+            }
         } else {
             $roomSegments = $this->normalizeRoomSegments($data, $checkIn, $checkOut, $roomIds);
             $hasCustomSegments = filled($data['room_segments'] ?? null);
@@ -422,7 +459,10 @@ class BookingService
             if ($submittedCheckIn !== $currentCheckIn) {
                 $blockedChanges[] = 'check_in';
             }
-            if (Carbon::parse($checkOut)->lt(Carbon::parse($currentCheckOut))) {
+            if (
+                Carbon::parse($checkOut)->lt(Carbon::parse($currentCheckOut))
+                && !$isAdminStayShortening
+            ) {
                 $blockedChanges[] = 'check_out';
             }
 
@@ -432,7 +472,7 @@ class BookingService
                 ]);
             }
 
-            if (!$isRetroactiveAdminExtension) {
+            if (!$isRetroactiveAdminExtension && !$isAdminStayShortening) {
                 $roomSegments = $this->retainConsumedRoomSegments($reservation, $roomSegments);
             }
         }
@@ -481,7 +521,7 @@ class BookingService
             $reservation->id,
         );
 
-        return DB::transaction(function () use ($reservation, $data, $roomIds, $isCheckedIn, $isRetroactiveAdminExtension, $roomSegments, $hasCustomSegments, $checkOut) {
+        return DB::transaction(function () use ($reservation, $data, $roomIds, $isCheckedIn, $isRetroactiveAdminExtension, $isAdminStayShortening, $roomSegments, $hasCustomSegments, $checkOut) {
             $customerPhone = PhoneNumber::normalize($data['customer_phone'] ?? null);
             $previousPivots = $reservation->rooms
                 ->mapWithKeys(fn (Room $room) => [$room->id => $this->pivotSnapshot($room)]);
@@ -543,17 +583,25 @@ class BookingService
             }
 
             $reservation->update($updateData);
-            if ($isRetroactiveAdminExtension) {
+            if ($isRetroactiveAdminExtension || $isAdminStayShortening) {
                 foreach ($roomSegments as $segment) {
                     $reservation->rooms()->updateExistingPivot(
                         (int) $segment['room_id'],
                         ['segment_end_date' => $segment['segment_end_date']],
                     );
                 }
-                $changeSet['retroactive_extension'] = [
-                    'before' => false,
-                    'after' => true,
-                ];
+                if ($isRetroactiveAdminExtension) {
+                    $changeSet['retroactive_extension'] = [
+                        'before' => false,
+                        'after' => true,
+                    ];
+                }
+                if ($isAdminStayShortening) {
+                    $changeSet['admin_stay_shortening'] = [
+                        'before' => false,
+                        'after' => true,
+                    ];
+                }
             } else {
                 $this->syncRoomSegments($reservation, $roomSegments, $previousPivots);
             }

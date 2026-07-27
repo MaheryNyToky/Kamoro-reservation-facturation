@@ -230,31 +230,48 @@
                 </article>
 
                 <article class="bento-card col-span-1 p-6 sm:p-7 xl:col-span-3">
-                    <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">CA officiel</p>
+                    <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">CA journalier officiel</p>
                     <p class="kpi-value mt-4 text-[var(--ink)]" id="stat-ca-official">0 Ar</p>
                     <p class="mt-4 text-sm text-[var(--muted)]">Arrivées confirmées.</p>
                 </article>
 
                 <article class="bento-card col-span-1 p-6 sm:p-7 xl:col-span-3">
-                    <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">CA en attente</p>
+                    <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">CA journalier en attente</p>
                     <p class="kpi-value mt-4 text-[var(--ink)]" id="stat-ca-pending">0 Ar</p>
                     <p class="mt-4 text-sm text-[var(--muted)]">Réservations en attente.</p>
                 </article>
 
                 <article class="bento-card col-span-1 p-6 sm:p-7 xl:col-span-3">
-                    <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">Réservations</p>
-                    <p class="kpi-value mt-4 text-[var(--ink)]"><span id="stat-rooms-confirmed">0</span></p>
-                    <p class="mt-4 text-sm text-[var(--muted)]">Arrivées.</p>
-                    <p class="mt-2 text-sm font-semibold text-[var(--muted)]">En attente : <span id="stat-rooms-pending" class="font-black text-[var(--ink)]">0</span></p>
+                    <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">CA encaissé</p>
+                    <p class="kpi-value mt-4 text-[var(--ink)]" id="stat-ca-collected">0 Ar</p>
+                    <p class="mt-4 text-sm text-[var(--muted)]" id="ca-collected-period">Depuis le 1er janvier.</p>
                 </article>
 
                 <article class="bento-card col-span-1 p-6 sm:p-7 xl:col-span-3">
-                    <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">CA cumulé</p>
-                    <p class="kpi-value mt-4 text-[var(--ink)]" id="stat-ca-total">0 Ar</p>
-                    <p class="mt-4 text-sm text-[var(--muted)]" id="ca-period">Période</p>
+                    <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">CA encaissé + paiements en attente</p>
+                    <p class="kpi-value mt-4 text-[var(--ink)]" id="stat-ca-collected-pending">0 Ar</p>
+                    <p class="mt-4 text-sm text-[var(--muted)]" id="ca-collected-pending-period">Depuis le 1er janvier.</p>
                 </article>
 
-                <article class="bento-card col-span-1 p-6 sm:p-7 xl:col-span-12">
+                <button
+                    type="button"
+                    onclick="openOutstandingArrivals()"
+                    class="col-span-1 flex w-full flex-col gap-5 rounded-[30px] border border-[#dfcfbb] bg-[#fbf4ea] p-6 text-left shadow-[0_18px_40px_rgba(78,62,48,0.08)] sm:flex-row sm:items-center sm:justify-between sm:p-7 xl:col-span-12"
+                >
+                    <span>
+                        <span class="block text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">Séjours terminés à encaisser</span>
+                        <span class="display-serif mt-2 block text-3xl font-semibold text-[var(--ink)]">Paiements en attente ou partiels</span>
+                        <span class="mt-2 block text-sm text-[var(--muted)]">
+                            <span id="outstanding-arrivals-count">0 séjour</span> · Cliquer pour afficher et rechercher les dossiers.
+                        </span>
+                    </span>
+                    <span class="sm:text-right">
+                        <span class="block text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">Reste total à encaisser</span>
+                        <span class="kpi-value mt-2 block text-[var(--ink)]" id="outstanding-arrivals-total">0 Ar</span>
+                    </span>
+                </button>
+
+                <article id="client-history-section" class="bento-card col-span-1 scroll-mt-5 p-6 sm:p-7 xl:col-span-12">
                     <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
                         <div>
                             <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">Recherche client</p>
@@ -304,6 +321,23 @@
                             </thead>
                             <tbody id="client-history-table-body" class="divide-y divide-[rgba(68,52,39,0.08)]"></tbody>
                         </table>
+                    </div>
+                </article>
+
+                <article class="bento-card col-span-1 flex flex-col gap-5 p-6 sm:flex-row sm:items-center sm:justify-between sm:p-7 xl:col-span-12">
+                    <div>
+                        <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">Réservations</p>
+                        <h2 class="display-serif mt-2 text-3xl font-semibold text-[var(--ink)]">Activité du jour</h2>
+                    </div>
+                    <div class="flex flex-wrap items-end gap-8 sm:text-right">
+                        <div>
+                            <p class="text-xs font-extrabold uppercase tracking-[0.14em] text-[var(--muted)]">Arrivées</p>
+                            <p class="mt-1 text-4xl font-black text-[var(--ink)]" id="stat-rooms-confirmed">0</p>
+                        </div>
+                        <div>
+                            <p class="text-xs font-extrabold uppercase tracking-[0.14em] text-[var(--muted)]">En attente</p>
+                            <p class="mt-1 text-4xl font-black text-[var(--ink)]" id="stat-rooms-pending">0</p>
+                        </div>
                     </div>
                 </article>
 
@@ -437,11 +471,11 @@
                                 <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">Synthèse du jour</p>
                                 <div class="mt-6 space-y-4">
                                     <div class="sand-panel rounded-[24px] p-4">
-                                        <p class="text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">CA officiel</p>
+                                        <p class="text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">CA journalier officiel</p>
                                         <p class="display-serif mt-2 text-4xl font-semibold text-[var(--ink)]" id="finance-total-official">0 Ar</p>
                                     </div>
                                     <div class="sand-panel rounded-[24px] p-4">
-                                        <p class="text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">CA en attente</p>
+                                        <p class="text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">CA journalier en attente</p>
                                         <p class="display-serif mt-2 text-4xl font-semibold text-[var(--ink)]" id="finance-total-pending">0 Ar</p>
                                     </div>
                                     <div class="sand-panel rounded-[24px] p-4">
@@ -502,12 +536,27 @@
         let clientHistorySortKey = 'client_name';
         let clientHistorySortDirection = 1;
         let dashboardRefreshTimer = null;
+        let outstandingArrivalsSearchTimer = null;
+        let outstandingArrivalsRows = [];
+        let outstandingArrivalsRankings = { organizations: [], individuals: [] };
+        let outstandingArrivalsSortKey = '';
+        let outstandingArrivalsSortDirection = 1;
 
         const chartGridColor = 'rgba(117, 105, 94, 0.16)';
         const chartTextColor = '#75695e';
 
         function formatMoney(value) {
             return `${Math.round(value || 0).toLocaleString()} Ar`;
+        }
+
+        function escapeHtml(value) {
+            return (value ?? '')
+                .toString()
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#039;');
         }
 
         function normalizeRoomLabel(value) {
@@ -621,7 +670,298 @@
             runAudit();
             loadReservations();
             loadReservationStatusSummary();
+            loadOutstandingArrivalsSummary();
             loadAiRevenueSummary();
+        }
+
+        function loadOutstandingArrivalsSummary() {
+            safeFetchJson('/api/dashboard/outstanding-arrivals?type=all', null, {
+                timeoutMs: 5000,
+            })
+                .then(({ data }) => {
+                    if (data.status !== 'success') return;
+                    const count = Number(data.summary?.count || 0);
+                    document.getElementById('outstanding-arrivals-total').innerText =
+                        formatMoney(data.summary?.balance_amount_ariary || 0);
+                    document.getElementById('outstanding-arrivals-count').innerText =
+                        `${count} séjour${count > 1 ? 's' : ''}`;
+                })
+                .catch(() => {
+                    // La dernière valeur visible reste affichée en cas de coupure.
+                });
+        }
+
+        function openOutstandingArrivals() {
+            document.getElementById('outstanding-arrivals-overlay')?.remove();
+
+            const overlay = document.createElement('div');
+            overlay.id = 'outstanding-arrivals-overlay';
+            overlay.className = 'fixed inset-0 z-[999] overflow-auto bg-[#f4eadc]';
+            overlay.innerHTML = `
+                <div class="min-h-full w-full bg-[#f4eadc]">
+                    <header class="bg-[#231f1b] text-[#fbf4ea]">
+                        <div class="mx-auto flex max-w-7xl items-start justify-between gap-5 px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+                            <div>
+                                <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#d8c3aa]">Kamoro Hotel · Encaissements</p>
+                                <h3 class="display-serif mt-2 text-4xl font-semibold text-[#fbf4ea] sm:text-5xl">Séjours terminés non soldés</h3>
+                                <p class="mt-2 text-sm text-[#d8cfc6]">
+                                    <span id="outstanding-modal-count">0 dossier</span> ·
+                                    Reste à encaisser : <span id="outstanding-modal-total" class="font-black text-white">0 Ar</span>
+                                </p>
+                            </div>
+                            <button type="button" id="outstanding-close-button" class="rounded-full border border-[#fbf4ea] bg-[#fbf4ea] px-5 py-2 text-sm font-black text-[#231f1b]">Retour au tableau</button>
+                        </div>
+                    </header>
+                    <main class="mx-auto w-full px-4 py-6 sm:px-6 lg:px-8">
+                        <section id="outstanding-arrivals-rankings" class="mb-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                            <div class="rounded-2xl border border-[#d8c5ad] bg-[#fffaf4] py-10 text-center text-sm font-semibold text-[#75695e]">Chargement du Top 5 organismes…</div>
+                            <div class="rounded-2xl border border-[#d8c5ad] bg-[#fffaf4] py-10 text-center text-sm font-semibold text-[#75695e]">Chargement du Top 5 particuliers…</div>
+                        </section>
+                        <section class="rounded-[28px] border border-[#dfcfbb] bg-[#fbf4ea] p-5 sm:p-6">
+                            <div class="grid grid-cols-1 gap-3 sm:grid-cols-[220px_1fr]">
+                                <select id="outstanding-type-filter" class="h-12 rounded-full border border-[#cdbba5] bg-white px-4 text-sm font-bold text-[#231f1b] outline-none focus:border-[#1f7665]">
+                                    <option value="all">Tout</option>
+                                    <option value="individual">Particulier</option>
+                                    <option value="organization">Organisme</option>
+                                </select>
+                                <input id="outstanding-search" type="search" placeholder="Nom, organisme, référence, téléphone ou occupant…" class="h-12 rounded-full border border-[#cdbba5] bg-white px-5 text-sm font-semibold text-[#231f1b] outline-none focus:border-[#1f7665]">
+                            </div>
+                        </section>
+                        <section id="outstanding-arrivals-results" class="mt-5">
+                            <div class="rounded-[28px] border border-[#dfcfbb] bg-[#fbf4ea] py-12 text-center font-semibold text-[#75695e]">Chargement…</div>
+                        </section>
+                    </main>
+                </div>
+            `;
+
+            document.body.style.overflow = 'hidden';
+            const closeOutstanding = () => {
+                overlay.remove();
+                document.body.style.overflow = '';
+                document.removeEventListener('keydown', closeOnEscape);
+            };
+            const closeOnEscape = (event) => {
+                if (event.key !== 'Escape') return;
+                closeOutstanding();
+            };
+            overlay.querySelector('#outstanding-close-button').addEventListener('click', closeOutstanding);
+            document.addEventListener('keydown', closeOnEscape);
+            document.body.appendChild(overlay);
+
+            document.getElementById('outstanding-type-filter').addEventListener('change', loadOutstandingArrivalsDetails);
+            document.getElementById('outstanding-search').addEventListener('input', () => {
+                clearTimeout(outstandingArrivalsSearchTimer);
+                outstandingArrivalsSearchTimer = setTimeout(loadOutstandingArrivalsDetails, 250);
+            });
+            loadOutstandingArrivalsDetails();
+        }
+
+        function outstandingSortValue(item, key) {
+            const isOrganization = item.booking_type === 'organization';
+            const values = {
+                reference: item.reference || '',
+                client: isOrganization ? (item.organization_name || item.client_name || '') : (item.client_name || ''),
+                booking_type: isOrganization ? 'Organisme' : 'Particulier',
+                room_numbers: item.room_numbers || '',
+                check_in: item.check_in || '',
+                total_amount_ariary: Number(item.total_amount_ariary || 0),
+                payment_status: item.payment_status === 'partial' ? 'Partiellement payé' : 'Non payé',
+                paid_amount_ariary: Number(item.paid_amount_ariary || 0),
+                balance_amount_ariary: Number(item.balance_amount_ariary || 0),
+            };
+
+            return values[key] ?? '';
+        }
+
+        function outstandingSortIndicator(key) {
+            if (outstandingArrivalsSortKey !== key) return '<span class="text-[#9d8e80]">↕</span>';
+            return outstandingArrivalsSortDirection === 1
+                ? '<span class="text-[#1f7665]">↑</span>'
+                : '<span class="text-[#1f7665]">↓</span>';
+        }
+
+        function toggleOutstandingSort(key) {
+            if (outstandingArrivalsSortKey === key) {
+                outstandingArrivalsSortDirection *= -1;
+            } else {
+                outstandingArrivalsSortKey = key;
+                outstandingArrivalsSortDirection = 1;
+            }
+
+            renderOutstandingArrivalsResults();
+        }
+
+        function renderOutstandingRanking(title, items, accentClass) {
+            const rows = Array.isArray(items) ? items : [];
+
+            return `
+                <article class="rounded-2xl border border-[#d8c5ad] bg-[#fffaf4] p-4">
+                    <div class="flex items-center justify-between gap-3 border-b border-[#e4d5c3] pb-3">
+                        <h4 class="font-black text-[#231f1b]">${escapeHtml(title)}</h4>
+                        <span class="text-[10px] font-extrabold uppercase tracking-[0.14em] text-[#75695e]">Reste dû</span>
+                    </div>
+                    <ol class="mt-2 divide-y divide-[#eadfD2]">
+                        ${rows.length > 0 ? rows.map((item, index) => `
+                            <li class="py-2.5">
+                                <div class="grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-2">
+                                    <span class="flex h-6 w-6 items-center justify-center rounded-full bg-[#eadbc8] text-[11px] font-black text-[#5f5147]">${index + 1}</span>
+                                    <div class="min-w-0">
+                                        <button type="button" onclick="this.closest('li')?.querySelector('[data-client-detail-panel]')?.classList.toggle('hidden')" class="block max-w-full truncate text-left text-sm font-black text-[#231f1b] underline-offset-2 hover:text-[#1f7665] hover:underline focus:outline-none focus:ring-2 focus:ring-[#1f7665]" title="Afficher les informations de ${escapeHtml(item.name || 'N/A')}">${escapeHtml(item.name || 'N/A')}</button>
+                                        <p class="text-[10px] font-bold text-[#817469]">${Number(item.stay_count || 0)} séjour${Number(item.stay_count || 0) > 1 ? 's' : ''}</p>
+                                    </div>
+                                    <span class="whitespace-nowrap text-sm font-black tabular-nums ${accentClass}">${formatMoney(item.balance_amount_ariary)}</span>
+                                </div>
+                                ${clientDetailBlock(item, false)}
+                            </li>
+                        `).join('') : '<li class="py-5 text-center text-xs font-semibold text-[#817469]">Aucun dossier concerné</li>'}
+                    </ol>
+                </article>
+            `;
+        }
+
+        function renderOutstandingArrivalsResults() {
+            const results = document.getElementById('outstanding-arrivals-results');
+            const rankings = document.getElementById('outstanding-arrivals-rankings');
+            if (!results) return;
+
+            if (rankings) {
+                rankings.innerHTML = `
+                    ${renderOutstandingRanking('Top 5 organismes', outstandingArrivalsRankings.organizations, 'text-[#9a382c]')}
+                    ${renderOutstandingRanking('Top 5 particuliers', outstandingArrivalsRankings.individuals, 'text-[#9a382c]')}
+                `;
+            }
+
+            if (!Array.isArray(outstandingArrivalsRows) || outstandingArrivalsRows.length === 0) {
+                results.innerHTML = '<div class="rounded-[28px] border border-[#dfcfbb] bg-[#fbf4ea] px-5 py-14 text-center font-semibold text-[#75695e]">Aucun paiement en attente pour ces critères.</div>';
+                return;
+            }
+
+            const sortedRows = [...outstandingArrivalsRows];
+            if (outstandingArrivalsSortKey) {
+                sortedRows.sort((left, right) => {
+                    const leftValue = outstandingSortValue(left, outstandingArrivalsSortKey);
+                    const rightValue = outstandingSortValue(right, outstandingArrivalsSortKey);
+                    const comparison = typeof leftValue === 'number'
+                        ? leftValue - rightValue
+                        : String(leftValue).localeCompare(String(rightValue), 'fr', { numeric: true, sensitivity: 'base' });
+
+                    return comparison * outstandingArrivalsSortDirection;
+                });
+            }
+
+            const sortableHeader = (label, key, align = 'text-left') => `
+                <th class="px-1.5 py-3 ${align} text-[10px] font-extrabold uppercase lg:px-2">
+                    <button type="button" onclick="toggleOutstandingSort('${key}')" class="inline-flex items-center gap-1 rounded-md px-1 py-1 text-inherit hover:bg-[#ddcbb5] focus:outline-none focus:ring-2 focus:ring-[#1f7665]">
+                        ${label} ${outstandingSortIndicator(key)}
+                    </button>
+                </th>
+            `;
+
+            results.innerHTML = `
+                <div class="overflow-x-auto rounded-[28px] border border-[#d8c5ad] bg-[#fffaf4]">
+                    <table class="w-full min-w-[940px] table-fixed text-left text-xs xl:text-sm">
+                        <colgroup>
+                            <col style="width: 9%">
+                            <col style="width: 19%">
+                            <col style="width: 8%">
+                            <col style="width: 7%">
+                            <col style="width: 13%">
+                            <col style="width: 11%">
+                            <col style="width: 11%">
+                            <col style="width: 11%">
+                            <col style="width: 11%">
+                        </colgroup>
+                        <thead class="bg-[#eadbc8] text-[#75695e]">
+                            <tr>
+                                ${sortableHeader('Réf', 'reference')}
+                                ${sortableHeader('Client', 'client')}
+                                ${sortableHeader('Type', 'booking_type')}
+                                ${sortableHeader('Chambre', 'room_numbers')}
+                                ${sortableHeader('Séjour', 'check_in')}
+                                ${sortableHeader('Total', 'total_amount_ariary', 'text-right')}
+                                ${sortableHeader('Paiement', 'payment_status')}
+                                ${sortableHeader('Payé', 'paid_amount_ariary', 'text-right')}
+                                ${sortableHeader('Reste', 'balance_amount_ariary', 'text-right')}
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-[#e4d5c3] bg-[#fffaf4]">
+                            ${sortedRows.map((item) => {
+                                const isOrganization = item.booking_type === 'organization';
+                                const title = isOrganization
+                                    ? (item.organization_name || item.client_name)
+                                    : item.client_name;
+                                const statusLabel = item.payment_status === 'partial' ? 'Partiellement payé' : 'Non payé';
+                                const statusClass = item.payment_status === 'partial'
+                                    ? 'bg-[#f5dfaa] text-[#704f0b]'
+                                    : 'bg-[#f0c8c0] text-[#7a2d22]';
+                                return `
+                                    <tr class="bg-[#fffaf4] transition-colors hover:bg-[#f8eee2]">
+                                        <td class="break-words px-1.5 py-3 align-top lg:px-2">
+                                            <p class="font-mono text-[11px] font-black text-[#1f7665]">${escapeHtml(item.reference || 'N/A')}</p>
+                                        </td>
+                                        <td class="cursor-pointer break-words px-1.5 py-3 align-top hover:bg-[#f4e7d8] lg:px-2" title="Afficher ou masquer les informations du client" onclick="this.querySelector('[data-client-detail-panel]')?.classList.toggle('hidden')">
+                                            <div class="font-black text-[#231f1b] underline-offset-2 hover:text-[#1f7665] hover:underline">${escapeHtml(title || 'Client')}</div>
+                                            ${isOrganization && item.client_name !== title ? `<div class="mt-1 text-[11px] text-[#75695e]">Contact : ${escapeHtml(item.client_name)}</div>` : ''}
+                                            <p class="mt-1 text-[11px] text-[#75695e]">${escapeHtml(item.phone || 'N/A')}</p>
+                                            ${clientDetailBlock(item, false)}
+                                        </td>
+                                        <td class="break-words px-1.5 py-3 align-top lg:px-2">
+                                            <span class="inline-flex rounded-md border border-[#c8d4ce] bg-[#e2e8e4] px-1.5 py-1 text-[10px] font-black text-[#35544c]">${isOrganization ? 'Organisme' : 'Particulier'}</span>
+                                        </td>
+                                        <td class="break-words px-1.5 py-3 align-top font-mono font-black text-[#231f1b] lg:px-2">${escapeHtml(item.room_numbers || 'N/A')}</td>
+                                        <td class="px-1.5 py-3 align-top text-[#4d433b] lg:px-2">
+                                            <p class="font-bold">${formatStayRange(item.check_in, item.check_out)}</p>
+                                        </td>
+                                        <td class="whitespace-nowrap px-1.5 py-3 text-right align-top font-black tabular-nums text-[#231f1b] lg:px-2">${formatMoney(item.total_amount_ariary)}</td>
+                                        <td class="break-words px-1.5 py-3 align-top lg:px-2">
+                                            <span class="inline-flex rounded-md px-1.5 py-1 text-[10px] font-black ${statusClass}">${statusLabel}</span>
+                                        </td>
+                                        <td class="whitespace-nowrap px-1.5 py-3 text-right align-top font-black tabular-nums text-[#1f7665] lg:px-2">${formatMoney(item.paid_amount_ariary)}</td>
+                                        <td class="whitespace-nowrap px-1.5 py-3 text-right align-top font-black tabular-nums text-[#9a382c] lg:px-2">${formatMoney(item.balance_amount_ariary)}</td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        function loadOutstandingArrivalsDetails() {
+            const results = document.getElementById('outstanding-arrivals-results');
+            const typeFilter = document.getElementById('outstanding-type-filter');
+            const searchInput = document.getElementById('outstanding-search');
+            if (!results || !typeFilter || !searchInput) return;
+
+            results.innerHTML = '<div class="rounded-[28px] border border-[#dfcfbb] bg-[#fbf4ea] py-12 text-center font-semibold text-[#75695e]">Chargement…</div>';
+            const params = new URLSearchParams({
+                type: typeFilter.value,
+                q: searchInput.value.trim(),
+            });
+
+            safeFetchJson(`/api/dashboard/outstanding-arrivals?${params.toString()}`, null, {
+                timeoutMs: 8000,
+            })
+                .then(({ data }) => {
+                    if (data.status !== 'success') return;
+                    const count = Number(data.summary?.count || 0);
+                    document.getElementById('outstanding-modal-count').innerText =
+                        `${count} dossier${count > 1 ? 's' : ''}`;
+                    document.getElementById('outstanding-modal-total').innerText =
+                        formatMoney(data.summary?.balance_amount_ariary || 0);
+
+                    outstandingArrivalsRows = Array.isArray(data.data) ? data.data : [];
+                    if (typeFilter.value === 'all' && searchInput.value.trim() === '') {
+                        outstandingArrivalsRankings = {
+                            organizations: Array.isArray(data.rankings?.organizations) ? data.rankings.organizations : [],
+                            individuals: Array.isArray(data.rankings?.individuals) ? data.rankings.individuals : [],
+                        };
+                    }
+                    renderOutstandingArrivalsResults();
+                })
+                .catch(() => {
+                    results.innerHTML = '<div class="rounded-[28px] border border-[#d7a49b] bg-[#f7ddd8] px-5 py-10 text-center font-semibold text-[#8a3025]">Impossible de charger les paiements pour le moment.</div>';
+                });
         }
 
         function startAutoRefresh() {
@@ -1022,10 +1362,19 @@
             return `<button type="button" class="inline-flex items-center justify-center rounded-full border border-[rgba(68,52,39,0.10)] bg-white/75 px-3 py-1 text-[11px] font-black text-[var(--accent)] transition hover:bg-white" onclick="document.getElementById('${targetId}')?.classList.toggle('hidden')">${label}</button>`;
         }
 
-        function clientDetailBlock(res) {
+        function clientDetailBlock(res, showTrigger = true) {
             const guest = res.guest;
             const known = Boolean(guest && ((res.check_in_at && res.check_in_at !== 'N/A') || (res.status || '') !== 'en_attente'));
-            if (!known) {
+            const emails = [
+                res.email,
+                res.organization?.contact_email,
+                res.organization?.email,
+            ].filter((email, index, values) => (
+                email
+                && email !== 'N/A'
+                && values.indexOf(email) === index
+            ));
+            if (!known && emails.length === 0) {
                 return '';
             }
 
@@ -1036,12 +1385,13 @@
             if (guest?.date_of_birth) lines.push(`<div><span class="font-black text-[var(--ink)]">Né(e) :</span> ${formatShortDate(guest.date_of_birth)}</div>`);
             if (guest?.sex) lines.push(`<div><span class="font-black text-[var(--ink)]">Sexe :</span> ${guest.sex}</div>`);
             if (guest?.phone_number) lines.push(`<div><span class="font-black text-[var(--ink)]">Téléphone :</span> ${guest.phone_number}</div>`);
+            if (emails.length > 0) lines.push(`<div><span class="font-black text-[var(--ink)]">Mail :</span> ${emails.map(escapeHtml).join(' · ')}</div>`);
             if (guest?.loyalty_count) lines.push(`<div><span class="font-black text-[var(--ink)]">Séjours connus :</span> ${guest.loyalty_count}</div>`);
 
             return `
                 <div class="mt-2">
-                    ${shortDetailButton('Détails', detailId)}
-                    <div id="${detailId}" class="hidden mt-2 rounded-2xl bg-white/65 p-3 text-[11px] text-[var(--muted)]">
+                    ${showTrigger ? shortDetailButton('Détails', detailId) : ''}
+                    <div id="${detailId}" data-client-detail-panel class="hidden mt-2 rounded-2xl bg-white/65 p-3 text-[11px] text-[var(--muted)]">
                         ${lines.join('') || '<div>Aucune information pièce d’identité.</div>'}
                     </div>
                 </div>
@@ -1501,11 +1851,11 @@
                         <div class="font-mono text-xs font-black text-[var(--accent)]">${res.reference || 'N/A'}</div>
                         ${reservationDetailBlock(res)}
                     </td>
-                    <td data-label="Client" class="px-5 py-4">
-                        <div class="font-bold text-[var(--ink)]">${res.client_name || 'N/A'}</div>
+                    <td data-label="Client" class="cursor-pointer px-5 py-4 hover:bg-white/60" title="Afficher ou masquer les informations du client" onclick="this.querySelector('[data-client-detail-panel]')?.classList.toggle('hidden')">
+                        <div class="font-bold text-[var(--ink)] underline-offset-2 hover:text-[var(--accent)] hover:underline">${res.client_name || 'N/A'}</div>
                         <div class="mt-1 text-[11px] text-[var(--muted)]">${res.contact || 'N/A'}</div>
                         <div class="mt-2 inline-flex rounded-full bg-white/75 px-3 py-1 text-[11px] font-black text-[var(--accent)]">${visitLabel(res.visit_count)}</div>
-                        ${clientDetailBlock(res)}
+                        ${clientDetailBlock(res, false)}
                     </td>
                     <td data-label="Chambre(s)" class="px-5 py-4 text-xs">
                         <div class="font-mono font-black text-[var(--ink)]">${res.room_numbers || 'N/A'}</div>
@@ -1543,11 +1893,11 @@
                         <div class="font-mono text-xs font-black text-[var(--accent)]">${res.reference}</div>
                         ${reservationDetailBlock(res)}
                     </td>
-                    <td data-label="Client" class="px-5 py-4">
-                        <div class="font-bold text-[var(--ink)]">${res.client_name}</div>
+                    <td data-label="Client" class="cursor-pointer px-5 py-4 hover:bg-white/60" title="Afficher ou masquer les informations du client" onclick="this.querySelector('[data-client-detail-panel]')?.classList.toggle('hidden')">
+                        <div class="font-bold text-[var(--ink)] underline-offset-2 hover:text-[var(--accent)] hover:underline">${res.client_name}</div>
                         <div class="mt-1 text-[11px] text-[var(--muted)]">${res.contact || 'N/A'}</div>
                         <div class="mt-2 inline-flex rounded-full bg-white/75 px-3 py-1 text-[11px] font-black text-[var(--accent)]">${visitLabel(res.visit_count)}</div>
-                        ${clientDetailBlock(res)}
+                        ${clientDetailBlock(res, false)}
                     </td>
                     <td data-label="Chambre(s)" class="px-5 py-4 text-xs">
                         <div class="font-mono font-black text-[var(--ink)]">${res.room_numbers || 'N/A'}</div>
@@ -1631,8 +1981,10 @@
 
                     document.getElementById('stat-ca-official').innerText = formatMoney(data.daily_ca_official);
                     document.getElementById('stat-ca-pending').innerText = formatMoney(data.daily_ca_pending);
-                    document.getElementById('stat-ca-total').innerText = formatMoney(data.total_ca);
-                    document.getElementById('ca-period').innerText = data.period;
+                    document.getElementById('stat-ca-collected').innerText = formatMoney(data.collected_ca);
+                    document.getElementById('stat-ca-collected-pending').innerText = formatMoney(data.collected_plus_pending_ca);
+                    document.getElementById('ca-collected-period').innerText = data.period;
+                    document.getElementById('ca-collected-pending-period').innerText = data.period;
 
                     document.getElementById('finance-total-official').innerText = formatMoney(data.daily_ca_official);
                     document.getElementById('finance-total-pending').innerText = formatMoney(data.daily_ca_pending);
@@ -1661,8 +2013,10 @@
                     if (!cached || cached.status !== 'success') return;
                     document.getElementById('stat-ca-official').innerText = formatMoney(cached.daily_ca_official);
                     document.getElementById('stat-ca-pending').innerText = formatMoney(cached.daily_ca_pending);
-                    document.getElementById('stat-ca-total').innerText = formatMoney(cached.total_ca);
-                    document.getElementById('ca-period').innerText = cached.period;
+                    document.getElementById('stat-ca-collected').innerText = formatMoney(cached.collected_ca);
+                    document.getElementById('stat-ca-collected-pending').innerText = formatMoney(cached.collected_plus_pending_ca);
+                    document.getElementById('ca-collected-period').innerText = cached.period;
+                    document.getElementById('ca-collected-pending-period').innerText = cached.period;
                 });
         }
 
@@ -1687,7 +2041,7 @@
             financeChart = new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels: ['Officiel', 'En attente', 'Estimé'],
+                    labels: ['Journalier officiel', 'Journalier en attente', 'Estimé'],
                     datasets: [{
                         label: 'Chiffre d’affaires',
                         data: [official, pending, estimated],

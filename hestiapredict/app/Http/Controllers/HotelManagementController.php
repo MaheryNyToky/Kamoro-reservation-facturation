@@ -356,6 +356,195 @@ class HotelManagementController extends Controller
         return response()->json($payload);
     }
 
+    public function outstandingArrivals(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'type' => 'nullable|string|in:all,individual,organization',
+            'q' => 'nullable|string|max:120',
+        ]);
+        $type = $validated['type'] ?? 'all';
+        $term = trim((string) ($validated['q'] ?? ''));
+        $normalizedTerm = Str::lower(Str::ascii($term));
+
+        $query = Reservation::query()
+            ->with([
+                'rooms',
+                'user',
+                'guest',
+                'organization',
+                'invoice.items',
+                'invoice.payments',
+                'latestAudit',
+                'latestCheckInAudit',
+                'latestModificationAudit',
+            ])
+            ->where(function ($query) {
+                $query
+                    ->where('status', Reservation::MANUAL_CHECKOUT_STATUS)
+                    ->orWhere(function ($query) {
+                        $query
+                            ->where('status', 'arrive')
+                            ->whereDate('check_out_date', '<', now()->toDateString());
+                    });
+            });
+
+        if ($type === 'individual') {
+            $query->where(function ($query) {
+                $query
+                    ->where('booking_type', 'individual')
+                    ->orWhere(function ($query) {
+                        $query
+                            ->whereNull('booking_type')
+                            ->whereNull('organization_id');
+                    });
+            });
+        } elseif ($type === 'organization') {
+            $query->where(function ($query) {
+                $query
+                    ->where('booking_type', 'organization')
+                    ->orWhereNotNull('organization_id');
+            });
+        }
+
+        if ($normalizedTerm !== '') {
+            $like = '%' . $normalizedTerm . '%';
+            $query->where(function ($query) use ($like) {
+                $query
+                    ->whereRaw('LOWER(client_name) LIKE ?', [$like])
+                    ->orWhereRaw('LOWER(booking_reference) LIKE ?', [$like])
+                    ->orWhereRaw('LOWER(client_phone) LIKE ?', [$like])
+                    ->orWhereRaw('LOWER(customer_phone) LIKE ?', [$like])
+                    ->orWhereHas('organization', function ($organizationQuery) use ($like) {
+                        $organizationQuery->whereRaw('LOWER(name) LIKE ?', [$like]);
+                    })
+                    ->orWhereHas('rooms', function ($roomQuery) use ($like) {
+                        $roomQuery
+                            ->whereRaw('LOWER(booking_room.occupant_name) LIKE ?', [$like])
+                            ->orWhereRaw('LOWER(booking_room.occupant_first_name) LIKE ?', [$like]);
+                    });
+            });
+        }
+
+        $items = $query
+            ->orderBy('check_out_date')
+            ->orderByDesc('created_at')
+            ->get()
+            ->map(function (Reservation $reservation): array {
+                $formatted = $this->bookingService->formatReservation($reservation);
+                $balance = (int) ($formatted['balance_amount_ariary'] ?? 0);
+                $paymentStatus = (string) ($formatted['payment_status'] ?? 'unpaid');
+
+                if ($paymentStatus === 'unbilled') {
+                    $paymentStatus = 'unpaid';
+                }
+
+                return [
+                    'id' => $reservation->id,
+                    'guest_id' => $reservation->guest?->id,
+                    'organization_id' => $reservation->organization_id,
+                    'reference' => $reservation->booking_reference,
+                    'client_name' => $reservation->client_name,
+                    'organization_name' => $reservation->organization?->name,
+                    'booking_type' => $reservation->booking_type
+                        ?? ($reservation->organization_id ? 'organization' : 'individual'),
+                    'phone' => $formatted['phone'] ?? 'N/A',
+                    'email' => $formatted['email'] ?? 'N/A',
+                    'guest' => $formatted['guest'] ?? null,
+                    'organization' => $formatted['organization'] ?? null,
+                    'status' => $reservation->status,
+                    'check_in_at' => $formatted['check_in_at'] ?? null,
+                    'room_numbers' => $formatted['room_numbers'] ?? '',
+                    'check_in' => optional($reservation->check_in_date)->toDateString(),
+                    'check_out' => optional($reservation->check_out_date)->toDateString(),
+                    'invoice_number' => $formatted['invoice_number'] ?? null,
+                    'payment_status' => $paymentStatus,
+                    'total_amount_ariary' => (int) (
+                        $formatted['invoice_total_amount_ariary']
+                        ?? $formatted['total_price']
+                        ?? 0
+                    ),
+                    'paid_amount_ariary' => (int) ($formatted['paid_amount_ariary'] ?? 0),
+                    'balance_amount_ariary' => $balance,
+                ];
+            })
+            ->filter(fn (array $item) => (
+                $item['balance_amount_ariary'] > 0
+                && in_array($item['payment_status'], ['unpaid', 'partial'], true)
+            ))
+            ->values();
+
+        $rankingFor = function (string $bookingType) use ($items) {
+            return $items
+                ->where('booking_type', $bookingType)
+                ->groupBy(function (array $item) use ($bookingType): string {
+                    if ($bookingType === 'organization') {
+                        return $item['organization_id']
+                            ? 'organization:' . $item['organization_id']
+                            : 'organization-name:' . Str::lower(Str::ascii((string) ($item['organization_name'] ?? $item['client_name'])));
+                    }
+
+                    if ($item['guest_id']) {
+                        return 'guest:' . $item['guest_id'];
+                    }
+
+                    $phone = trim((string) ($item['phone'] ?? ''));
+                    if ($phone !== '' && $phone !== 'N/A') {
+                        return 'phone:' . preg_replace('/\D+/', '', $phone);
+                    }
+
+                    return 'client-name:' . Str::lower(Str::ascii((string) $item['client_name']));
+                })
+                ->map(function ($group) use ($bookingType): array {
+                    $first = $group->first();
+                    $detailSource = $group->first(function (array $item): bool {
+                        return !empty($item['guest'])
+                            || ($item['email'] ?? 'N/A') !== 'N/A'
+                            || !empty($item['organization']);
+                    }) ?? $first;
+
+                    return [
+                        'name' => $bookingType === 'organization'
+                            ? ($first['organization_name'] ?: $first['client_name'])
+                            : $first['client_name'],
+                        'stay_count' => $group->count(),
+                        'balance_amount_ariary' => (int) $group->sum('balance_amount_ariary'),
+                        'email' => $detailSource['email'] ?? 'N/A',
+                        'guest' => $detailSource['guest'] ?? null,
+                        'organization' => $detailSource['organization'] ?? null,
+                        'status' => $detailSource['status'] ?? Reservation::MANUAL_CHECKOUT_STATUS,
+                        'check_in_at' => $detailSource['check_in_at'] ?? null,
+                    ];
+                })
+                ->sortByDesc('balance_amount_ariary')
+                ->take(5)
+                ->values();
+        };
+        $publicItems = $items->map(function (array $item): array {
+            unset($item['guest_id'], $item['organization_id']);
+
+            return $item;
+        });
+
+        return response()->json([
+            'status' => 'success',
+            'filters' => [
+                'type' => $type,
+                'q' => $term,
+            ],
+            'summary' => [
+                'count' => $items->count(),
+                'total_amount_ariary' => (int) $items->sum('total_amount_ariary'),
+                'paid_amount_ariary' => (int) $items->sum('paid_amount_ariary'),
+                'balance_amount_ariary' => (int) $items->sum('balance_amount_ariary'),
+            ],
+            'rankings' => [
+                'organizations' => $rankingFor('organization'),
+                'individuals' => $rankingFor('individual'),
+            ],
+            'data' => $publicItems,
+        ]);
+    }
+
     public function searchClientHistory(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -402,6 +591,13 @@ class HotelManagementController extends Controller
                                 ->orWhereRaw('LOWER(phone_number) LIKE ?', [$like])
                                 ->orWhereRaw('LOWER(id_number) LIKE ?', [$like])
                                 ->orWhereRaw('LOWER(id_document_number) LIKE ?', [$like]);
+                        })
+                        ->orWhereHas('organization', function ($organizationQuery) use ($like) {
+                            $organizationQuery
+                                ->whereRaw('LOWER(name) LIKE ?', [$like])
+                                ->orWhereRaw('LOWER(contact_name) LIKE ?', [$like])
+                                ->orWhereRaw('LOWER(contact_email) LIKE ?', [$like])
+                                ->orWhereRaw('LOWER(email) LIKE ?', [$like]);
                         });
                 });
             }
@@ -829,7 +1025,7 @@ class HotelManagementController extends Controller
         ]);
         $date = $validated['date'] ?? now()->toDateString();
 
-        $payload = Cache::remember("dashboard:audit-date:$date", now()->addSeconds(45), function () use ($date) {
+        $payload = Cache::remember("dashboard:audit-date:v3:$date", now()->addSeconds(45), function () use ($date) {
             return $this->yieldService->auditDate($date);
         });
 

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\Organization;
 use App\Models\Reservation;
 use App\Models\Room;
 use App\Models\User;
@@ -72,8 +73,48 @@ class ClientHistorySearchTest extends TestCase
         $response->assertJsonPath('data.2.period', 'passé');
         $response->assertJsonPath('data.1.invoice_status', 'paid');
         $response->assertJsonPath('data.0.invoice_number', null);
+        $response->assertJsonPath('data.0.email', 'client@example.com');
         $this->assertSame($past->id, (int) $response->json('data.2.id'));
         $this->assertSame($future->id, (int) $response->json('data.0.id'));
+    }
+
+    public function test_client_history_can_be_opened_from_an_organization_name(): void
+    {
+        $user = User::create([
+            'name' => 'Reception Organisation',
+            'email' => 'reception-organization-history@example.com',
+            'password' => 'password',
+            'role' => 'receptionist',
+            'is_blacklisted' => false,
+        ]);
+        $room = Room::create([
+            'room_number' => 'ORG-HISTORY',
+            'type' => 'Chambre Double',
+            'model' => 'Standard',
+            'base_price_ariary' => 50000,
+            'is_fixed_price' => false,
+        ]);
+        $organization = Organization::create([
+            'name' => 'MADA HISTORIQUE',
+            'contact_email' => 'contact@mada-historique.test',
+        ]);
+        $reservation = $this->createReservation(
+            $user->id,
+            $room->id,
+            'Contact Organisation',
+            '2026-06-20',
+            '2026-06-22',
+        );
+        $reservation->update([
+            'organization_id' => $organization->id,
+            'booking_type' => 'organization',
+        ]);
+
+        $this->getJson('/api/dashboard/client-history?q=MADA%20HISTORIQUE')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $reservation->id)
+            ->assertJsonPath('data.0.organization.contact_email', 'contact@mada-historique.test');
     }
 
     public function test_client_history_without_query_returns_recent_reservations(): void

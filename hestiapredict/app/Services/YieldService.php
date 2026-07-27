@@ -60,12 +60,8 @@ class YieldService
 
         $dailyCaOfficial = $this->revenueForDate($date, ['arrive']);
         $dailyCaPending = $this->revenueForDate($date, ['en_attente']);
-        $totalCA = (int) DB::table('booking_room')
-            ->join('reservations', 'reservations.id', '=', 'booking_room.reservation_id')
-            ->where('reservations.status', 'arrive')
-            ->whereRaw('COALESCE(booking_room.segment_start_date, reservations.check_in_date) <= ?', [$date])
-            ->whereRaw('COALESCE(booking_room.segment_end_date, reservations.check_out_date) > ?', [$date])
-            ->sum('booking_room.price_snapshot_ariary');
+        $financialRevenue = $this->financialRevenueThroughDate($date);
+        $selectedDate = Carbon::parse($date);
 
         return [
             'status' => 'success',
@@ -73,8 +69,16 @@ class YieldService
             'rooms_estimated' => (int) $roomsEstimated,
             'daily_ca_official' => (int) $dailyCaOfficial,
             'daily_ca_pending' => (int) $dailyCaPending,
-            'total_ca' => (int) $totalCA,
-            'period' => 'Depuis le début de l\'année jusqu\'au ' . date('d/m/Y', strtotime($date)),
+            'collected_ca' => $financialRevenue['collected'],
+            'pending_payment_ca' => $financialRevenue['pending'],
+            'collected_plus_pending_ca' => $financialRevenue['collected_plus_pending'],
+            // Conservé temporairement pour les anciens clients de l'API.
+            'total_ca' => $financialRevenue['collected_plus_pending'],
+            'period' => sprintf(
+                'Du 01/01/%s au %s',
+                $selectedDate->format('Y'),
+                $selectedDate->format('d/m/Y'),
+            ),
         ];
     }
 
@@ -352,5 +356,36 @@ class YieldService
             ->whereRaw('COALESCE(booking_room.segment_start_date, reservations.check_in_date) <= ?', [$date])
             ->whereRaw('COALESCE(booking_room.segment_end_date, reservations.check_out_date) > ?', [$date])
             ->sum('booking_room.price_snapshot_ariary');
+    }
+
+    /**
+     * @return array{collected: int, pending: int, collected_plus_pending: int}
+     */
+    private function financialRevenueThroughDate(string $date): array
+    {
+        $selectedDate = Carbon::parse($date)->startOfDay();
+        $periodStart = $selectedDate->copy()->startOfYear();
+        $periodEnd = $selectedDate->copy()->endOfDay();
+
+        $collected = (int) DB::table('payments')
+            ->whereBetween('created_at', [
+                $periodStart->toDateTimeString(),
+                $periodEnd->toDateTimeString(),
+            ])
+            ->sum('amount_ariary');
+
+        $pending = (int) Reservation::query()
+            ->with(['invoice.payments', 'invoice.childInvoices.payments'])
+            ->where('status', '!=', 'annule')
+            ->whereDate('check_in_date', '<=', $selectedDate->toDateString())
+            ->whereDate('check_out_date', '>', $periodStart->toDateString())
+            ->get()
+            ->sum(fn (Reservation $reservation): int => (int) ($reservation->invoice?->balance_amount_ariary ?? 0));
+
+        return [
+            'collected' => $collected,
+            'pending' => $pending,
+            'collected_plus_pending' => $collected + $pending,
+        ];
     }
 }

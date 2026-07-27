@@ -14,6 +14,7 @@ Route::middleware('throttle:120,1')->group(function () {
     Route::get('/dashboard/ai-revenue-summary', [HotelManagementController::class, 'aiRevenueSummary']);
     Route::get('/dashboard/client-history', [HotelManagementController::class, 'searchClientHistory']);
     Route::get('/dashboard/extras-capacity', [HotelManagementController::class, 'extrasCapacity']);
+    Route::get('/dashboard/outstanding-arrivals', [HotelManagementController::class, 'outstandingArrivals']);
     Route::get('/dashboard/reservation-status-summary', [HotelManagementController::class, 'reservationStatusSummary']);
     Route::get('/live-availability', [HotelManagementController::class, 'getLiveAvailability']);
     Route::get('/available-rooms', [HotelManagementController::class, 'getAvailableRoomsForDates']);
