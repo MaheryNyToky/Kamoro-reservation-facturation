@@ -483,13 +483,16 @@ class HotelManagementController extends Controller
                             : 'organization-name:' . Str::lower(Str::ascii((string) ($item['organization_name'] ?? $item['client_name'])));
                     }
 
-                    if ($item['guest_id']) {
-                        return 'guest:' . $item['guest_id'];
+                    $phone = trim((string) ($item['guest']['phone_number'] ?? $item['phone'] ?? ''));
+                    if ($phone !== '' && $phone !== 'N/A') {
+                        $normalizedPhone = PhoneNumber::normalize($phone);
+                        if ($normalizedPhone !== null) {
+                            return 'phone:' . $normalizedPhone;
+                        }
                     }
 
-                    $phone = trim((string) ($item['phone'] ?? ''));
-                    if ($phone !== '' && $phone !== 'N/A') {
-                        return 'phone:' . preg_replace('/\D+/', '', $phone);
+                    if ($item['guest_id']) {
+                        return 'guest:' . $item['guest_id'];
                     }
 
                     return 'client-name:' . Str::lower(Str::ascii((string) $item['client_name']));

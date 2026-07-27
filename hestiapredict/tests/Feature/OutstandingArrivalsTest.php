@@ -86,6 +86,48 @@ class OutstandingArrivalsTest extends TestCase
             ->assertJsonCount(0, 'data');
     }
 
+    public function test_individual_ranking_combines_stays_with_different_guest_records(): void
+    {
+        [$individual] = $this->seedOutstandingArrivals();
+        $individual->update(['client_name' => 'LIKO KININIKA']);
+        $individual->guest()->update(['full_name' => 'LIKO KININIKA', 'phone_number' => '0341131021']);
+        $individual->invoice()->update(['total_amount_ariary' => 338500]);
+
+        $secondRoom = Room::create([
+            'room_number' => 'DUE-106',
+            'type' => 'Chambre Double',
+            'model' => 'Standard',
+            'base_price_ariary' => 125000,
+            'is_fixed_price' => false,
+        ]);
+        $secondStay = $this->createReservationWithInvoice(
+            $individual->user,
+            $secondRoom,
+            'LIKO KININIKA',
+            'RES-DUE-LIKO-2',
+            'arrive',
+            'individual',
+            null,
+            125000,
+            0,
+            '2026-07-26',
+        );
+        Guest::create([
+            'reservation_id' => $secondStay->id,
+            'full_name' => 'LIKO KININIKA',
+            'phone_number' => '0341131021',
+            'date_of_birth' => '1990-01-15',
+            'id_type' => 'CIN',
+            'id_number' => '101012345679',
+        ]);
+
+        $this->getJson('/api/dashboard/outstanding-arrivals?type=individual')
+            ->assertOk()
+            ->assertJsonPath('rankings.individuals.0.name', 'LIKO KININIKA')
+            ->assertJsonPath('rankings.individuals.0.stay_count', 2)
+            ->assertJsonPath('rankings.individuals.0.balance_amount_ariary', 463500);
+    }
+
     /**
      * @return array{Reservation, Reservation}
      */
