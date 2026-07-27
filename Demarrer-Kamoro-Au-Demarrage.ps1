@@ -169,17 +169,17 @@ function Stop-ExistingComposeStack {
 
 function Stop-PortListeners {
     $Ports = @(8000, 8001, 8080)
-    $Connections = @()
+    $ProcessIds = @()
+    $NetstatOutput = @(netstat -ano -p tcp 2>$null)
 
-    try {
-        $Connections = Get-NetTCPConnection -State Listen -LocalPort $Ports -ErrorAction Stop
-    } catch {
-        Write-Log "Impossible d'inspecter les ports avec Get-NetTCPConnection : $($_.Exception.Message)"
-        return
+    foreach ($Line in $NetstatOutput) {
+        if ($Line -match '^\s*TCP\s+\S+:(8000|8001|8080)\s+\S+\s+LISTENING\s+(\d+)\s*$') {
+            $ProcessIds += [int] $Matches[2]
+        }
     }
 
-    $ProcessIds = $Connections |
-        Select-Object -ExpandProperty OwningProcess -Unique |
+    $ProcessIds = $ProcessIds |
+        Sort-Object -Unique |
         Where-Object { $_ -and $_ -ne $PID -and $_ -ne 0 }
 
     foreach ($ProcessId in $ProcessIds) {
