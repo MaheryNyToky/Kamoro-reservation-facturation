@@ -54,6 +54,7 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
   String _errorMessage = '';
   String _viewMode = 'all';
   String _paymentFilter = 'all';
+  String _documentType = 'facture';
   String? _selectedOrganizationKey;
   String _monthKey = _monthKeyFromDate(DateTime.now());
   String _searchQuery = '';
@@ -75,16 +76,10 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
   bool get _canAccess => widget.role == 'admin' || widget.role == 'superadmin';
 
   List<_DossierReservation> get _organizationReservations {
-    final today = DateTime.now();
-    final todayOnly = DateTime(today.year, today.month, today.day);
     return _reservations
         .where((reservation) => reservation.isOrganization)
         .where((reservation) => !reservation.isCancelled)
         .where((reservation) => reservation.checkOut != null)
-        .where((reservation) {
-          final checkOut = reservation.checkOut!;
-          return checkOut.isBefore(todayOnly);
-        })
         .toList()
       ..sort((a, b) {
         final orgCompare = a.organizationName.compareTo(b.organizationName);
@@ -175,9 +170,8 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
   }
 
   List<_DossierReservation> get _selectedReservations {
-    final visible = _viewMode == 'all'
-        ? _selectedOrganization?.reservations ?? const <_DossierReservation>[]
-        : _visibleReservations;
+    final visible =
+        _selectedOrganization?.reservations ?? const <_DossierReservation>[];
     if (_selectedReservationIds.isEmpty) {
       return const [];
     }
@@ -220,6 +214,9 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
   );
 
   int get _reservationCount => _selectedReservations.length;
+
+  bool get _selectionContainsFuture =>
+      _selectedReservations.any((reservation) => reservation.isFuture);
 
   void _syncSelectionToVisibleReservations({bool clearSelection = false}) {
     final visibleIds = _visibleReservations
@@ -396,6 +393,7 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
     if (organization == null) return Uint8List(0);
     final reservations = _selectedReservations;
     if (reservations.isEmpty) return Uint8List(0);
+    final documentType = _selectionContainsFuture ? 'proforma' : _documentType;
 
     final response = await http
         .post(
@@ -407,7 +405,7 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
             'Content-Type': 'application/json',
           },
           body: json.encode({
-            'document_type': 'facture',
+            'document_type': documentType,
             'reservation_ids': reservations
                 .map((reservation) => reservation.id)
                 .toList(),
@@ -421,7 +419,7 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
           : null;
       final message = decoded is Map && decoded['message'] != null
           ? decoded['message'].toString()
-          : 'Impossible de générer la facture.';
+          : 'Impossible de générer le document.';
       throw Exception(message);
     }
 
@@ -435,7 +433,11 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
       context,
       MaterialPageRoute(
         builder: (_) => Scaffold(
-          appBar: AppBar(title: const Text('Aperçu facture')),
+          appBar: AppBar(
+            title: Text(
+              'Aperçu ${_selectionContainsFuture || _documentType == 'proforma' ? 'proforma' : 'facture'}',
+            ),
+          ),
           body: PdfPreview(
             build: (_) async => bytes,
             allowPrinting: false,
@@ -485,10 +487,13 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
         .toLowerCase()
         .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
         .replaceAll(RegExp(r'^_+|_+$'), '');
+    final document = _selectionContainsFuture || _documentType == 'proforma'
+        ? 'proforma'
+        : 'facture';
     final suffix = _selectedReservations.isEmpty
         ? (_viewMode == 'all' ? 'historique' : _monthKey)
-        : 'facture_groupee';
-    return 'facture_${safeOrg.isEmpty ? 'organisme' : safeOrg}_$suffix.pdf';
+        : '${document}_groupee';
+    return '${document}_${safeOrg.isEmpty ? 'organisme' : safeOrg}_$suffix.pdf';
   }
 
   String get _selectionScopeLabel {
@@ -915,6 +920,49 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
             const SizedBox(height: 14),
             Wrap(
               spacing: 10,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                const Text(
+                  'Document à générer',
+                  style: TextStyle(color: _muted, fontWeight: FontWeight.w800),
+                ),
+                SegmentedButton<String>(
+                  segments: [
+                    ButtonSegment(
+                      value: 'facture',
+                      label: const Text('Facture'),
+                      icon: const Icon(Icons.receipt_long_outlined),
+                      enabled: !_selectionContainsFuture,
+                    ),
+                    const ButtonSegment(
+                      value: 'proforma',
+                      label: Text('Proforma'),
+                      icon: Icon(Icons.description_outlined),
+                    ),
+                  ],
+                  selected: {
+                    _selectionContainsFuture ? 'proforma' : _documentType,
+                  },
+                  onSelectionChanged: _selectedReservations.isEmpty
+                      ? null
+                      : (selection) {
+                          setState(() => _documentType = selection.first);
+                        },
+                ),
+                if (_selectionContainsFuture)
+                  const Text(
+                    'Un séjour futur impose une proforma.',
+                    style: TextStyle(
+                      color: _primaryDark,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 10,
               runSpacing: 10,
               children: [
                 OutlinedButton.icon(
@@ -922,24 +970,24 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
                       ? null
                       : _openPreview,
                   icon: const Icon(Icons.visibility_outlined),
-                  label: const Text('Aperçu facture'),
+                  label: const Text('Aperçu'),
                 ),
                 OutlinedButton.icon(
                   onPressed: _selectedReservations.isEmpty
                       ? null
                       : _downloadPdf,
                   icon: const Icon(Icons.download_outlined),
-                  label: const Text('Télécharger facture'),
+                  label: const Text('Télécharger'),
                 ),
                 OutlinedButton.icon(
                   onPressed: _selectedReservations.isEmpty ? null : _sharePdf,
                   icon: const Icon(Icons.ios_share),
-                  label: const Text('Partager facture'),
+                  label: const Text('Partager'),
                 ),
                 OutlinedButton.icon(
                   onPressed: _selectedReservations.isEmpty ? null : _printPdf,
                   icon: const Icon(Icons.print_outlined),
-                  label: const Text('Imprimer facture'),
+                  label: const Text('Imprimer'),
                 ),
               ],
             ),
@@ -988,7 +1036,27 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
                                     ),
                                   ),
                                   DataCell(Text(reservation.reference)),
-                                  DataCell(Text(reservation.stayLabel)),
+                                  DataCell(
+                                    Column(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(reservation.stayLabel),
+                                        Text(
+                                          reservation.periodLabel,
+                                          style: TextStyle(
+                                            color: reservation.isFuture
+                                                ? _primaryDark
+                                                : _muted,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
                                   DataCell(Text(reservation.prestations)),
                                   DataCell(
                                     Text(formatPrice(reservation.totalAmount)),
@@ -1128,7 +1196,25 @@ class _OrganizationDossierPageState extends State<OrganizationDossierPage> {
                           ),
                         ),
                         DataCell(Text(reservation.reference)),
-                        DataCell(Text(reservation.stayLabel)),
+                        DataCell(
+                          Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(reservation.stayLabel),
+                              Text(
+                                reservation.periodLabel,
+                                style: TextStyle(
+                                  color: reservation.isFuture
+                                      ? _primaryDark
+                                      : _muted,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                         DataCell(Text(reservation.prestations)),
                         DataCell(Text(formatPrice(reservation.totalAmount))),
                         DataCell(Text(formatPrice(reservation.paidAmount))),
@@ -1321,6 +1407,12 @@ class _DossierReservation {
 
   bool get isCancelled => status == 'annule';
 
+  bool get isFuture {
+    final today = DateTime.now();
+    final todayOnly = DateTime(today.year, today.month, today.day);
+    return checkOut != null && !checkOut!.isBefore(todayOnly);
+  }
+
   bool get isOrganization =>
       bookingType == 'organization' || organization != null;
 
@@ -1346,6 +1438,8 @@ class _DossierReservation {
     final end = checkOut == null ? 'N/A' : _formatStayDate(checkOut!);
     return '$start au $end';
   }
+
+  String get periodLabel => isFuture ? 'À venir' : 'Séjour terminé';
 
   String get paymentStatusLabel {
     return switch (paymentStatus) {

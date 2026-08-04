@@ -729,14 +729,12 @@ class HotelManagementController extends Controller
 
     private function organizationDossierSummaries(string $term = ''): Collection
     {
-        $today = now()->startOfDay()->toDateString();
         $query = Organization::query()
             ->with([
-                'reservations' => function ($reservationQuery) use ($today): void {
+                'reservations' => function ($reservationQuery): void {
                     $reservationQuery
                         ->with(['rooms', 'user', 'invoice.payments', 'latestAudit', 'latestCheckInAudit', 'latestModificationAudit'])
                         ->whereHas('rooms')
-                        ->whereDate('check_out_date', '<', $today)
                         ->where('status', '!=', 'annule')
                         ->orderBy('check_in_date')
                         ->orderBy('created_at');
@@ -783,11 +781,9 @@ class HotelManagementController extends Controller
 
     private function organizationDossierPayload(Organization $organization, string $scope, string $month): array
     {
-        $today = now()->startOfDay()->toDateString();
         $query = $organization->reservations()
             ->with(['rooms', 'user', 'invoice.payments', 'latestAudit', 'latestCheckInAudit', 'latestModificationAudit'])
             ->whereHas('rooms')
-            ->whereDate('check_out_date', '<', $today)
             ->where('status', '!=', 'annule')
             ->orderBy('check_in_date')
             ->orderBy('created_at');

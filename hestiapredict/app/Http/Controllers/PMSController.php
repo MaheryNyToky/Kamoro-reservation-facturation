@@ -310,7 +310,6 @@ class PMSController extends Controller
         ]);
 
         $documentType = $validated['document_type'] ?? 'facture';
-        $today = now()->startOfDay()->toDateString();
         $reservationIds = collect($validated['reservation_ids'])
             ->map(fn ($value) => (int) $value)
             ->filter(fn (int $value) => $value > 0)
@@ -324,7 +323,6 @@ class PMSController extends Controller
             ->whereIn('id', $reservationIds->all())
             ->whereHas('rooms')
             ->where('status', '!=', 'annule')
-            ->whereDate('check_out_date', '<', $today)
             ->orderBy('check_in_date')
             ->orderBy('created_at')
             ->get();
@@ -332,6 +330,14 @@ class PMSController extends Controller
         if ($reservations->isEmpty()) {
             return response()->json([
                 'message' => 'Aucun séjour valide sélectionné pour cette facture.',
+            ], 422);
+        }
+
+        if ($documentType === 'facture' && $reservations->contains(
+            fn (Reservation $reservation): bool => $reservation->check_out_date?->gte(now()->startOfDay()) ?? true
+        )) {
+            return response()->json([
+                'message' => 'Un séjour futur ne peut être généré qu’en facture proforma.',
             ], 422);
         }
 
@@ -430,6 +436,10 @@ class PMSController extends Controller
                 $seenLineKeys[$lineKey] = true;
                 $totalAmount += $unitAmount * $quantity;
             }
+
+            // Les remises sont stockées sur la facture, pas comme une ligne d'item.
+            // Elles doivent donc être déduites une seule fois dans le regroupement.
+            $totalAmount -= max(0, (int) ($invoice?->discount_amount_ariary ?? 0));
 
             $paidAmount += (int) ($invoice?->paid_amount_ariary ?? 0);
         }
@@ -1480,7 +1490,7 @@ class PMSController extends Controller
                 $totalAmount += $lineTotal;
             }
 
-            foreach ($invoiceItems->reject(fn (InvoiceItem $item) => $item->type === 'room') as $item) {
+            foreach ($invoiceItems->reject(fn (InvoiceItem $item) => in_array($item->type, ['room', 'tax'], true)) as $item) {
                 if (!$item instanceof InvoiceItem) {
                     continue;
                 }
@@ -1510,6 +1520,22 @@ class PMSController extends Controller
                     . '<td class="num">' . $this->formatMoney($lineTotal, 'Ar') . '</td>'
                     . '</tr>';
                 $totalAmount += $lineTotal;
+            }
+
+            $discountAmount = max(0, (int) ($invoice?->discount_amount_ariary ?? 0));
+            if ($discountAmount > 0) {
+                $discountKey = implode('|', [$reservation->id, 'discount', (string) $discountAmount]);
+                if (!isset($seenLineKeys[$discountKey])) {
+                    $seenLineKeys[$discountKey] = true;
+                    $lineRows .= '<tr>'
+                        . '<td>Remise</td>'
+                        . '<td></td>'
+                        . '<td class="num">1</td>'
+                        . '<td class="num">-' . $this->formatMoney($discountAmount, 'Ar') . '</td>'
+                        . '<td class="num">-' . $this->formatMoney($discountAmount, 'Ar') . '</td>'
+                        . '</tr>';
+                    $totalAmount -= $discountAmount;
+                }
             }
 
             $paidAmount += (int) ($invoice?->paid_amount_ariary ?? 0);
