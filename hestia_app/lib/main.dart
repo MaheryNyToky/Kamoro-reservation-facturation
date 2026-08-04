@@ -627,11 +627,17 @@ class _StaffDashboardState extends State<StaffDashboard> {
         }
       },
       onDateTap: () async {
+        final canBrowseAnyDate =
+            widget.role == 'admin' || widget.role == 'superadmin';
         var d = await showDatePicker(
           context: context,
           initialDate: _selectedDate,
-          firstDate: DateTime.now().subtract(const Duration(days: 1)),
-          lastDate: DateTime.now().add(const Duration(days: 365)),
+          firstDate: canBrowseAnyDate
+              ? DateTime(2000, 1, 1)
+              : DateTime.now().subtract(const Duration(days: 1)),
+          lastDate: canBrowseAnyDate
+              ? DateTime(2100, 12, 31)
+              : DateTime.now().add(const Duration(days: 365)),
         );
         if (d != null) {
           setState(() => _selectedDate = d);
