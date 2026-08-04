@@ -211,6 +211,30 @@ class ReservationListingOptimizationTest extends TestCase
         $this->assertSame(510000, (int) $reservationData['fixed_total_price']);
     }
 
+    public function test_unbilled_reservation_without_invoice_keeps_total_as_balance(): void
+    {
+        $user = User::create([
+            'name' => 'Reception Balance Test',
+            'email' => 'reservation-listing-balance@example.com',
+            'password' => 'password',
+            'role' => 'receptionist',
+        ]);
+        $reservation = $this->createReservation($user->id, 'Unbilled Balance Client', 'en_attente');
+        $reservation->rooms()->attach($this->createRoom('906')->id, [
+            'price_snapshot_ariary' => 110000,
+        ]);
+
+        $response = $this->getJson('/api/reservations/all?date=2026-06-20&status=all');
+        $reservationData = collect($response->json())->firstWhere(
+            'client_name',
+            'Unbilled Balance Client',
+        );
+
+        $this->assertNotNull($reservationData);
+        $this->assertSame(110000, (int) $reservationData['total_price']);
+        $this->assertSame(110000, (int) $reservationData['balance_amount_ariary']);
+    }
+
     public function test_reservations_all_includes_the_checkin_actor_after_checkin(): void
     {
         $user = User::create([

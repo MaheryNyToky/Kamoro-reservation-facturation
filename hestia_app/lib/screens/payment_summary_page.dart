@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -109,13 +110,39 @@ class _PaymentSummaryPageState extends State<PaymentSummaryPage> {
 
     const cacheKey = 'payment_summary:reservations_all';
     try {
-      final response = await _apiClient.get('/api/reservations/all', {
-        'date': 'all',
-        'status': 'all',
-      }, const Duration(seconds: 8));
+      final query = const {'date': 'all', 'status': 'all'};
+      http.Response? response;
+      Object? lastError;
+
+      // Le récapitulatif charge tous les séjours et leurs paiements. Docker
+      // peut être plus lent au premier appel, notamment avec SQLite monté.
+      for (var attempt = 0; attempt < 2; attempt++) {
+        try {
+          response = await _apiClient.get(
+            '/api/reservations/all',
+            query,
+            const Duration(seconds: 30),
+          );
+          lastError = null;
+          break;
+        } catch (error) {
+          lastError = error;
+          if (attempt == 0) {
+            await Future<void>.delayed(const Duration(milliseconds: 500));
+          }
+        }
+      }
+
+      if (lastError != null) {
+        throw lastError;
+      }
       if (!mounted) return;
-      if (response.statusCode == 200) {
-        final decoded = json.decode(response.body);
+      final currentResponse = response;
+      if (currentResponse == null) {
+        throw Exception('Réponse API indisponible.');
+      }
+      if (currentResponse.statusCode == 200) {
+        final decoded = json.decode(currentResponse.body);
         final data = decoded is List ? decoded : const [];
         final reservations = data
             .whereType<Map>()
@@ -130,7 +157,7 @@ class _PaymentSummaryPageState extends State<PaymentSummaryPage> {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString(cacheKey, json.encode(data));
       } else {
-        throw Exception('Erreur ${response.statusCode}');
+        throw Exception('Erreur API ${currentResponse.statusCode}');
       }
     } catch (e) {
       final prefs = await SharedPreferences.getInstance();
@@ -148,7 +175,8 @@ class _PaymentSummaryPageState extends State<PaymentSummaryPage> {
                 ),
               )
               .toList();
-          _errorMessage = 'Mode hors ligne : récapitulatif local affiché.';
+          _errorMessage =
+              'Mode hors ligne : récapitulatif local affiché. API indisponible.';
         });
       } else if (mounted) {
         setState(() {
@@ -981,7 +1009,19 @@ class _SummaryReservation {
   final int balanceAmount;
   final List<_SummaryPayment> payments;
 
-  bool get isCancelled => status == 'annule';
+  bool get isCancelled {
+    final normalized = status
+        .trim()
+        .toLowerCase()
+        .replaceAll('é', 'e')
+        .replaceAll('è', 'e')
+        .replaceAll('ê', 'e');
+    return normalized == 'annule' ||
+        normalized == 'annulee' ||
+        normalized == 'cancelled' ||
+        normalized == 'canceled' ||
+        normalized == 'cancel';
+  }
 
   String get paymentStatusLabel {
     return switch (paymentStatus) {

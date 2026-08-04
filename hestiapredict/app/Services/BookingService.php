@@ -1241,9 +1241,7 @@ class BookingService
         $invoicePaidAmount = (int) ($invoice?->paid_amount_ariary ?? 0);
         $invoiceBalanceAmount = $invoice
             ? (int) $invoice->balance_amount_ariary
-            : (in_array($reservation->status, ['arrive', 'check_out_manuel'], true)
-                ? (int) $totalPrice
-                : 0);
+            : (int) $totalPrice;
         $paymentStatus = $reservation->payment_status ?? 'unbilled';
         $payments = $invoice?->relationLoaded('payments')
             ? $invoice->payments
