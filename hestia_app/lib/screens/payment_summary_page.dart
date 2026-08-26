@@ -26,6 +26,26 @@ String _shortDate(DateTime? dateTime) {
   return '$day/$month/${local.year}';
 }
 
+@visibleForTesting
+bool isCheckoutWithinSummaryRange(
+  DateTime? checkOut,
+  DateTime start,
+  DateTime end,
+) {
+  if (checkOut == null) return false;
+
+  final normalizedCheckOut = DateTime(
+    checkOut.year,
+    checkOut.month,
+    checkOut.day,
+  );
+  final normalizedStart = DateTime(start.year, start.month, start.day);
+  final normalizedEnd = DateTime(end.year, end.month, end.day);
+
+  return !normalizedCheckOut.isBefore(normalizedStart) &&
+      !normalizedCheckOut.isAfter(normalizedEnd);
+}
+
 class PaymentSummaryPage extends StatefulWidget {
   const PaymentSummaryPage({
     super.key,
@@ -77,12 +97,6 @@ class _PaymentSummaryPageState extends State<PaymentSummaryPage> {
 
   String get _dateRangeLabel =>
       'du ${_formatDate(_normalizedStartDate)} au ${_formatDate(_normalizedEndDate)}';
-
-  bool _isWithinRange(DateTime date) {
-    final target = DateTime(date.year, date.month, date.day);
-    return !target.isBefore(_normalizedStartDate) &&
-        !target.isAfter(_normalizedEndDate);
-  }
 
   String _formatDateTime(DateTime? dateTime) {
     if (dateTime == null) return 'N/A';
@@ -195,32 +209,41 @@ class _PaymentSummaryPageState extends State<PaymentSummaryPage> {
           .where(
             (reservation) =>
                 !reservation.isCancelled &&
-                reservation.checkIn != null &&
-                reservation.checkOut != null &&
-                !reservation.checkIn!.isAfter(_normalizedEndDate) &&
-                !reservation.checkOut!.isBefore(_normalizedStartDate),
+                isCheckoutWithinSummaryRange(
+                  reservation.checkOut,
+                  _normalizedStartDate,
+                  _normalizedEndDate,
+                ),
           )
           .toList()
         ..sort((a, b) {
-          final byDate = a.checkIn!.compareTo(b.checkIn!);
+          final byDate = a.checkOut!.compareTo(b.checkOut!);
           if (byDate != 0) return byDate;
           return a.clientName.compareTo(b.clientName);
         });
 
   List<_SummaryPayment> get _paymentsForRange {
     return _reservations
-        .where((reservation) => !reservation.isCancelled)
+        .where(
+          (reservation) =>
+              !reservation.isCancelled &&
+              isCheckoutWithinSummaryRange(
+                reservation.checkOut,
+                _normalizedStartDate,
+                _normalizedEndDate,
+              ),
+        )
         .expand(
           (reservation) => reservation.payments.map((payment) {
             return payment.copyWithReservation(reservation);
           }),
         )
-        .where(
-          (payment) =>
-              payment.createdAt != null && _isWithinRange(payment.createdAt!),
-        )
         .toList()
       ..sort((a, b) {
+        final stayEndA = a.checkOut ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final stayEndB = b.checkOut ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final byStayEnd = stayEndA.compareTo(stayEndB);
+        if (byStayEnd != 0) return byStayEnd;
         final dateA = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
         final dateB = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
         return dateA.compareTo(dateB);
@@ -307,8 +330,8 @@ class _PaymentSummaryPageState extends State<PaymentSummaryPage> {
         ? 'Récapitulatif des paiements'
         : 'Récapitulatif des impayés';
     final subtitle = isPaidMode
-        ? 'Paiements encaissés $_dateRangeLabel'
-        : 'Réservations impayées $_dateRangeLabel';
+        ? 'Paiements des séjours terminés $_dateRangeLabel'
+        : 'Séjours impayés terminés $_dateRangeLabel';
 
     final bodyWidgets = <pw.Widget>[
       pw.Text(
@@ -818,7 +841,9 @@ class _PaymentSummaryPageState extends State<PaymentSummaryPage> {
 
   Widget _buildPaymentsTable(List<_SummaryPayment> rows) {
     if (rows.isEmpty) {
-      return const Center(child: Text('Aucun paiement pour cette période.'));
+      return const Center(
+        child: Text('Aucun paiement pour les départs de cette période.'),
+      );
     }
 
     return SingleChildScrollView(
@@ -862,7 +887,9 @@ class _PaymentSummaryPageState extends State<PaymentSummaryPage> {
 
   Widget _buildPendingTable(List<_SummaryReservation> rows) {
     if (rows.isEmpty) {
-      return const Center(child: Text('Aucune réservation impayée.'));
+      return const Center(
+        child: Text('Aucun séjour impayé terminé sur cette période.'),
+      );
     }
 
     return SingleChildScrollView(
