@@ -50,6 +50,7 @@ class _StandaloneInvoicesPageState extends State<StandaloneInvoicesPage> {
   bool _loading = true;
   bool _saving = false;
   bool _isOrganization = false;
+  DateTime _invoiceDate = DateTime.now();
 
   @override
   void initState() {
@@ -87,6 +88,9 @@ class _StandaloneInvoicesPageState extends State<StandaloneInvoicesPage> {
         () => _invoices = data
             .whereType<Map>()
             .map((e) => Map<String, dynamic>.from(e))
+            .where(
+              (invoice) => !['annule', 'cancelled'].contains(invoice['status']),
+            )
             .toList(),
       );
     } else {
@@ -124,6 +128,7 @@ class _StandaloneInvoicesPageState extends State<StandaloneInvoicesPage> {
         'organization_nif': _organizationNif.text.trim(),
         'organization_stat': _organizationStat.text.trim(),
         'document_type': _documentType,
+        'issued_at': _invoiceDate.toIso8601String().substring(0, 10),
         'actor_name': widget.userName,
         'actor_role': widget.role,
       });
@@ -288,6 +293,18 @@ class _StandaloneInvoicesPageState extends State<StandaloneInvoicesPage> {
       _lines[index].dispose();
       _lines.removeAt(index);
     });
+  }
+
+  Future<void> _selectInvoiceDate() async {
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: _invoiceDate,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+    if (selected != null && mounted) {
+      setState(() => _invoiceDate = selected);
+    }
   }
 
   @override
@@ -455,6 +472,22 @@ class _StandaloneInvoicesPageState extends State<StandaloneInvoicesPage> {
                             ],
                             onChanged: (v) =>
                                 setState(() => _documentType = v ?? 'facture'),
+                          ),
+                        ),
+                        SizedBox(
+                          width: 220,
+                          child: InkWell(
+                            onTap: _selectInvoiceDate,
+                            borderRadius: BorderRadius.circular(8),
+                            child: InputDecorator(
+                              decoration: const InputDecoration(
+                                labelText: 'Date de facture',
+                                prefixIcon: Icon(Icons.calendar_today),
+                              ),
+                              child: Text(
+                                '${_invoiceDate.day.toString().padLeft(2, '0')}/${_invoiceDate.month.toString().padLeft(2, '0')}/${_invoiceDate.year}',
+                              ),
+                            ),
                           ),
                         ),
                         ..._lines.asMap().entries.map((entry) {

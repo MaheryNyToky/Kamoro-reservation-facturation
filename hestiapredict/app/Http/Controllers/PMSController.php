@@ -645,6 +645,7 @@ class PMSController extends Controller
 
         return response()->json(Invoice::query()
             ->where('invoice_category', 'standalone')
+            ->whereNotIn('status', ['annule', 'cancelled'])
             ->with(['items', 'payments'])
             ->latest('issued_at')
             ->latest('id')
@@ -711,6 +712,7 @@ class PMSController extends Controller
             'organization_nif' => 'nullable|string|max:80',
             'organization_stat' => 'nullable|string|max:80',
             'document_type' => 'required|in:facture,proforma',
+            'issued_at' => 'nullable|date',
             'actor_name' => 'nullable|string|max:120',
             'actor_role' => 'required|in:admin,superadmin',
         ]);
@@ -741,7 +743,9 @@ class PMSController extends Controller
                 'invoice_number' => $this->nextInvoiceNumber(),
                 'document_type' => $validated['document_type'],
                 'status' => 'open',
-                'issued_at' => now(),
+                'issued_at' => isset($validated['issued_at'])
+                    ? Carbon::parse($validated['issued_at'])->startOfDay()
+                    : now(),
             ]);
             return $invoice->refresh();
         });
