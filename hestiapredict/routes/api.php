@@ -29,6 +29,8 @@ Route::middleware('throttle:120,1')->group(function () {
     Route::get('/reservations/{id}/folio', [PMSController::class, 'getFolio']);
     Route::get('/invoices/{id}/pdf', [PMSController::class, 'downloadPdf']);
     Route::get('/users', [HotelManagementController::class, 'getUsers']);
+    Route::get('/standalone-invoices', [PMSController::class, 'standaloneInvoices']);
+    Route::get('/invoices/generated', [PMSController::class, 'generatedInvoices']);
 });
 
 Route::post('/bookings', [HotelManagementController::class, 'saveBooking']);
@@ -42,6 +44,9 @@ Route::post('/invoices/{id}/items', [PMSController::class, 'addInvoiceItem']);
 Route::put('/invoices/{id}/items/{itemId}', [PMSController::class, 'updateInvoiceItem']);
 Route::delete('/invoices/{id}/items/{itemId}', [PMSController::class, 'deleteInvoiceItem']);
 Route::post('/invoices/{id}/payments', [PMSController::class, 'addPayment']);
+Route::post('/standalone-invoices', [PMSController::class, 'createStandaloneInvoice']);
+Route::post('/standalone-invoices/{id}/items', [PMSController::class, 'addStandaloneInvoiceItem']);
+Route::post('/standalone-invoices/{id}/cancel', [PMSController::class, 'cancelStandaloneInvoice']);
 Route::put('/invoices/{id}/payments/{paymentId}', [PMSController::class, 'updatePayment']);
 Route::post('/users', [HotelManagementController::class, 'createUser']);
 Route::post('/users/update', [HotelManagementController::class, 'updateUser']);

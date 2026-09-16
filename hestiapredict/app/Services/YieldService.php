@@ -350,12 +350,23 @@ class YieldService
 
     private function revenueForDate(string $date, array $statuses): int
     {
-        return (int) DB::table('booking_room')
+        $roomRevenue = (int) DB::table('booking_room')
             ->join('reservations', 'reservations.id', '=', 'booking_room.reservation_id')
             ->whereIn('reservations.status', $statuses)
             ->whereRaw('COALESCE(booking_room.segment_start_date, reservations.check_in_date) <= ?', [$date])
             ->whereRaw('COALESCE(booking_room.segment_end_date, reservations.check_out_date) > ?', [$date])
             ->sum('booking_room.price_snapshot_ariary');
+
+        $standaloneRevenue = in_array('arrive', $statuses, true)
+            ? (int) DB::table('invoices')
+                ->where('invoice_category', 'standalone')
+                ->where('document_type', 'facture')
+                ->whereDate('issued_at', $date)
+                ->whereNotIn('status', ['cancelled', 'annule'])
+                ->sum('total_amount_ariary')
+            : 0;
+
+        return $roomRevenue + $standaloneRevenue;
     }
 
     /**

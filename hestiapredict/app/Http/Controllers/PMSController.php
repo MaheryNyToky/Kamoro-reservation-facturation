@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Guest;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\InvoiceAudit;
 use App\Models\Organization;
 use App\Models\Room;
 use App\Models\ReservationAudit;
@@ -521,6 +522,13 @@ class PMSController extends Controller
                 'organization_billing_meta' => $meta,
             ]);
             $invoice->save();
+            $this->logInvoiceAction(
+                $invoice,
+                'invoice_generated',
+                $meta['created_by']['actor_name'] ?? null,
+                $meta['created_by']['actor_role'] ?? null,
+                ['document_type' => $documentType, 'reservation_ids' => $meta['reservation_ids'] ?? []],
+            );
 
             return $invoice;
         });
@@ -621,11 +629,235 @@ class PMSController extends Controller
 
         $this->recalculateInvoice($invoice);
         $this->invalidateInvoiceDocumentArtifacts($invoice->refresh());
+        $this->logInvoiceAction($invoice, 'item_added', $validated['actor_name'] ?? null, $validated['actor_role'] ?? null, [
+            'description' => $description, 'amount_ariary' => $validated['amount_ariary'], 'quantity' => $validated['quantity'],
+        ]);
 
         return response()->json([
             'message' => 'Ligne ajoutée avec succès',
             'invoice' => $this->folioPayload($invoice->refresh()),
         ]);
+    }
+
+    public function standaloneInvoices(Request $request): JsonResponse
+    {
+        $this->assertStandaloneAdmin($request);
+
+        return response()->json(Invoice::query()
+            ->where('invoice_category', 'standalone')
+            ->with(['items', 'payments'])
+            ->latest('issued_at')
+            ->latest('id')
+            ->limit(100)
+            ->get()
+            ->map(fn (Invoice $invoice) => $this->standalonePayload($invoice))
+            ->values());
+    }
+
+    public function generatedInvoices(Request $request): JsonResponse
+    {
+        $this->assertStandaloneAdmin($request);
+        $category = $request->validate(['category' => 'nullable|in:all,standalone,stay'])['category'] ?? 'all';
+        $invoices = Invoice::query()
+            ->with(['audits' => fn ($query) => $query->latest(), 'reservation', 'items'])
+            ->when($category !== 'all', fn ($query) => $query->where('invoice_category', $category))
+            ->where(function ($query): void {
+                $query->whereNotNull('invoice_number')->orWhereNotNull('pdf_path');
+            })
+            ->latest('created_at')
+            ->limit(300)
+            ->get();
+
+        return response()->json($invoices->map(function (Invoice $invoice): array {
+            return [
+                'id' => $invoice->id,
+                'invoice_number' => $invoice->invoice_number,
+                'document_type' => $invoice->document_type ?? 'facture',
+                'invoice_category' => $invoice->invoice_category ?? 'stay',
+                'client_name' => $invoice->client_name ?? $invoice->reservation?->client_name,
+                'reservation_id' => $invoice->reservation_id,
+                'total_amount_ariary' => (int) $invoice->total_amount_ariary,
+                'items' => $invoice->items->map(fn (InvoiceItem $item) => [
+                    'description' => $item->description,
+                    'quantity' => (int) $item->quantity,
+                    'amount_ariary' => (int) $item->amount_ariary,
+                ])->values(),
+                'status' => $invoice->status,
+                'pdf_url' => $invoice->pdf_path ? url("/api/invoices/{$invoice->id}/pdf") : null,
+                'created_at' => optional($invoice->created_at)->toDateTimeString(),
+                'audits' => $invoice->audits->map(fn (InvoiceAudit $audit) => [
+                    'action' => $audit->action,
+                    'actor_name' => $audit->actor_name,
+                    'actor_role' => $audit->actor_role,
+                    'created_at' => optional($audit->created_at)->toDateTimeString(),
+                    'details' => $audit->details,
+                ])->values(),
+            ];
+        })->values());
+    }
+
+    public function createStandaloneInvoice(Request $request): JsonResponse
+    {
+        $this->assertStandaloneAdmin($request);
+        $validated = $request->validate([
+            'client_name' => 'nullable|string|max:190',
+            'client_phone' => 'nullable|string|max:50',
+            'client_email' => 'nullable|email|max:190',
+            'customer_type' => 'required|in:particulier,organisme',
+            'organization_name' => 'required_if:customer_type,organisme|nullable|string|max:190',
+            'organization_phone' => 'nullable|string|max:50',
+            'organization_contact_name' => 'nullable|string|max:120',
+            'organization_billing_address' => 'nullable|string|max:255',
+            'organization_nif' => 'nullable|string|max:80',
+            'organization_stat' => 'nullable|string|max:80',
+            'document_type' => 'required|in:facture,proforma',
+            'actor_name' => 'nullable|string|max:120',
+            'actor_role' => 'required|in:admin,superadmin',
+        ]);
+
+        $invoice = DB::transaction(function () use ($validated): Invoice {
+            $organization = null;
+            if ($validated['customer_type'] === 'organisme') {
+                $organization = Organization::updateOrCreate(
+                    ['name' => $validated['organization_name'] ?: $validated['client_name']],
+                    [
+                        'phone' => $validated['organization_phone'] ?? $validated['client_phone'] ?? null,
+                        'contact_name' => $validated['organization_contact_name'] ?? null,
+                        'billing_address' => $validated['organization_billing_address'] ?? null,
+                        'nif' => $validated['organization_nif'] ?? null,
+                        'stat' => $validated['organization_stat'] ?? null,
+                    ],
+                );
+            }
+            $invoice = Invoice::create([
+                'reservation_id' => null,
+                'organization_id' => $organization?->id,
+                'client_name' => $organization?->name ?? $validated['client_name'],
+                'client_phone' => $validated['client_phone'] ?? null,
+                'client_email' => $validated['client_email'] ?? null,
+                'invoice_category' => 'standalone',
+                'invoice_kind' => 'standalone',
+                'billing_mode' => 'standalone',
+                'invoice_number' => $this->nextInvoiceNumber(),
+                'document_type' => $validated['document_type'],
+                'status' => 'open',
+                'issued_at' => now(),
+            ]);
+            return $invoice->refresh();
+        });
+
+        $this->logInvoiceAction($invoice, 'created', $validated['actor_name'] ?? null, $validated['actor_role'], [
+            'document_type' => $validated['document_type'],
+            'invoice_category' => 'standalone',
+            'customer_type' => $validated['customer_type'],
+        ]);
+
+        return response()->json(['invoice' => $this->standalonePayload($invoice)], 201);
+    }
+
+    public function addStandaloneInvoiceItem(Request $request, int $id): JsonResponse
+    {
+        $this->assertStandaloneAdmin($request);
+        $validated = $request->validate([
+            'description' => 'required|string|max:255',
+            'amount_ariary' => 'required|integer|min:0',
+            'quantity' => 'required|integer|min:1',
+            'actor_name' => 'nullable|string|max:120',
+            'actor_role' => 'required|in:admin,superadmin',
+        ]);
+        $invoice = Invoice::query()->where('invoice_category', 'standalone')->findOrFail($id);
+        if ($invoice->status === 'finalized') {
+            throw ValidationException::withMessages(['invoice' => 'Facture finalisée, modification impossible.']);
+        }
+        InvoiceItem::create([
+            'invoice_id' => $invoice->id,
+            'description' => $validated['description'],
+            'type' => 'service',
+            'amount_ariary' => $validated['amount_ariary'],
+            'quantity' => $validated['quantity'],
+            'created_by_name' => $validated['actor_name'] ?? null,
+            'created_by_role' => $validated['actor_role'],
+        ]);
+        $this->recalculateInvoice($invoice);
+        $this->ensureInvoicePdf($invoice->refresh(), $invoice->document_type ?? 'facture');
+        $this->logInvoiceAction($invoice, 'item_added', $validated['actor_name'] ?? null, $validated['actor_role'], [
+            'description' => $validated['description'],
+            'amount_ariary' => $validated['amount_ariary'],
+            'quantity' => $validated['quantity'],
+        ]);
+        return response()->json(['invoice' => $this->standalonePayload($invoice->refresh())]);
+    }
+
+    public function cancelStandaloneInvoice(Request $request, int $id): JsonResponse
+    {
+        $this->assertStandaloneAdmin($request);
+        $validated = $request->validate([
+            'actor_name' => 'nullable|string|max:120',
+            'actor_role' => 'required|in:admin,superadmin',
+        ]);
+        $invoice = Invoice::query()->where('invoice_category', 'standalone')->findOrFail($id);
+        if (in_array($invoice->status, ['annule', 'cancelled'], true)) {
+            return response()->json(['message' => 'Facture déjà annulée.'], 400);
+        }
+        $previousStatus = $invoice->status;
+        $invoice->update(['status' => 'annule']);
+        $this->logInvoiceAction($invoice, 'cancelled', $validated['actor_name'] ?? null, $validated['actor_role'], [
+            'previous_status' => $previousStatus,
+        ]);
+        return response()->json(['message' => 'Facture annulée.', 'invoice' => $this->standalonePayload($invoice->refresh())]);
+    }
+
+    private function assertStandaloneAdmin(Request $request): void
+    {
+        $role = (string) ($request->input('actor_role') ?? Auth::user()?->role ?? '');
+        if (! in_array($role, ['admin', 'superadmin'], true)) {
+            abort(403, 'Cette fonctionnalité est réservée aux administrateurs.');
+        }
+    }
+
+    private function logInvoiceAction(Invoice $invoice, string $action, ?string $actorName, ?string $actorRole, array $details = []): void
+    {
+        InvoiceAudit::create([
+            'invoice_id' => $invoice->id,
+            'action' => $action,
+            'actor_user_id' => Auth::id(),
+            'actor_name' => $actorName ?? Auth::user()?->name ?? 'Utilisateur inconnu',
+            'actor_role' => $actorRole ?? Auth::user()?->role,
+            'details' => $details,
+        ]);
+    }
+
+    private function standalonePayload(Invoice $invoice): array
+    {
+        $invoice->loadMissing(['items', 'payments', 'organization']);
+        return [
+            'id' => $invoice->id,
+            'invoice_number' => $invoice->invoice_number,
+            'client_name' => $invoice->client_name,
+            'client_phone' => $invoice->client_phone,
+            'client_email' => $invoice->client_email,
+            'customer_type' => $invoice->organization_id ? 'organisme' : 'particulier',
+            'organization' => $invoice->organization ? [
+                'name' => $invoice->organization->name,
+                'billing_address' => $invoice->organization->billing_address,
+                'phone' => $invoice->organization->phone,
+                'nif' => $invoice->organization->nif,
+                'stat' => $invoice->organization->stat,
+            ] : null,
+            'document_type' => $invoice->document_type ?? 'facture',
+            'status' => $invoice->status,
+            'pdf_url' => $invoice->pdf_path ? url("/api/invoices/{$invoice->id}/pdf") : null,
+            'issued_at' => optional($invoice->issued_at)->toDateTimeString(),
+            'total_amount_ariary' => (int) $invoice->total_amount_ariary,
+            'paid_amount_ariary' => $invoice->paid_amount_ariary,
+            'balance_amount_ariary' => $invoice->balance_amount_ariary,
+            'items' => $invoice->items->map(fn (InvoiceItem $item) => [
+                'id' => $item->id,
+                'description' => $item->description,
+                'amount_ariary' => (int) $item->amount_ariary,
+                'quantity' => (int) $item->quantity,
+            ])->values(),
+        ];
     }
 
     public function updateInvoiceItem(Request $request, int $id, int $itemId): JsonResponse
@@ -684,6 +916,9 @@ class PMSController extends Controller
 
         $this->recalculateInvoice($invoice);
         $this->invalidateInvoiceDocumentArtifacts($invoice->refresh());
+        $this->logInvoiceAction($invoice, 'item_updated', $validated['actor_name'] ?? null, $validated['actor_role'], [
+            'item_id' => $item->id, 'before' => $before, 'after' => $this->invoiceItemAuditPayload($item->refresh()),
+        ]);
 
         return response()->json([
             'message' => 'Ligne modifiée avec succès',
@@ -721,6 +956,9 @@ class PMSController extends Controller
 
         $this->recalculateInvoice($invoice);
         $this->invalidateInvoiceDocumentArtifacts($invoice->refresh());
+        $this->logInvoiceAction($invoice, 'item_deleted', $validated['actor_name'] ?? null, $validated['actor_role'], [
+            'item_id' => $item->id, 'before' => $before,
+        ]);
 
         return response()->json([
             'message' => 'Ligne supprimée avec succès',
@@ -779,22 +1017,27 @@ class PMSController extends Controller
                 'processed_by_role' => $validated['processed_by_role'] ?? null,
             ]);
 
-            ReservationAudit::create([
-                'reservation_id' => $invoice->reservation_id,
-                'action' => 'payment',
-                'actor_name' => $validated['processed_by_name'] ?? null,
-                'actor_role' => $validated['processed_by_role'] ?? null,
-                'details' => [
-                    'amount_received_ariary' => $amounts['received_amount_ariary'],
-                    'amount_ariary' => $amounts['applied_amount_ariary'],
-                    'change_given_ariary' => $amounts['change_given_ariary'],
-                    'payment_method' => $validated['payment_method'],
-                    'payment_operator' => $validated['payment_operator'] ?? null,
-                    'reference' => $validated['reference'] ?? null,
-                ],
-            ]);
+            if ($invoice->reservation_id) {
+                ReservationAudit::create([
+                    'reservation_id' => $invoice->reservation_id,
+                    'action' => 'payment',
+                    'actor_name' => $validated['processed_by_name'] ?? null,
+                    'actor_role' => $validated['processed_by_role'] ?? null,
+                    'details' => [
+                        'amount_received_ariary' => $amounts['received_amount_ariary'],
+                        'amount_ariary' => $amounts['applied_amount_ariary'],
+                        'change_given_ariary' => $amounts['change_given_ariary'],
+                        'payment_method' => $validated['payment_method'],
+                        'payment_operator' => $validated['payment_operator'] ?? null,
+                        'reference' => $validated['reference'] ?? null,
+                    ],
+                ]);
+            }
 
             $invoice = $this->syncInvoiceAfterPayment($invoice);
+            $this->logInvoiceAction($invoice, 'payment_added', $validated['processed_by_name'] ?? null, $validated['processed_by_role'] ?? null, [
+                'payment_id' => $payment->id, 'amount_ariary' => $amounts['applied_amount_ariary'], 'payment_method' => $validated['payment_method'],
+            ]);
 
             if ($previousStatus !== 'paid' && $invoice->status === 'paid') {
                 $guest = $invoice->reservation?->guest;
@@ -966,26 +1209,31 @@ class PMSController extends Controller
                 'processed_by_role' => $validated['processed_by_role'] ?? $payment->processed_by_role,
             ]);
 
-            ReservationAudit::create([
-                'reservation_id' => $invoice->reservation_id,
-                'action' => 'payment_modified',
-                'actor_name' => $validated['processed_by_name'] ?? null,
-                'actor_role' => $validated['processed_by_role'] ?? null,
-                'details' => [
-                    'payment_id' => $payment->id,
-                    'before' => $before,
-                    'after' => [
-                        'amount_received_ariary' => $amounts['received_amount_ariary'],
-                        'amount_ariary' => $amounts['applied_amount_ariary'],
-                        'change_given_ariary' => $amounts['change_given_ariary'],
-                        'payment_method' => $validated['payment_method'],
-                        'payment_operator' => $validated['payment_operator'] ?? null,
-                        'reference' => $validated['reference'] ?? null,
+            if ($invoice->reservation_id) {
+                ReservationAudit::create([
+                    'reservation_id' => $invoice->reservation_id,
+                    'action' => 'payment_modified',
+                    'actor_name' => $validated['processed_by_name'] ?? null,
+                    'actor_role' => $validated['processed_by_role'] ?? null,
+                    'details' => [
+                        'payment_id' => $payment->id,
+                        'before' => $before,
+                        'after' => [
+                            'amount_received_ariary' => $amounts['received_amount_ariary'],
+                            'amount_ariary' => $amounts['applied_amount_ariary'],
+                            'change_given_ariary' => $amounts['change_given_ariary'],
+                            'payment_method' => $validated['payment_method'],
+                            'payment_operator' => $validated['payment_operator'] ?? null,
+                            'reference' => $validated['reference'] ?? null,
+                        ],
                     ],
-                ],
-            ]);
+                ]);
+            }
 
             $invoice = $this->syncInvoiceAfterPayment($invoice->refresh());
+            $this->logInvoiceAction($invoice, 'payment_updated', $validated['processed_by_name'] ?? null, $validated['processed_by_role'] ?? null, [
+                'payment_id' => $payment->id, 'before' => $before,
+            ]);
 
             return [
                 'payment' => $this->paymentPayload($payment->refresh()),
@@ -1008,6 +1256,7 @@ class PMSController extends Controller
             'discount_mode' => 'nullable|in:percent,amount',
             'discount_value' => 'nullable|numeric|min:0',
             'actor_role' => 'nullable|string|in:admin,receptionist,superadmin',
+            'actor_name' => 'nullable|string|max:120',
             'document_type' => 'nullable|in:facture,proforma',
             'billing_mode' => 'nullable|in:grouped,individual',
             'currency_mode' => 'nullable|in:ariary,euro',
@@ -1089,6 +1338,9 @@ class PMSController extends Controller
             $documentType,
             $currencyMode,
         );
+        $this->logInvoiceAction($invoice->refresh(), 'pdf_generated', $validated['actor_name'] ?? Auth::user()?->name, $actorRole, [
+            'document_type' => $documentType, 'currency_mode' => $currencyMode,
+        ]);
 
         return response()->json([
             'message' => 'Facture générée avec succès',
@@ -1410,6 +1662,7 @@ class PMSController extends Controller
     ): string {
         $logoDataUri = $this->hotelLogoDataUri();
         $isProforma = $documentType === 'proforma';
+        $organization = $invoice->organization;
         $amountLabel = $isProforma ? 'facture proforma' : 'facture';
         $invoiceNumber = $invoice?->invoice_number ?? $this->nextInvoiceNumber();
         $organizationBillingMeta = $invoice?->organization_billing_meta ?? [];
@@ -2741,6 +2994,34 @@ class PMSController extends Controller
         ";
     }
 
+    private function standaloneInvoiceHtml(Invoice $invoice, string $documentType): string
+    {
+        $isProforma = $documentType === 'proforma';
+        $organization = $invoice->organization;
+        $logo = $this->hotelLogoDataUri();
+        $signature = $this->responsibleSignatureDataUri();
+        $totalAmount = (int) $invoice->total_amount_ariary;
+        $paidAmount = (int) $invoice->paid_amount_ariary;
+        $balanceAmount = (int) $invoice->balance_amount_ariary;
+        $rows = $invoice->items->map(function (InvoiceItem $item): string {
+            $total = (int) $item->amount_ariary * max(1, (int) $item->quantity);
+            return '<tr><td>' . e($item->description) . '</td><td class="num">' . (int) $item->quantity . '</td><td class="num">' . $this->formatMoney($item->amount_ariary, 'Ar') . '</td><td class="num">' . $this->formatMoney($total, 'Ar') . '</td></tr>';
+        })->implode('');
+        $rows = $rows ?: '<tr><td colspan="4">Aucune prestation</td></tr>';
+        $paymentRows = $invoice->payments->map(fn (Payment $payment): string => '<tr><td>' . e(optional($payment->created_at)->format('d/m/Y H:i')) . '</td><td>' . e($payment->payment_method) . '</td><td class="num">' . $this->formatMoney((int) $payment->amount_ariary, 'Ar') . '</td></tr>')->implode('');
+        $paymentRows = $paymentRows ?: '<tr><td colspan="3">Aucun paiement enregistré</td></tr>';
+        $amountInWords = e($this->amountInWords($totalAmount)) . ' (' . number_format($totalAmount, 0, ',', ' ') . ') Ariary';
+        $logoHtml = $logo ? "<img class='brand-logo' src='{$logo}' alt='Kamoro Hotel'>" : '<div class="brand-fallback">KAMORO HOTEL</div>';
+        $signatureHtml = $signature ? "<img class='signature' src='{$signature}' alt='Signature'>" : '<div class="signature-line">&nbsp;</div>';
+        $organizationDetails = $organization
+            ? e($organization->billing_address ?: '') . '<br>NIF : ' . e($organization->nif ?: '-') . ' · STAT : ' . e($organization->stat ?: '-')
+            : '';
+
+        return "<html><head><meta charset='utf-8'><style>
+            @page{size:A4 portrait;margin:12mm 14mm}body{font-family:DejaVu Sans,Arial;color:#1f2937;font-size:11px;line-height:1.3;margin:0}.ribbon{margin-bottom:10px;padding:7px 10px;background:#fff1f1;border:1px solid #d10f0f;color:#9f1d1d;border-radius:8px;text-align:center;font-weight:bold;letter-spacing:.6px}.topbar{display:table;width:100%;border-bottom:2px solid #d10f0f;padding-bottom:10px;margin-bottom:14px}.brand,.meta{display:table-cell;vertical-align:top}.brand{width:62%}.meta{width:38%;text-align:right}.brand-logo{width:145px;max-height:58px;object-fit:contain}.brand-fallback{font-size:19px;font-weight:bold;color:#111}.meta-title{font-size:14px;font-weight:bold;color:#111;margin-bottom:6px}.box{border:1px solid #dbe4ea;border-radius:8px;padding:10px 12px;background:#fff}.box-title{color:#64748b;font-size:9px;text-transform:uppercase;letter-spacing:.6px;margin-bottom:5px}.info-grid{width:100%;border-collapse:separate;border-spacing:0 8px}.info-grid td{vertical-align:top}.info-grid td:first-child{padding-right:10px}.section-title{margin:14px 0 6px;font-size:12px;font-weight:bold;color:#111}table.lines{width:100%;border-collapse:collapse;margin-top:4px}table.lines th,table.lines td{border-bottom:1px solid #dbe4ea;padding:7px 8px;text-align:left}table.lines th{background:#f8fafc;color:#0f172a;font-size:10px;text-transform:uppercase}.num{text-align:right!important}.summary{width:48%;margin:12px 0 0 auto;border:1px solid #dbe4ea;border-radius:8px;padding:10px 12px}.summary-row{display:table;width:100%;margin-bottom:5px}.summary-row span{display:table-cell}.summary-row span:last-child{text-align:right}.summary-row.total{border-top:1px solid #cbd5e1;padding-top:7px;font-size:13px;font-weight:bold}.notice{margin:12px 0;padding:8px 10px;background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px}.amount-words{margin-top:14px;font-weight:bold;text-transform:uppercase;font-size:10.5px}.signatures{display:table;width:100%;margin-top:24px;page-break-inside:avoid}.signature-cell{display:table-cell;width:50%;text-align:center;vertical-align:top;font-weight:bold}.signature{display:block;width:115px;height:58px;object-fit:contain;margin:7px auto 0}.signature-line{width:150px;border-bottom:1px solid #64748b;height:42px;margin:0 auto 5px}.location{text-align:right;margin-top:12px;font-weight:bold}.legal-block{position:fixed;left:0;right:0;bottom:0;padding-top:5px;border-top:1px solid #d10f0f;font-size:9px}.legal-line{width:100%;border-collapse:collapse}.legal-line td{border:0;padding-right:8px}.legal-label{font-weight:bold}
+        </style></head><body>" . ($isProforma ? "<div class='ribbon'>FACTURE PROFORMA</div>" : '') . "<div class='topbar'><div class='brand'>{$logoHtml}</div><div class='meta'><div class='meta-title'>" . ($isProforma ? 'Proforma' : 'Facture') . " n° " . e($invoice->invoice_number) . "</div></div></div><table class='info-grid'><tr><td style='width:56%'><div class='box'><div class='box-title'>Client</div><strong>" . e($invoice->client_name ?: 'Client non renseigné') . "</strong><br>" . e($invoice->client_phone ?: '') . "<br>" . e($invoice->client_email ?: '') . "<br>{$organizationDetails}</div></td><td><div class='box'><div class='box-title'>Récapitulatif</div>Total prestations : " . $this->formatMoney($totalAmount, 'Ar') . "<br>" . ($isProforma ? 'Proforma en attente de règlement' : 'Facture finale') . "</div></td></tr></table><div class='section-title'>Prestations</div><table class='lines'><thead><tr><th>Prestations</th><th class='num'>Qté</th><th class='num'>PU (Ar)</th><th class='num'>Total (Ar)</th></tr></thead><tbody>{$rows}</tbody></table><div class='section-title'>Paiements</div><table class='lines'><thead><tr><th>Date</th><th>Méthode</th><th class='num'>Montant net</th></tr></thead><tbody>{$paymentRows}</tbody></table><div class='summary'><div class='summary-row'><span>Total prestations</span><span>" . $this->formatMoney($totalAmount, 'Ar') . "</span></div><div class='summary-row'><span>Total payé</span><span>" . $this->formatMoney($paidAmount, 'Ar') . "</span></div><div class='summary-row total'><span>Reste à payer</span><span>" . $this->formatMoney($balanceAmount, 'Ar') . "</span></div></div><div class='notice'>" . ($balanceAmount > 0 ? 'Facture pas encore payée intégralement' : 'Facture réglée intégralement') . "</div><div class='amount-words'>Arrêté la présente " . ($isProforma ? 'proforma' : 'facture') . " à la somme de : {$amountInWords}</div><div class='signatures'><div class='signature-cell'>Client<div class='signature-line'>&nbsp;</div></div><div class='signature-cell'>Responsable{$signatureHtml}</div></div><div class='location'>Fait à Ambondromamy le " . e(now()->format('d/m/Y')) . "</div>" . $this->legalFooterHtml() . "</body></html>";
+    }
+
     private function invoiceAmountInEuro(iterable $items): float
     {
         $total = 0.0;
@@ -2883,7 +3164,9 @@ class PMSController extends Controller
         }
 
         $invoice->load(['items', 'payments', 'reservation.guest', 'reservation.rooms']);
-        $invoiceHtml = $this->invoiceHtml($invoice, $documentType, $currencyMode);
+        $invoiceHtml = $invoice->invoice_category === 'standalone'
+            ? $this->standaloneInvoiceHtml($invoice, $documentType)
+            : $this->invoiceHtml($invoice, $documentType, $currencyMode);
         $pdf = Pdf::setOption([
             'defaultFont' => 'DejaVu Sans',
             'isHtml5ParserEnabled' => true,

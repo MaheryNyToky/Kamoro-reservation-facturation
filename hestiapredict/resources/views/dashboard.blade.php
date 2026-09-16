@@ -271,6 +271,19 @@
                     </span>
                 </button>
 
+                <button
+                    type="button"
+                    onclick="openGeneratedInvoices()"
+                    class="col-span-1 flex w-full flex-col gap-5 rounded-[30px] border border-[#c8d4ce] bg-[#e8f1ed] p-6 text-left shadow-[0_18px_40px_rgba(78,62,48,0.08)] sm:flex-row sm:items-center sm:justify-between sm:p-7 xl:col-span-12"
+                >
+                    <span>
+                        <span class="block text-xs font-extrabold uppercase tracking-[0.18em] text-[#39766a]">Facturation</span>
+                        <span class="display-serif mt-2 block text-3xl font-semibold text-[var(--ink)]">Factures générées</span>
+                        <span class="mt-2 block text-sm text-[var(--muted)]">Cliquer pour voir toutes les factures, proformas, factures libres et factures annulées.</span>
+                    </span>
+                    <span class="rounded-full bg-white px-5 py-3 text-sm font-black text-[#1f7665]">Ouvrir l’historique →</span>
+                </button>
+
                 <article id="client-history-section" class="bento-card col-span-1 scroll-mt-5 p-6 sm:p-7 xl:col-span-12">
                     <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
                         <div>
@@ -482,11 +495,15 @@
                                         <p class="text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">CA estimé</p>
                                         <p class="display-serif mt-2 text-4xl font-semibold text-[var(--ink)]" id="finance-total-ai-side">0 Ar</p>
                                     </div>
+                                    <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                        <button type="button" onclick="loadGeneratedInvoices('all'); document.getElementById('generated-invoices-section')?.scrollIntoView({behavior: 'smooth'})" class="pill-btn bg-[var(--ink)] px-4 text-sm font-bold text-[#fbf4ea]">Factures émises</button>
+                                        <button type="button" onclick="loadGeneratedInvoices('standalone'); document.getElementById('generated-invoices-section')?.scrollIntoView({behavior: 'smooth'})" class="pill-btn bg-white px-4 text-sm font-bold text-[var(--ink)]">Factures libres</button>
+                                    </div>
                                 </div>
                             </article>
                         </aside>
 
-                        <article class="bento-card p-6 sm:p-7 xl:col-span-12">
+                        <article id="generated-invoices-section" class="bento-card scroll-mt-5 p-6 sm:p-7 xl:col-span-12">
                             <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                                 <div>
                                     <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">Simulation IA</p>
@@ -510,6 +527,24 @@
                                         </tr>
                                     </thead>
                                     <tbody id="ai-summary-table-body" class="divide-y divide-[rgba(68,52,39,0.08)]"></tbody>
+                                </table>
+                            </div>
+                        </article>
+
+                        <article class="bento-card p-6 sm:p-7 xl:col-span-12">
+                            <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                                <div>
+                                    <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">Traçabilité</p>
+                                    <h3 class="display-serif mt-2 text-3xl font-semibold text-[var(--ink)]">Factures générées</h3>
+                                    <p class="mt-2 text-sm text-[var(--muted)]">Toutes les factures, proformas, chambres et ventes diverses, avec leur historique d’actions.</p>
+                                </div>
+                                <button type="button" onclick="loadGeneratedInvoices()" class="pill-btn bg-white px-5 text-sm font-bold text-[var(--ink)]">Actualiser</button>
+                            </div>
+                            <div id="generated-invoices-state" class="mt-5 text-sm font-semibold text-[var(--muted)]">Chargement…</div>
+                            <div class="table-shell mobile-card-table mt-4">
+                                <table class="data-table w-full text-left text-sm">
+                                    <thead><tr><th class="px-5 py-3">N°</th><th class="px-5 py-3">Client</th><th class="px-5 py-3">Prestations</th><th class="px-5 py-3">Type</th><th class="px-5 py-3">Origine</th><th class="px-5 py-3">Montant</th><th class="px-5 py-3">Créée le</th><th class="px-5 py-3">Actions</th></tr></thead>
+                                    <tbody id="generated-invoices-table-body" class="divide-y divide-[rgba(68,52,39,0.08)]"></tbody>
                                 </table>
                             </div>
                         </article>
@@ -672,6 +707,81 @@
             loadReservationStatusSummary();
             loadOutstandingArrivalsSummary();
             loadAiRevenueSummary();
+            loadGeneratedInvoices();
+        }
+
+        function loadGeneratedInvoices(category = 'all') {
+            const body = document.getElementById('generated-invoices-table-body');
+            const state = document.getElementById('generated-invoices-state');
+            if (!body || !state) return;
+            safeFetchJson(`/api/invoices/generated?actor_role={{ auth()->user()->role }}&category=${category}`, null, { timeoutMs: 8000 })
+                .then(({ data }) => {
+                    const invoices = (Array.isArray(data) ? data : []).filter(invoice => category === 'all' || invoice.invoice_category === category);
+                    state.textContent = `${invoices.length} facture${invoices.length > 1 ? 's' : ''} enregistrée${invoices.length > 1 ? 's' : ''}`;
+                    body.innerHTML = invoices.map((invoice) => {
+                        const type = invoice.document_type === 'proforma' ? 'Proforma' : 'Facture normale';
+                        const origin = invoice.invoice_category === 'standalone' ? 'Vente diverse' : 'Réservation / chambre';
+                        return `<tr>
+                            <td data-label="N°" class="px-5 py-4 font-mono font-black">${escapeHtml(invoice.invoice_number || 'N/A')}</td>
+                            <td data-label="Client" class="px-5 py-4 font-semibold">${escapeHtml(invoice.client_name || 'Client non renseigné')}</td>
+                            <td data-label="Prestations" class="px-5 py-4">${escapeHtml((invoice.items || []).map(item => `${item.description} x${item.quantity || 1}`).join(', ') || 'N/A')}</td>
+                            <td data-label="Type" class="px-5 py-4">${type}</td>
+                            <td data-label="Origine" class="px-5 py-4">${origin}</td>
+                            <td data-label="Montant" class="px-5 py-4 font-black">${formatMoney(invoice.total_amount_ariary)}</td>
+                            <td data-label="Créée le" class="px-5 py-4">${escapeHtml(invoice.created_at || 'N/A')}</td>
+                            <td data-label="Actions" class="px-5 py-4"><div class="flex flex-wrap gap-2">
+                                ${invoice.pdf_url ? `<a href="${invoice.pdf_url}" target="_blank" class="rounded-full bg-[var(--ink)] px-3 py-2 text-xs font-black text-white">Voir facture</a>` : ''}
+                                <button type="button" onclick='openInvoiceAuditModal(${JSON.stringify(invoice).replaceAll("'", "&apos;")})' class="rounded-full border border-[var(--line)] bg-white px-3 py-2 text-xs font-black text-[var(--ink)]">Historique</button>
+                            </div></td>
+                        </tr>`;
+                    }).join('');
+                })
+                .catch(() => { state.textContent = 'Impossible de charger les factures générées.'; });
+        }
+
+        function openInvoiceAuditModal(invoice) {
+            document.getElementById('invoice-audit-modal')?.remove();
+            const audits = Array.isArray(invoice.audits) ? invoice.audits : [];
+            const labels = { created: 'Création', item_added: 'Ligne ajoutée', item_updated: 'Ligne modifiée', item_deleted: 'Ligne supprimée', payment_added: 'Paiement ajouté', payment_updated: 'Paiement modifié', pdf_generated: 'PDF généré', cancelled: 'Facture annulée' };
+            const rows = audits.length ? audits.map(audit => `<div class="rounded-2xl border border-[var(--line)] bg-white p-4"><p class="font-black">${escapeHtml(labels[audit.action] || audit.action || 'Action')}</p><p class="mt-1 text-sm text-[var(--muted)]">${escapeHtml(audit.actor_name || 'Utilisateur inconnu')} · ${escapeHtml(audit.actor_role || '')} · ${escapeHtml(audit.created_at || '')}</p></div>`).join('') : '<p class="text-sm text-[var(--muted)]">Aucun historique enregistré pour cette facture.</p>';
+            const overlay = document.createElement('div');
+            overlay.id = 'invoice-audit-modal';
+            overlay.className = 'fixed inset-0 z-[999] flex items-center justify-center bg-black/50 px-4';
+            overlay.innerHTML = `<div class="w-full max-w-2xl rounded-[28px] bg-[var(--sand)] p-6 shadow-2xl"><div class="flex items-start justify-between gap-4"><div><p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">Historique facture</p><h3 class="display-serif mt-1 text-3xl font-semibold">${escapeHtml(invoice.invoice_number || 'N/A')}</h3></div><button type="button" class="rounded-full bg-white px-4 py-2 text-sm font-black" onclick="document.getElementById('invoice-audit-modal')?.remove()">Fermer</button></div><div class="mt-5 max-h-[60vh] space-y-3 overflow-auto">${rows}</div></div>`;
+            overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove(); });
+            document.body.appendChild(overlay);
+        }
+
+        function openGeneratedInvoices() {
+            document.getElementById('generated-invoices-overlay')?.remove();
+            const overlay = document.createElement('div');
+            overlay.id = 'generated-invoices-overlay';
+            overlay.className = 'fixed inset-0 z-[999] overflow-auto bg-[#f4eadc]';
+            overlay.innerHTML = `<div class="min-h-full"><header class="bg-[#231f1b] text-[#fbf4ea]"><div class="mx-auto flex max-w-7xl items-start justify-between gap-5 px-4 py-6 sm:px-6 sm:py-8 lg:px-8"><div><p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#d8c3aa]">Kamoro Hotel · Facturation</p><h3 class="display-serif mt-2 text-4xl font-semibold sm:text-5xl">Factures générées</h3><p class="mt-2 text-sm text-[#d8cfc6]">Historique complet des créations, modifications et annulations.</p></div><button type="button" onclick="document.getElementById('generated-invoices-overlay')?.remove()" class="rounded-full bg-[#fbf4ea] px-5 py-2 text-sm font-black text-[#231f1b]">Retour au tableau</button></div></header><main class="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8"><div class="mb-5 flex flex-col gap-3 sm:flex-row"><input id="generated-invoices-search" oninput="filterGeneratedInvoices()" placeholder="Rechercher par client ou numéro" class="h-12 flex-1 rounded-full border border-[var(--line)] bg-white px-5 text-sm font-semibold outline-none"><select id="generated-invoices-filter" onchange="filterGeneratedInvoices()" class="h-12 rounded-full border border-[var(--line)] bg-white px-5 text-sm font-semibold"><option value="all">Toutes les factures</option><option value="standalone">Factures libres</option><option value="stay">Chambres / réservations</option></select></div><div id="generated-invoices-full-state" class="mb-4 text-sm font-semibold text-[var(--muted)]">Chargement…</div><div id="generated-invoices-full-list" class="space-y-3"></div></main></div>`;
+            overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove(); });
+            document.body.appendChild(overlay);
+            window.generatedInvoicesFullData = [];
+            safeFetchJson('/api/invoices/generated?actor_role={{ auth()->user()->role }}&category=all', null, { timeoutMs: 10000 })
+                .then(({ data }) => { window.generatedInvoicesFullData = Array.isArray(data) ? data : []; filterGeneratedInvoices(); })
+                .catch(() => { const state = document.getElementById('generated-invoices-full-state'); if (state) state.textContent = 'Impossible de charger les factures.'; });
+        }
+
+        function filterGeneratedInvoices() {
+            const list = document.getElementById('generated-invoices-full-list');
+            const state = document.getElementById('generated-invoices-full-state');
+            if (!list || !state) return;
+            const query = (document.getElementById('generated-invoices-search')?.value || '').toLowerCase().trim();
+            const category = document.getElementById('generated-invoices-filter')?.value || 'all';
+            const invoices = (window.generatedInvoicesFullData || []).filter(invoice => {
+                const text = `${invoice.client_name || ''} ${invoice.invoice_number || ''}`.toLowerCase();
+                return (category === 'all' || invoice.invoice_category === category) && (!query || text.includes(query));
+            });
+            state.textContent = `${invoices.length} facture${invoices.length > 1 ? 's' : ''}`;
+            list.innerHTML = invoices.map(invoice => {
+                const lastAudit = (invoice.audits || [])[0];
+                const prestations = (invoice.items || []).map(item => `${item.description} ×${item.quantity || 1}`).join(', ');
+                return `<article class="rounded-[28px] border border-[var(--line)] bg-white/85 p-5 shadow-sm"><div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div><p class="font-mono text-sm font-black text-[#1f7665]">${escapeHtml(invoice.invoice_number || 'Sans numéro')}</p><h4 class="mt-1 text-lg font-black">${escapeHtml(invoice.client_name || 'Client non renseigné')}</h4><p class="mt-1 text-sm text-[var(--muted)]">${invoice.invoice_category === 'standalone' ? 'Facture libre' : 'Chambre / réservation'} · ${invoice.document_type === 'proforma' ? 'Proforma' : 'Facture normale'} · ${escapeHtml(invoice.status || '')}</p><p class="mt-2 text-sm">${escapeHtml(prestations || 'Aucune prestation')}</p></div><div class="lg:text-right"><p class="font-black">${formatMoney(invoice.total_amount_ariary)}</p><p class="mt-1 text-xs text-[var(--muted)]">Créée le ${escapeHtml(invoice.created_at || 'N/A')}</p><p class="text-xs text-[var(--muted)]">Dernière action : ${escapeHtml(lastAudit?.actor_name || 'N/A')} · ${escapeHtml(lastAudit?.created_at || 'N/A')}</p><div class="mt-3 flex gap-2 lg:justify-end">${invoice.pdf_url ? `<a href="${invoice.pdf_url}" target="_blank" class="rounded-full bg-[var(--ink)] px-4 py-2 text-xs font-black text-white">Voir la facture</a>` : ''}<button type="button" onclick='openInvoiceAuditModal(${JSON.stringify(invoice).replaceAll("'", "&apos;")})' class="rounded-full border border-[var(--line)] px-4 py-2 text-xs font-black">Historique</button></div></div></div></article>`;
+            }).join('');
         }
 
         function loadOutstandingArrivalsSummary() {

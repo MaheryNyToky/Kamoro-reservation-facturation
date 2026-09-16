@@ -16,6 +16,7 @@ import 'screens/admin_users_page.dart';
 import 'screens/organization_dossier_page.dart';
 import 'screens/reservations_list_page.dart';
 import 'screens/payment_summary_page.dart';
+import 'screens/standalone_invoices_page.dart';
 import 'services/session_service.dart';
 import 'widgets/availability_card.dart';
 import 'widgets/client_autocomplete_field.dart';
@@ -706,6 +707,18 @@ class _StaffDashboardState extends State<StaffDashboard> {
                   ),
                 );
               },
+              onStandaloneInvoicesTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  _softRoute(
+                    StandaloneInvoicesPage(
+                      role: widget.role,
+                      userName: widget.userName,
+                    ),
+                  ),
+                );
+              },
               onLogout: () async {
                 await SessionService().clear();
                 if (!context.mounted) return;
@@ -755,6 +768,15 @@ class _StaffDashboardState extends State<StaffDashboard> {
                   ),
                   onDashboardTap: () =>
                       _launchURL('http://127.0.0.1:8000/dashboard'),
+                  onStandaloneInvoicesTap: () => Navigator.push(
+                    context,
+                    _softRoute(
+                      StandaloneInvoicesPage(
+                        role: widget.role,
+                        userName: widget.userName,
+                      ),
+                    ),
+                  ),
                   onLogout: () async {
                     await SessionService().clear();
                     if (!context.mounted) return;
@@ -792,6 +814,7 @@ class _MobileReceptionDrawer extends StatelessWidget {
     required this.onDashboardTap,
     required this.onManageStaff,
     required this.onDossierTap,
+    required this.onStandaloneInvoicesTap,
     required this.onLogout,
   });
 
@@ -801,6 +824,7 @@ class _MobileReceptionDrawer extends StatelessWidget {
   final VoidCallback onDashboardTap;
   final VoidCallback onManageStaff;
   final VoidCallback onDossierTap;
+  final VoidCallback onStandaloneInvoicesTap;
   final Future<void> Function() onLogout;
 
   @override
@@ -851,6 +875,11 @@ class _MobileReceptionDrawer extends StatelessWidget {
               title: const Text('Manager'),
               onTap: onDashboardTap,
             ),
+            ListTile(
+              leading: const Icon(Icons.receipt_long_outlined),
+              title: const Text('Facturation libre'),
+              onTap: onStandaloneInvoicesTap,
+            ),
           ],
           ListTile(
             leading: const Icon(Icons.logout, color: Colors.red),
@@ -874,6 +903,7 @@ class _FrostedSideNav extends StatelessWidget {
     required this.onDashboardTap,
     required this.onManageStaff,
     required this.onDossierTap,
+    required this.onStandaloneInvoicesTap,
     required this.onLogout,
   });
 
@@ -883,6 +913,7 @@ class _FrostedSideNav extends StatelessWidget {
   final VoidCallback onDashboardTap;
   final VoidCallback onManageStaff;
   final VoidCallback onDossierTap;
+  final VoidCallback onStandaloneInvoicesTap;
   final Future<void> Function() onLogout;
 
   @override
@@ -979,6 +1010,12 @@ class _FrostedSideNav extends StatelessWidget {
                     icon: Icons.analytics_outlined,
                     label: 'Manager',
                     onTap: onDashboardTap,
+                  ),
+                  const SizedBox(height: 10),
+                  _SideNavButton(
+                    icon: Icons.receipt_long_outlined,
+                    label: 'Facturation libre',
+                    onTap: onStandaloneInvoicesTap,
                   ),
                 ],
                 const Spacer(),

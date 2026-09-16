@@ -14,6 +14,11 @@ class Invoice extends Model
 
     protected $fillable = [
         'reservation_id',
+        'client_name',
+        'client_phone',
+        'client_email',
+        'invoice_category',
+        'issued_at',
         'organization_id',
         'invoice_number',
         'total_amount_ariary',
@@ -40,6 +45,7 @@ class Invoice extends Model
         'discount_amount_ariary' => 'integer',
         'deposit_amount_ariary' => 'integer',
         'finalized_at' => 'datetime',
+        'issued_at' => 'datetime',
         'organization_billing_meta' => 'array',
     ];
 
@@ -75,6 +81,11 @@ class Invoice extends Model
     public function payments(): HasMany
     {
         return $this->hasMany(Payment::class);
+    }
+
+    public function audits(): HasMany
+    {
+        return $this->hasMany(InvoiceAudit::class);
     }
 
     public function parentInvoice(): BelongsTo
