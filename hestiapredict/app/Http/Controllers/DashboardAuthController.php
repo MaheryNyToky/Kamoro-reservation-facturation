@@ -40,6 +40,7 @@ class DashboardAuthController extends Controller
 
         Auth::login($user);
         $request->session()->regenerate();
+        $this->authService->recordLogin($user, $request);
 
         return redirect()->intended('/dashboard');
     }

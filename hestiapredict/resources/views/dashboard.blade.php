@@ -552,6 +552,47 @@
                 </section>
 
             </section>
+
+            <section class="mt-6">
+                <details class="bento-card overflow-hidden p-6 sm:p-7">
+                    <summary class="flex cursor-pointer list-none items-center justify-between gap-4">
+                        <div>
+                            <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">Sécurité</p>
+                            <h3 class="display-serif mt-2 text-3xl font-semibold text-[var(--ink)]">Historique des connexions</h3>
+                            <p class="mt-2 text-sm text-[var(--muted)]">Les 100 dernières connexions des comptes admin, superadmin et réceptionniste.</p>
+                        </div>
+                        <span class="rounded-full bg-white px-4 py-2 text-sm font-bold text-[var(--ink)]">Ouvrir</span>
+                    </summary>
+                    <div class="table-shell mobile-card-table mt-6">
+                        <table class="data-table w-full text-left text-sm">
+                            <thead>
+                                <tr>
+                                    <th class="px-5 py-3">Compte</th>
+                                    <th class="px-5 py-3">Rôle</th>
+                                    <th class="px-5 py-3">Email</th>
+                                    <th class="px-5 py-3">Connecté le</th>
+                                    <th class="px-5 py-3">Adresse IP</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-[rgba(68,52,39,0.08)]">
+                                @forelse ($loginHistories as $loginHistory)
+                                    <tr>
+                                        <td class="px-5 py-4 font-bold" data-label="Compte">{{ $loginHistory->name }}</td>
+                                        <td class="px-5 py-4" data-label="Rôle">{{ ucfirst($loginHistory->role) }}</td>
+                                        <td class="px-5 py-4" data-label="Email">{{ $loginHistory->email }}</td>
+                                        <td class="px-5 py-4 font-semibold" data-label="Connecté le">{{ $loginHistory->logged_in_at?->format('d/m/Y à H:i:s') }}</td>
+                                        <td class="px-5 py-4" data-label="Adresse IP">{{ $loginHistory->ip_address ?: 'Non disponible' }}</td>
+                                    </tr>
+                                @empty
+                                    <tr>
+                                        <td colspan="5" class="px-5 py-6 text-center text-sm text-[var(--muted)]">Aucune connexion enregistrée.</td>
+                                    </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                </details>
+            </section>
         </main>
     </div>
 
@@ -742,8 +783,8 @@
         function openInvoiceAuditModal(invoice) {
             document.getElementById('invoice-audit-modal')?.remove();
             const audits = Array.isArray(invoice.audits) ? invoice.audits : [];
-            const labels = { created: 'Création', item_added: 'Ligne ajoutée', item_updated: 'Ligne modifiée', item_deleted: 'Ligne supprimée', payment_added: 'Paiement ajouté', payment_updated: 'Paiement modifié', pdf_generated: 'PDF généré', cancelled: 'Facture annulée' };
-            const rows = audits.length ? audits.map(audit => `<div class="rounded-2xl border border-[var(--line)] bg-white p-4"><p class="font-black">${escapeHtml(labels[audit.action] || audit.action || 'Action')}</p><p class="mt-1 text-sm text-[var(--muted)]">${escapeHtml(audit.actor_name || 'Utilisateur inconnu')} · ${escapeHtml(audit.actor_role || '')} · ${escapeHtml(audit.created_at || '')}</p></div>`).join('') : '<p class="text-sm text-[var(--muted)]">Aucun historique enregistré pour cette facture.</p>';
+            const labels = { created: 'Création', item_added: 'Ligne ajoutée', item_updated: 'Ligne modifiée', item_deleted: 'Ligne supprimée', payment_added: 'Paiement ajouté', payment_updated: 'Paiement modifié', pdf_generated: 'PDF généré', pdf_regenerated: 'PDF régénéré automatiquement', cancelled: 'Facture annulée' };
+            const rows = audits.length ? audits.map(audit => `<div class="rounded-2xl border border-[var(--line)] bg-white p-4"><p class="font-black">${escapeHtml(labels[audit.action] || audit.action || 'Action')}</p><p class="mt-1 text-sm text-[var(--muted)]">Compte : ${escapeHtml(audit.actor_name || 'Utilisateur inconnu')} · ${escapeHtml(audit.actor_role || '')}${audit.actor_user_id ? ` · ID ${escapeHtml(String(audit.actor_user_id))}` : ''} · ${escapeHtml(audit.created_at || '')}</p></div>`).join('') : '<p class="text-sm text-[var(--muted)]">Aucun historique enregistré pour cette facture.</p>';
             const overlay = document.createElement('div');
             overlay.id = 'invoice-audit-modal';
             overlay.className = 'fixed inset-0 z-[999] flex items-center justify-center bg-black/50 px-4';
@@ -757,7 +798,7 @@
             const overlay = document.createElement('div');
             overlay.id = 'generated-invoices-overlay';
             overlay.className = 'fixed inset-0 z-[999] overflow-auto bg-[#f4eadc]';
-            overlay.innerHTML = `<div class="min-h-full"><header class="bg-[#231f1b] text-[#fbf4ea]"><div class="mx-auto flex max-w-7xl items-start justify-between gap-5 px-4 py-6 sm:px-6 sm:py-8 lg:px-8"><div><p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#d8c3aa]">Kamoro Hotel · Facturation</p><h3 class="display-serif mt-2 text-4xl font-semibold sm:text-5xl">Factures générées</h3><p class="mt-2 text-sm text-[#d8cfc6]">Historique complet des créations, modifications et annulations.</p></div><button type="button" onclick="document.getElementById('generated-invoices-overlay')?.remove()" class="rounded-full bg-[#fbf4ea] px-5 py-2 text-sm font-black text-[#231f1b]">Retour au tableau</button></div></header><main class="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8"><div class="mb-5 flex flex-col gap-3 sm:flex-row"><input id="generated-invoices-search" oninput="filterGeneratedInvoices()" placeholder="Rechercher par client ou numéro" class="h-12 flex-1 rounded-full border border-[var(--line)] bg-white px-5 text-sm font-semibold outline-none"><select id="generated-invoices-filter" onchange="filterGeneratedInvoices()" class="h-12 rounded-full border border-[var(--line)] bg-white px-5 text-sm font-semibold"><option value="all">Toutes les factures</option><option value="standalone">Factures libres</option><option value="stay">Chambres / réservations</option></select></div><div id="generated-invoices-full-state" class="mb-4 text-sm font-semibold text-[var(--muted)]">Chargement…</div><div id="generated-invoices-full-list" class="space-y-3"></div></main></div>`;
+            overlay.innerHTML = `<div class="min-h-full"><header class="bg-[#231f1b] text-[#fbf4ea]"><div class="mx-auto flex max-w-7xl items-start justify-between gap-5 px-4 py-6 sm:px-6 sm:py-8 lg:px-8"><div><p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#d8c3aa]">Kamoro Hotel · Facturation</p><h3 class="display-serif mt-2 text-4xl font-semibold sm:text-5xl">Factures générées</h3><p class="mt-2 text-sm text-[#d8cfc6]">Historique complet des créations, modifications et annulations.</p></div><button type="button" onclick="document.getElementById('generated-invoices-overlay')?.remove()" class="rounded-full bg-[#fbf4ea] px-5 py-2 text-sm font-black text-[#231f1b]">Retour au tableau</button></div></header><main class="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8"><div class="mb-5 flex flex-col gap-3 sm:flex-row"><input id="generated-invoices-search" oninput="filterGeneratedInvoices()" placeholder="Rechercher par client ou numéro" class="h-12 flex-1 rounded-full border border-[var(--line)] bg-white px-5 text-sm font-semibold outline-none"><select id="generated-invoices-filter" onchange="filterGeneratedInvoices()" class="h-12 rounded-full border border-[var(--line)] bg-white px-5 text-sm font-semibold"><option value="all">Toutes les factures</option><option value="standalone">Factures libres</option><option value="stay">Chambres / réservations</option><option value="cancelled">Factures annulées</option></select></div><div id="generated-invoices-full-state" class="mb-4 text-sm font-semibold text-[var(--muted)]">Chargement…</div><div id="generated-invoices-full-list" class="space-y-3"></div></main></div>`;
             overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove(); });
             document.body.appendChild(overlay);
             window.generatedInvoicesFullData = [];
@@ -774,7 +815,11 @@
             const category = document.getElementById('generated-invoices-filter')?.value || 'all';
             const invoices = (window.generatedInvoicesFullData || []).filter(invoice => {
                 const text = `${invoice.client_name || ''} ${invoice.invoice_number || ''}`.toLowerCase();
-                return (category === 'all' || invoice.invoice_category === category) && (!query || text.includes(query));
+                const isCancelled = ['annule', 'cancelled'].includes(invoice.status);
+                const matchesCategory = category === 'cancelled'
+                    ? isCancelled
+                    : category === 'all' || invoice.invoice_category === category;
+                return matchesCategory && (!query || text.includes(query));
             });
             state.textContent = `${invoices.length} facture${invoices.length > 1 ? 's' : ''}`;
             list.innerHTML = invoices.map(invoice => {

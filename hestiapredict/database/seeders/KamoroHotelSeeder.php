@@ -11,7 +11,9 @@ class KamoroHotelSeeder extends Seeder
 {
     public function run(): void
     {
-        User::updateOrCreate(
+        // Le conteneur lance le seeder à chaque démarrage : ne jamais
+        // réinitialiser le mot de passe d'un compte déjà existant.
+        User::firstOrCreate(
             ['email' => 'superadmin@kamorohotel.com'],
             ['name' => 'Super Admin Kamoro', 'password' => Hash::make('super181802'), 'role' => 'superadmin']
         );

@@ -66,7 +66,7 @@ Si FastAPI ne répond pas, Laravel renvoie automatiquement des prix planchers vi
 ├── dev.sh                   # Lancement complet en mode développement
 ├── start_project.sh         # Lancement simple avec build Flutter web existant
 ├── docker-compose.yml       # Base Docker expérimentale
-└── hestiapredict/database.sqlite # Base SQLite locale Laravel
+└── hestiapredict/database/database.sqlite # Base SQLite locale Laravel
 ```
 
 ## Prérequis

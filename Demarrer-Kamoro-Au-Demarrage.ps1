@@ -318,6 +318,12 @@ try {
         throw "docker compose n'a pas termine dans le delai imparti de 45 minutes. Consultez $StdErrLog."
     }
 
+    try {
+        $ComposeProcess.Refresh()
+    } catch {
+        # Ignore les erreurs de rafraichissement du processus termine.
+    }
+
     $ComposeExitCode = $ComposeProcess.ExitCode
 
     if ($ComposeExitCode -ne $null -and $ComposeExitCode -ne 0) {
@@ -328,8 +334,7 @@ try {
         }
         throw "docker compose a echoue avec le code $ComposeExitCode. Consultez $StdErrLog."
     } elseif ($ComposeExitCode -eq $null) {
-        Write-Log "docker compose a termine sans code de sortie exploitable. Arret du lancement."
-        throw "docker compose n'a pas fourni de code de sortie. Consultez $StdErrLog."
+        Write-Log "docker compose a termine sans code de sortie exploitable. Verification de l'application."
     }
 
     Write-Log "Verification finale de la stabilite Docker apres le lancement..."

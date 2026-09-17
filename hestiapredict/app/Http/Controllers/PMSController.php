@@ -8,6 +8,7 @@ use App\Models\InvoiceItem;
 use App\Models\InvoiceAudit;
 use App\Models\Organization;
 use App\Models\Room;
+use App\Models\User;
 use App\Models\ReservationAudit;
 use App\Models\Payment;
 use App\Models\Reservation;
@@ -641,7 +642,7 @@ class PMSController extends Controller
 
     public function standaloneInvoices(Request $request): JsonResponse
     {
-        $this->assertStandaloneAdmin($request);
+        $this->assertStandaloneViewer($request);
 
         return response()->json(Invoice::query()
             ->where('invoice_category', 'standalone')
@@ -657,7 +658,7 @@ class PMSController extends Controller
 
     public function generatedInvoices(Request $request): JsonResponse
     {
-        $this->assertStandaloneAdmin($request);
+        $this->assertStandaloneViewer($request);
         $category = $request->validate(['category' => 'nullable|in:all,standalone,stay'])['category'] ?? 'all';
         $invoices = Invoice::query()
             ->with(['audits' => fn ($query) => $query->latest(), 'reservation', 'items'])
@@ -688,6 +689,7 @@ class PMSController extends Controller
                 'created_at' => optional($invoice->created_at)->toDateTimeString(),
                 'audits' => $invoice->audits->map(fn (InvoiceAudit $audit) => [
                     'action' => $audit->action,
+                    'actor_user_id' => $audit->actor_user_id,
                     'actor_name' => $audit->actor_name,
                     'actor_role' => $audit->actor_role,
                     'created_at' => optional($audit->created_at)->toDateTimeString(),
@@ -701,12 +703,12 @@ class PMSController extends Controller
     {
         $this->assertStandaloneAdmin($request);
         $validated = $request->validate([
-            'client_name' => 'nullable|string|max:190',
+            'client_name' => 'required|string|max:190',
             'client_phone' => 'nullable|string|max:50',
             'client_email' => 'nullable|email|max:190',
             'customer_type' => 'required|in:particulier,organisme',
             'organization_name' => 'required_if:customer_type,organisme|nullable|string|max:190',
-            'organization_phone' => 'nullable|string|max:50',
+            'organization_phone' => 'required_if:customer_type,organisme|nullable|string|max:50',
             'organization_contact_name' => 'nullable|string|max:120',
             'organization_billing_address' => 'nullable|string|max:255',
             'organization_nif' => 'nullable|string|max:80',
@@ -716,6 +718,10 @@ class PMSController extends Controller
             'actor_name' => 'nullable|string|max:120',
             'actor_role' => 'required|in:admin,superadmin',
         ]);
+
+        if ($validated['customer_type'] === 'particulier' && blank($validated['client_phone'] ?? null)) {
+            throw ValidationException::withMessages(['client_phone' => 'Le téléphone du particulier est obligatoire.']);
+        }
 
         $invoice = DB::transaction(function () use ($validated): Invoice {
             $organization = null;
@@ -761,13 +767,13 @@ class PMSController extends Controller
 
     public function addStandaloneInvoiceItem(Request $request, int $id): JsonResponse
     {
-        $this->assertStandaloneAdmin($request);
+        $this->assertStandaloneViewer($request);
         $validated = $request->validate([
             'description' => 'required|string|max:255',
             'amount_ariary' => 'required|integer|min:0',
             'quantity' => 'required|integer|min:1',
             'actor_name' => 'nullable|string|max:120',
-            'actor_role' => 'required|in:admin,superadmin',
+            'actor_role' => 'required|in:admin,receptionist,superadmin',
         ]);
         $invoice = Invoice::query()->where('invoice_category', 'standalone')->findOrFail($id);
         if ($invoice->status === 'finalized') {
@@ -789,15 +795,18 @@ class PMSController extends Controller
             'amount_ariary' => $validated['amount_ariary'],
             'quantity' => $validated['quantity'],
         ]);
+        $this->logInvoiceAction($invoice, 'pdf_regenerated', $validated['actor_name'] ?? null, $validated['actor_role'], [
+            'reason' => 'item_added',
+        ]);
         return response()->json(['invoice' => $this->standalonePayload($invoice->refresh())]);
     }
 
     public function cancelStandaloneInvoice(Request $request, int $id): JsonResponse
     {
-        $this->assertStandaloneAdmin($request);
+        $this->assertStandaloneViewer($request);
         $validated = $request->validate([
             'actor_name' => 'nullable|string|max:120',
-            'actor_role' => 'required|in:admin,superadmin',
+            'actor_role' => 'required|in:admin,receptionist,superadmin',
         ]);
         $invoice = Invoice::query()->where('invoice_category', 'standalone')->findOrFail($id);
         if (in_array($invoice->status, ['annule', 'cancelled'], true)) {
@@ -819,12 +828,21 @@ class PMSController extends Controller
         }
     }
 
+    private function assertStandaloneViewer(Request $request): void
+    {
+        $role = (string) ($request->input('actor_role') ?? Auth::user()?->role ?? '');
+        if (! in_array($role, ['admin', 'superadmin', 'receptionist'], true)) {
+            abort(403, 'Cette fonctionnalité est réservée au personnel autorisé.');
+        }
+    }
+
     private function logInvoiceAction(Invoice $invoice, string $action, ?string $actorName, ?string $actorRole, array $details = []): void
     {
         InvoiceAudit::create([
             'invoice_id' => $invoice->id,
             'action' => $action,
-            'actor_user_id' => Auth::id(),
+            'actor_user_id' => Auth::id()
+                ?? ($actorName ? User::query()->where('name', $actorName)->value('id') : null),
             'actor_name' => $actorName ?? Auth::user()?->name ?? 'Utilisateur inconnu',
             'actor_role' => $actorRole ?? Auth::user()?->role,
             'details' => $details,
@@ -852,6 +870,7 @@ class PMSController extends Controller
             'status' => $invoice->status,
             'pdf_url' => $invoice->pdf_path ? url("/api/invoices/{$invoice->id}/pdf") : null,
             'issued_at' => optional($invoice->issued_at)->toDateTimeString(),
+            'created_at' => optional($invoice->created_at)->toDateTimeString(),
             'total_amount_ariary' => (int) $invoice->total_amount_ariary,
             'paid_amount_ariary' => $invoice->paid_amount_ariary,
             'balance_amount_ariary' => $invoice->balance_amount_ariary,
@@ -861,6 +880,20 @@ class PMSController extends Controller
                 'amount_ariary' => (int) $item->amount_ariary,
                 'quantity' => (int) $item->quantity,
             ])->values(),
+            'payments' => $invoice->payments->map(fn (Payment $payment) => [
+                'id' => $payment->id,
+                'amount_ariary' => (int) $payment->amount_ariary,
+                'payment_method' => $payment->payment_method,
+                'created_at' => optional($payment->created_at)->format('d/m/Y H:i'),
+            ])->values(),
+            'audits' => $invoice->audits()->latest()->get()->map(fn (InvoiceAudit $audit) => [
+                'action' => $audit->action,
+                'actor_user_id' => $audit->actor_user_id,
+                'actor_name' => $audit->actor_name,
+                'actor_role' => $audit->actor_role,
+                'created_at' => optional($audit->created_at)->toDateTimeString(),
+                'details' => $audit->details,
+            ])->values(),
         ];
     }
 
@@ -868,7 +901,7 @@ class PMSController extends Controller
     {
         $validated = $request->validate([
             'description' => 'required|string|max:255',
-            'type' => 'required|in:room,extra,deposit',
+            'type' => 'required|in:room,extra,deposit,service',
             'amount_ariary' => 'required|integer|min:0',
             'quantity' => 'required|integer|min:1',
             'booking_room_id' => 'nullable|integer|exists:booking_room,id',
@@ -983,6 +1016,15 @@ class PMSController extends Controller
 
         $result = DB::transaction(function () use ($validated, $id) {
             $invoice = Invoice::with(['payments', 'reservation.audits', 'reservation.guest'])->lockForUpdate()->findOrFail($id);
+            if ($invoice->invoice_category === 'standalone') {
+                if (in_array($validated['payment_method'], ['Mobile Money', 'Carte Bancaire'], true)
+                    && blank($validated['reference'] ?? null)) {
+                    throw ValidationException::withMessages(['reference' => 'La référence du paiement est obligatoire.']);
+                }
+                if ($validated['payment_method'] === 'Mobile Money' && blank($validated['payment_operator'] ?? null)) {
+                    throw ValidationException::withMessages(['payment_operator' => 'Choisissez un opérateur Mobile Money.']);
+                }
+            }
             $previousStatus = $invoice->status;
             $this->assertReceptionistCannotTakePreCheckinPayment(
                 $invoice->reservation,
@@ -1039,6 +1081,10 @@ class PMSController extends Controller
             }
 
             $invoice = $this->syncInvoiceAfterPayment($invoice);
+            if ($invoice->invoice_category === 'standalone') {
+                $invoice->update(['document_type' => 'facture']);
+                $this->ensureInvoicePdf($invoice->refresh(), 'facture');
+            }
             $this->logInvoiceAction($invoice, 'payment_added', $validated['processed_by_name'] ?? null, $validated['processed_by_role'] ?? null, [
                 'payment_id' => $payment->id, 'amount_ariary' => $amounts['applied_amount_ariary'], 'payment_method' => $validated['payment_method'],
             ]);
@@ -1052,7 +1098,9 @@ class PMSController extends Controller
 
             return [
                 'payment' => $payment,
-                'invoice' => $this->folioPayload($invoice),
+                'invoice' => $invoice->invoice_category === 'standalone'
+                    ? $this->standalonePayload($invoice)
+                    : $this->folioPayload($invoice),
             ];
         });
 
@@ -1892,6 +1940,7 @@ class PMSController extends Controller
                     .signature-box { min-height: 0; border: 0; border-radius: 0; padding: 0; background: transparent; display: flex; flex-direction: column; }
                     .signature-title { margin-bottom: 6px; color: #111111; font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; }
                     .responsible-signature { display: block; width: 112px; max-height: 58px; object-fit: contain; margin: 2px auto 0; }
+                    .signature-space { height: 58px; }
                     .signature-line { margin-top: 28px; padding-top: 5px; color: #475569; font-size: 10px; }
                     .signature-box .responsible-signature + .signature-line { margin-top: 8px; }
                 </style>
@@ -2686,23 +2735,25 @@ class PMSController extends Controller
     private function invoiceHtml(Invoice $invoice, string $documentType = 'facture', string $currencyMode = 'ariary'): string
     {
         $reservation = $invoice->reservation;
-        $clientName = $reservation->organization?->name
-            ?? $reservation->guest?->full_name
-            ?? $reservation->client_name;
+        $isStandalone = $invoice->invoice_category === 'standalone';
+        $organization = $isStandalone ? $invoice->organization : $reservation?->organization;
+        $clientName = $organization?->name
+            ?? $reservation?->guest?->full_name
+            ?? $reservation?->client_name ?? $invoice->client_name;
         $guestName = e($clientName);
-        $seatPhone = $reservation->organization?->phone ?? null;
-        $billingInfoLine = $this->organizationBillingInfoHtml($reservation->organization);
+        $seatPhone = $organization?->phone ?? null;
+        $billingInfoLine = $this->organizationBillingInfoHtml($organization);
         $contactParts = array_filter([
-            $reservation->booking_type === 'organization' && filled($seatPhone)
+            $organization !== null && filled($seatPhone)
                 ? 'Siège : ' . $seatPhone
                 : null,
-            $reservation->customer_phone ?: $reservation->client_phone ?: null,
-            $reservation->customer_email ?: null,
+            $isStandalone ? $invoice->client_phone : ($reservation?->customer_phone ?: $reservation?->client_phone),
+            $isStandalone ? $invoice->client_email : $reservation?->customer_email,
         ], fn ($value) => filled($value) && $value !== 'N/A');
         $contactLine = $contactParts ? e(implode(' | ', $contactParts)) : '';
         $invoiceNumber = e($invoice->invoice_number);
-        $checkIn = $reservation->check_in_date->format('d-m-Y');
-        $checkOut = $reservation->check_out_date->format('d-m-Y');
+        $checkIn = $reservation?->check_in_date?->format('d-m-Y');
+        $checkOut = $reservation?->check_out_date?->format('d-m-Y');
         $paidAmount = (int) $invoice->paid_amount_ariary;
         $balanceAmount = (int) $invoice->balance_amount_ariary;
         $depositAmount = (int) $invoice->deposit_amount_ariary;
@@ -2722,7 +2773,7 @@ class PMSController extends Controller
         $displayTotal = $showEuro ? max(0, $displaySubtotal - $displayDiscount) : $invoice->total_amount_ariary;
         $displayPaid = $showEuro ? $this->ariaryToEuro($paidAmount) : $paidAmount;
         $displayBalance = $showEuro ? max(0, $displayTotal - $displayPaid) : $balanceAmount;
-        $showBankDetails = ($reservation->booking_type ?? '') === 'organization' && $displayBalance > 0;
+        $showBankDetails = $organization !== null && $displayBalance > 0;
         $amountInWords = $showEuro
             ? $this->formatMoney($displayTotal, $currencyLabel)
             : e($this->amountInWords($invoice->total_amount_ariary)) . " (" . number_format($invoice->total_amount_ariary, 0, ',', ' ') . ") Ariary";
@@ -2736,6 +2787,12 @@ class PMSController extends Controller
             : '';
         $leftSignatureTitle = 'Client';
         $rightSignatureTitle = 'Responsable';
+        $clientSignatureBlock = $isStandalone
+            ? "<div class='signature-space'>&nbsp;</div><div class='signature-title'>{$leftSignatureTitle}</div>"
+            : "<div class='signature-title'>{$leftSignatureTitle}</div><div class='signature-line'>&nbsp;</div>";
+        $signatureWrapClass = $isStandalone
+            ? 'signature-wrap standalone-signature-wrap'
+            : 'signature-wrap';
         $accentColor = '#d10f0f';
         $accentSoft = $isProforma ? '#fff7f7' : '#fff1f1';
         $accentText = '#111111';
@@ -2748,10 +2805,10 @@ class PMSController extends Controller
         $printedAt = now()->format('d/m/Y');
         $rows = '';
         $paymentRows = '';
-        $roomBookById = $reservation->rooms->mapWithKeys(
+        $roomBookById = ($reservation?->rooms ?? collect())->mapWithKeys(
             fn (Room $room) => [($room->pivot->id ?? $room->id) => $room]
         );
-        $showSegmentDates = $this->hasSegmentedRoomDates($reservation);
+        $showSegmentDates = $reservation ? $this->hasSegmentedRoomDates($reservation) : false;
 
         foreach ($visibleItems as $item) {
             $unitAmount = $showEuro ? $this->invoiceItemUnitAmountInEuro($item) : (float) $item->amount_ariary;
@@ -2771,9 +2828,9 @@ class PMSController extends Controller
             $rows .= '<tr>'
                 . '<td>' . e($description) . '</td>'
                 . ($showSegmentDates ? '<td>' . e($segmentDateRange) . '</td>' : '')
-                . '<td>' . $item->quantity . '</td>'
-                . '<td>' . $this->formatMoney($unitAmount, $currencyLabel, false) . '</td>'
-                . '<td>' . $this->formatMoney($lineTotal, $currencyLabel, false) . '</td>'
+                . '<td class="num">' . $item->quantity . '</td>'
+                . '<td class="num">' . $this->formatMoney($unitAmount, $currencyLabel, false) . '</td>'
+                . '<td class="num">' . $this->formatMoney($lineTotal, $currencyLabel, false) . '</td>'
                 . '</tr>';
         }
 
@@ -2853,8 +2910,11 @@ class PMSController extends Controller
                     .signature-title { margin-bottom: 6px; color: {$accentText}; font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; }
                     .responsible-signature { display: block; width: 112px; max-height: 58px; object-fit: contain; margin: 2px auto 0; }
                     .signature-cell.single .responsible-signature { margin-right: auto; margin-left: auto; }
+                    .signature-space { height: 58px; }
                     .signature-line { margin-top: 28px; padding-top: 5px; color: #475569; font-size: 10px; }
                     .signature-box .responsible-signature + .signature-line { margin-top: 8px; }
+                    .standalone-signature-wrap .signature-cell { vertical-align: bottom; }
+                    .standalone-signature-wrap .signature-box { min-height: 86px; justify-content: flex-end; }
                     .invoice-footer { margin-top: 4px; margin-bottom: 18px; page-break-inside: avoid; }
                     .invoice-location { margin-top: 8px; font-weight: bold; text-align: right; color: {$accentText}; font-size: 10.5px; }
                     .legal-block { position: fixed; left: 0; right: 0; bottom: 0; padding-top: 5px; border-top: 1px solid {$accentColor}; color: {$accentText}; font-size: 9px; line-height: 1.2; }
@@ -2895,12 +2955,15 @@ class PMSController extends Controller
                                 <strong>{$guestName}</strong><br>
                                 " . ($contactLine ? "{$contactLine}<br>" : '') . "
                                 " . ($billingInfoLine ? "{$billingInfoLine}<br>" : '') . "
-                                Séjour du {$checkIn} au {$checkOut}
+                                " . ($isStandalone
+                                    ? ($organization?->billing_address ? e($organization->billing_address) : '')
+                                    : "Séjour du {$checkIn} au {$checkOut}") . "
                             </div>
                         </td>
                         <td>
                             <div class='box'>
                                 <div class='box-title'>Récapitulatif</div>
+                                " . ($isStandalone ? 'Date de prestations : ' . e(optional($invoice->issued_at)->format('d-m-Y') ?: '-') . '<br>' : '') . "
                                 Total prestations: " . $this->formatMoney($displaySubtotal, $currencyLabel) . "<br>
                                 " . ($showDiscount ? 'Remise: ' . $this->formatMoney($displayDiscount, $currencyLabel) : '') . "
                             </div>
@@ -2961,28 +3024,28 @@ class PMSController extends Controller
                 <div class='footer-note'>
                     Arrêtée la présente {$amountLabel} à la somme de : {$amountInWords}
                 </div>
-                <div class='signature-wrap'>
+                <div class='{$signatureWrapClass}'>
                     <table class='signature-table'>
                         <tr>
                             <td class='signature-cell'>
                                 <div class='signature-box'>
-                                    <div class='signature-title'>{$leftSignatureTitle}</div>
-                                    <div class='signature-line'>&nbsp;</div>
+                                    {$clientSignatureBlock}
                                 </div>
                             </td>
                             " . ($isProforma ? "
                             <td class='signature-cell single'>
                                 <div class='signature-box'>
-                                    <div class='signature-title'>{$rightSignatureTitle}</div>
                                     {$responsibleSignature}
-                                    <div class='signature-line'>&nbsp;</div>
+                                    <div class='signature-title'>{$rightSignatureTitle}</div>
+                                    " . ($isStandalone ? '' : "<div class='signature-line'>&nbsp;</div>") . "
                                 </div>
                             </td>
                             " : "
                             <td class='signature-cell'>
                                 <div class='signature-box'>
+                                    " . ($isStandalone ? "<div class='signature-space'>&nbsp;</div>" : '') . "
                                     <div class='signature-title'>{$rightSignatureTitle}</div>
-                                    <div class='signature-line'>&nbsp;</div>
+                                    " . ($isStandalone ? '' : "<div class='signature-line'>&nbsp;</div>") . "
                                 </div>
                             </td>
                             ") . "
@@ -3000,30 +3063,7 @@ class PMSController extends Controller
 
     private function standaloneInvoiceHtml(Invoice $invoice, string $documentType): string
     {
-        $isProforma = $documentType === 'proforma';
-        $organization = $invoice->organization;
-        $logo = $this->hotelLogoDataUri();
-        $signature = $this->responsibleSignatureDataUri();
-        $totalAmount = (int) $invoice->total_amount_ariary;
-        $paidAmount = (int) $invoice->paid_amount_ariary;
-        $balanceAmount = (int) $invoice->balance_amount_ariary;
-        $rows = $invoice->items->map(function (InvoiceItem $item): string {
-            $total = (int) $item->amount_ariary * max(1, (int) $item->quantity);
-            return '<tr><td>' . e($item->description) . '</td><td class="num">' . (int) $item->quantity . '</td><td class="num">' . $this->formatMoney($item->amount_ariary, 'Ar') . '</td><td class="num">' . $this->formatMoney($total, 'Ar') . '</td></tr>';
-        })->implode('');
-        $rows = $rows ?: '<tr><td colspan="4">Aucune prestation</td></tr>';
-        $paymentRows = $invoice->payments->map(fn (Payment $payment): string => '<tr><td>' . e(optional($payment->created_at)->format('d/m/Y H:i')) . '</td><td>' . e($payment->payment_method) . '</td><td class="num">' . $this->formatMoney((int) $payment->amount_ariary, 'Ar') . '</td></tr>')->implode('');
-        $paymentRows = $paymentRows ?: '<tr><td colspan="3">Aucun paiement enregistré</td></tr>';
-        $amountInWords = e($this->amountInWords($totalAmount)) . ' (' . number_format($totalAmount, 0, ',', ' ') . ') Ariary';
-        $logoHtml = $logo ? "<img class='brand-logo' src='{$logo}' alt='Kamoro Hotel'>" : '<div class="brand-fallback">KAMORO HOTEL</div>';
-        $signatureHtml = $signature ? "<img class='signature' src='{$signature}' alt='Signature'>" : '<div class="signature-line">&nbsp;</div>';
-        $organizationDetails = $organization
-            ? e($organization->billing_address ?: '') . '<br>NIF : ' . e($organization->nif ?: '-') . ' · STAT : ' . e($organization->stat ?: '-')
-            : '';
-
-        return "<html><head><meta charset='utf-8'><style>
-            @page{size:A4 portrait;margin:12mm 14mm}body{font-family:DejaVu Sans,Arial;color:#1f2937;font-size:11px;line-height:1.3;margin:0}.ribbon{margin-bottom:10px;padding:7px 10px;background:#fff1f1;border:1px solid #d10f0f;color:#9f1d1d;border-radius:8px;text-align:center;font-weight:bold;letter-spacing:.6px}.topbar{display:table;width:100%;border-bottom:2px solid #d10f0f;padding-bottom:10px;margin-bottom:14px}.brand,.meta{display:table-cell;vertical-align:top}.brand{width:62%}.meta{width:38%;text-align:right}.brand-logo{width:145px;max-height:58px;object-fit:contain}.brand-fallback{font-size:19px;font-weight:bold;color:#111}.meta-title{font-size:14px;font-weight:bold;color:#111;margin-bottom:6px}.box{border:1px solid #dbe4ea;border-radius:8px;padding:10px 12px;background:#fff}.box-title{color:#64748b;font-size:9px;text-transform:uppercase;letter-spacing:.6px;margin-bottom:5px}.info-grid{width:100%;border-collapse:separate;border-spacing:0 8px}.info-grid td{vertical-align:top}.info-grid td:first-child{padding-right:10px}.section-title{margin:14px 0 6px;font-size:12px;font-weight:bold;color:#111}table.lines{width:100%;border-collapse:collapse;margin-top:4px}table.lines th,table.lines td{border-bottom:1px solid #dbe4ea;padding:7px 8px;text-align:left}table.lines th{background:#f8fafc;color:#0f172a;font-size:10px;text-transform:uppercase}.num{text-align:right!important}.summary{width:48%;margin:12px 0 0 auto;border:1px solid #dbe4ea;border-radius:8px;padding:10px 12px}.summary-row{display:table;width:100%;margin-bottom:5px}.summary-row span{display:table-cell}.summary-row span:last-child{text-align:right}.summary-row.total{border-top:1px solid #cbd5e1;padding-top:7px;font-size:13px;font-weight:bold}.notice{margin:12px 0;padding:8px 10px;background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px}.amount-words{margin-top:14px;font-weight:bold;text-transform:uppercase;font-size:10.5px}.signatures{display:table;width:100%;margin-top:24px;page-break-inside:avoid}.signature-cell{display:table-cell;width:50%;text-align:center;vertical-align:top;font-weight:bold}.signature{display:block;width:115px;height:58px;object-fit:contain;margin:7px auto 0}.signature-line{width:150px;border-bottom:1px solid #64748b;height:42px;margin:0 auto 5px}.location{text-align:right;margin-top:12px;font-weight:bold}.legal-block{position:fixed;left:0;right:0;bottom:0;padding-top:5px;border-top:1px solid #d10f0f;font-size:9px}.legal-line{width:100%;border-collapse:collapse}.legal-line td{border:0;padding-right:8px}.legal-label{font-weight:bold}
-        </style></head><body>" . ($isProforma ? "<div class='ribbon'>FACTURE PROFORMA</div>" : '') . "<div class='topbar'><div class='brand'>{$logoHtml}</div><div class='meta'><div class='meta-title'>" . ($isProforma ? 'Proforma' : 'Facture') . " n° " . e($invoice->invoice_number) . "</div></div></div><table class='info-grid'><tr><td style='width:56%'><div class='box'><div class='box-title'>Client</div><strong>" . e($invoice->client_name ?: 'Client non renseigné') . "</strong><br>" . e($invoice->client_phone ?: '') . "<br>" . e($invoice->client_email ?: '') . "<br>{$organizationDetails}</div></td><td><div class='box'><div class='box-title'>Récapitulatif</div>Total prestations : " . $this->formatMoney($totalAmount, 'Ar') . "<br>" . ($isProforma ? 'Proforma en attente de règlement' : 'Facture finale') . "</div></td></tr></table><div class='section-title'>Prestations</div><table class='lines'><thead><tr><th>Prestations</th><th class='num'>Qté</th><th class='num'>PU (Ar)</th><th class='num'>Total (Ar)</th></tr></thead><tbody>{$rows}</tbody></table><div class='section-title'>Paiements</div><table class='lines'><thead><tr><th>Date</th><th>Méthode</th><th class='num'>Montant net</th></tr></thead><tbody>{$paymentRows}</tbody></table><div class='summary'><div class='summary-row'><span>Total prestations</span><span>" . $this->formatMoney($totalAmount, 'Ar') . "</span></div><div class='summary-row'><span>Total payé</span><span>" . $this->formatMoney($paidAmount, 'Ar') . "</span></div><div class='summary-row total'><span>Reste à payer</span><span>" . $this->formatMoney($balanceAmount, 'Ar') . "</span></div></div><div class='notice'>" . ($balanceAmount > 0 ? 'Facture pas encore payée intégralement' : 'Facture réglée intégralement') . "</div><div class='amount-words'>Arrêté la présente " . ($isProforma ? 'proforma' : 'facture') . " à la somme de : {$amountInWords}</div><div class='signatures'><div class='signature-cell'>Client<div class='signature-line'>&nbsp;</div></div><div class='signature-cell'>Responsable{$signatureHtml}</div></div><div class='location'>Fait à Ambondromamy le " . e(now()->format('d/m/Y')) . "</div>" . $this->legalFooterHtml() . "</body></html>";
+        return $this->invoiceHtml($invoice, $documentType);
     }
 
     private function invoiceAmountInEuro(iterable $items): float

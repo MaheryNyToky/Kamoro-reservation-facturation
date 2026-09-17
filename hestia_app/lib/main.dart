@@ -875,12 +875,12 @@ class _MobileReceptionDrawer extends StatelessWidget {
               title: const Text('Manager'),
               onTap: onDashboardTap,
             ),
-            ListTile(
-              leading: const Icon(Icons.receipt_long_outlined),
-              title: const Text('Facturation libre'),
-              onTap: onStandaloneInvoicesTap,
-            ),
           ],
+          ListTile(
+            leading: const Icon(Icons.receipt_long_outlined),
+            title: const Text('Facturation libre'),
+            onTap: onStandaloneInvoicesTap,
+          ),
           ListTile(
             leading: const Icon(Icons.logout, color: Colors.red),
             title: const Text(
@@ -1012,12 +1012,13 @@ class _FrostedSideNav extends StatelessWidget {
                     onTap: onDashboardTap,
                   ),
                   const SizedBox(height: 10),
-                  _SideNavButton(
-                    icon: Icons.receipt_long_outlined,
-                    label: 'Facturation libre',
-                    onTap: onStandaloneInvoicesTap,
-                  ),
                 ],
+                const SizedBox(height: 10),
+                _SideNavButton(
+                  icon: Icons.receipt_long_outlined,
+                  label: 'Facturation libre',
+                  onTap: onStandaloneInvoicesTap,
+                ),
                 const Spacer(),
                 Container(
                   padding: const EdgeInsets.all(14),

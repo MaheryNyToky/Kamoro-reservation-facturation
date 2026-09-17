@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Reservation;
+use App\Models\Invoice;
 use App\Models\Room;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
@@ -364,7 +365,14 @@ class YieldService
                 ->whereDate('issued_at', $date)
                 ->whereNotIn('status', ['cancelled', 'annule'])
                 ->sum('total_amount_ariary')
-            : 0;
+            : (in_array('en_attente', $statuses, true)
+                ? (int) DB::table('invoices')
+                    ->where('invoice_category', 'standalone')
+                    ->where('document_type', 'proforma')
+                    ->whereDate('issued_at', $date)
+                    ->whereNotIn('status', ['cancelled', 'annule'])
+                    ->sum('total_amount_ariary')
+                : 0);
 
         return $roomRevenue + $standaloneRevenue;
     }
@@ -379,19 +387,34 @@ class YieldService
         $periodEnd = $selectedDate->copy()->endOfDay();
 
         $collected = (int) DB::table('payments')
-            ->whereBetween('created_at', [
+            ->join('invoices', 'invoices.id', '=', 'payments.invoice_id')
+            ->whereNotIn('invoices.status', ['cancelled', 'annule'])
+            ->whereBetween('payments.created_at', [
                 $periodStart->toDateTimeString(),
                 $periodEnd->toDateTimeString(),
             ])
             ->sum('amount_ariary');
 
-        $pending = (int) Reservation::query()
+        $reservationPending = (int) Reservation::query()
             ->with(['invoice.payments', 'invoice.childInvoices.payments'])
             ->where('status', '!=', 'annule')
             ->whereDate('check_in_date', '<=', $selectedDate->toDateString())
             ->whereDate('check_out_date', '>', $periodStart->toDateString())
             ->get()
             ->sum(fn (Reservation $reservation): int => (int) ($reservation->invoice?->balance_amount_ariary ?? 0));
+
+        $standalonePending = (int) Invoice::query()
+            ->with('payments')
+            ->where('invoice_category', 'standalone')
+            ->whereNotIn('status', ['cancelled', 'annule'])
+            ->whereBetween('issued_at', [
+                $periodStart->toDateTimeString(),
+                $periodEnd->toDateTimeString(),
+            ])
+            ->get()
+            ->sum(fn (Invoice $invoice): int => $invoice->balance_amount_ariary);
+
+        $pending = $reservationPending + $standalonePending;
 
         return [
             'collected' => $collected,

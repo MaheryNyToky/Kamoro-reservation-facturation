@@ -137,27 +137,28 @@ wait_for_url "AI" "http://127.0.0.1:8001/health" "$LOG_DIR/ai.log" 30
 # 2. Backend Laravel
 echo "[Laravel] Lancement sur le port 8000..."
 cd "$PROJECT_ROOT/hestiapredict"
-touch "$PROJECT_ROOT/hestiapredict/database.sqlite"
-php scripts/sync_sqlite_database.php
+DB_FILE="$PROJECT_ROOT/hestiapredict/database/database.sqlite"
+mkdir -p "$(dirname "$DB_FILE")"
+touch "$DB_FILE"
 if ! ensure_laravel_dependencies; then
     exit 1
 fi
 php artisan optimize:clear > "$LOG_DIR/optimize-clear.log" 2>&1 || true
 echo "[Laravel] Migration de la base..."
-if ! env DB_DATABASE="$PROJECT_ROOT/hestiapredict/database.sqlite" CACHE_STORE=file php artisan migrate --force > "$LOG_DIR/migrate.log" 2>&1; then
+if ! env DB_DATABASE="$DB_FILE" CACHE_STORE=file php artisan migrate --force > "$LOG_DIR/migrate.log" 2>&1; then
     echo "[ERREUR] Migration Laravel impossible."
     echo "[LOG] Dernières lignes du log : $LOG_DIR/migrate.log"
     tail -n 40 "$LOG_DIR/migrate.log" 2>/dev/null || true
     exit 1
 fi
 echo "[Laravel] Création des comptes et données de base..."
-if ! env DB_DATABASE="$PROJECT_ROOT/hestiapredict/database.sqlite" CACHE_STORE=file php artisan db:seed --force --class=Database\\Seeders\\KamoroHotelSeeder > "$LOG_DIR/seed.log" 2>&1; then
+if ! env DB_DATABASE="$DB_FILE" CACHE_STORE=file php artisan db:seed --force --class=Database\\Seeders\\KamoroHotelSeeder > "$LOG_DIR/seed.log" 2>&1; then
     echo "[ERREUR] Seed Laravel impossible."
     echo "[LOG] Dernières lignes du log : $LOG_DIR/seed.log"
     tail -n 40 "$LOG_DIR/seed.log" 2>/dev/null || true
     exit 1
 fi
-nohup env AI_ENGINE_URL="http://127.0.0.1:8001" DB_DATABASE="$PROJECT_ROOT/hestiapredict/database.sqlite" CACHE_STORE=file SESSION_DRIVER=file php artisan serve --host=0.0.0.0 --port=8000 > "$LOG_DIR/laravel.log" 2>&1 &
+nohup env AI_ENGINE_URL="http://127.0.0.1:8001" DB_DATABASE="$DB_FILE" CACHE_STORE=file SESSION_DRIVER=file php artisan serve --host=0.0.0.0 --port=8000 > "$LOG_DIR/laravel.log" 2>&1 &
 LARAVEL_PID=$!
 disown "$LARAVEL_PID" 2>/dev/null || true
 wait_for_url "Laravel" "http://127.0.0.1:8000/api/health" "$LOG_DIR/laravel.log" 30

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Reservation;
+use App\Models\Invoice;
 use App\Models\Organization;
 use App\Http\Resources\RoomResource;
 use App\Models\Room;
@@ -472,6 +473,55 @@ class HotelManagementController extends Controller
                 && in_array($item['payment_status'], ['unpaid', 'partial'], true)
             ))
             ->values();
+
+        $standaloneItems = Invoice::query()
+            ->with(['payments', 'organization'])
+            ->where('invoice_category', 'standalone')
+            ->whereNotIn('status', ['cancelled', 'annule'])
+            ->get()
+            ->map(function (Invoice $invoice): array {
+                $paid = (int) $invoice->payments->sum('amount_ariary');
+                $balance = max(0, (int) $invoice->total_amount_ariary - $paid);
+
+                return [
+                    'id' => 'standalone-' . $invoice->id,
+                    'guest_id' => null,
+                    'organization_id' => $invoice->organization_id,
+                    'reference' => $invoice->invoice_number,
+                    'client_name' => $invoice->client_name,
+                    'organization_name' => $invoice->organization?->name,
+                    'booking_type' => $invoice->organization_id ? 'organization' : 'individual',
+                    'phone' => $invoice->client_phone ?: 'N/A',
+                    'email' => $invoice->client_email ?: 'N/A',
+                    'guest' => null,
+                    'organization' => $invoice->organization,
+                    'status' => 'facture_libre',
+                    'check_in_at' => optional($invoice->issued_at)->toDateTimeString(),
+                    'room_numbers' => '',
+                    'check_in' => optional($invoice->issued_at)->toDateString(),
+                    'check_out' => null,
+                    'invoice_number' => $invoice->invoice_number,
+                    'payment_status' => $paid > 0 ? 'partial' : 'unpaid',
+                    'total_amount_ariary' => (int) $invoice->total_amount_ariary,
+                    'paid_amount_ariary' => $paid,
+                    'balance_amount_ariary' => $balance,
+                ];
+            })
+            ->filter(fn (array $item): bool => $item['balance_amount_ariary'] > 0);
+
+        if ($type !== 'all') {
+            $standaloneItems = $standaloneItems->filter(fn (array $item): bool => $item['booking_type'] === ($type === 'organization' ? 'organization' : 'individual'));
+        }
+        if ($normalizedTerm !== '') {
+            $standaloneItems = $standaloneItems->filter(function (array $item) use ($normalizedTerm): bool {
+                $haystack = Str::lower(Str::ascii(implode(' ', [
+                    $item['client_name'], $item['organization_name'], $item['reference'], $item['phone'],
+                ])));
+
+                return Str::contains($haystack, $normalizedTerm);
+            });
+        }
+        $items = $items->concat($standaloneItems)->values();
 
         $rankingFor = function (string $bookingType) use ($items) {
             return $items
@@ -978,6 +1028,8 @@ class HotelManagementController extends Controller
         if (!$user) {
             return response()->json(['status' => 'error', 'message' => 'Identifiants incorrects'], 401);
         }
+
+        $this->authService->recordLogin($user, $request);
 
         return response()->json([
             'status' => 'success',

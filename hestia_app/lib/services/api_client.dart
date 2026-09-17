@@ -55,4 +55,14 @@ class ApiClient {
   Future<http.Response> delete(String path) {
     return http.delete(uri(path)).timeout(_defaultTimeout);
   }
+
+  Future<http.Response> deleteJson(String path, Map<String, dynamic> body) {
+    return http
+        .delete(
+          uri(path),
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode(body),
+        )
+        .timeout(_defaultTimeout);
+  }
 }
