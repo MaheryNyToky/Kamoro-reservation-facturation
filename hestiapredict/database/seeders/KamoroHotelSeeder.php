@@ -57,7 +57,9 @@ class KamoroHotelSeeder extends Seeder
         ];
 
         foreach ($roomsData as $roomData) {
-            Room::updateOrCreate(
+            // Le seeder est lance a chaque demarrage Docker : ne jamais
+            // ecraser le prix, le type ou le modele d'une chambre existante.
+            Room::firstOrCreate(
                 ['room_number' => $roomData['room_number']],
                 [
                     'type' => $roomData['type'],

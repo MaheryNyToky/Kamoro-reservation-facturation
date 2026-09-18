@@ -31,4 +31,5 @@ hestiapredict/storage/logs/*
 backups/
 hestiapredict/database/.backup-temp/
 database.sqlite
+.kamoro-docker-revision
 ~$*.docx

@@ -456,6 +456,7 @@ class _PaymentSummaryPageState extends State<PaymentSummaryPage> {
         .map(
           (payment) => [
             payment.reference,
+            payment.paymentReference,
             payment.clientName,
             payment.prestations,
             payment.stayLabel,
@@ -471,6 +472,7 @@ class _PaymentSummaryPageState extends State<PaymentSummaryPage> {
     return pw.TableHelper.fromTextArray(
       headers: const [
         'Réservation',
+        'Réf. paiement',
         'Client',
         'Prestations',
         'Date séjour',
@@ -488,14 +490,15 @@ class _PaymentSummaryPageState extends State<PaymentSummaryPage> {
       cellPadding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 3),
       columnWidths: const {
         0: pw.FlexColumnWidth(1.0),
-        1: pw.FlexColumnWidth(1.4),
-        2: pw.FlexColumnWidth(1.1),
-        3: pw.FlexColumnWidth(1.15),
-        4: pw.FlexColumnWidth(1.15),
-        5: pw.FlexColumnWidth(1.25),
-        6: pw.FlexColumnWidth(0.9),
-        7: pw.FlexColumnWidth(0.95),
-        8: pw.FlexColumnWidth(1.0),
+        1: pw.FlexColumnWidth(1.0),
+        2: pw.FlexColumnWidth(1.35),
+        3: pw.FlexColumnWidth(1.05),
+        4: pw.FlexColumnWidth(1.1),
+        5: pw.FlexColumnWidth(1.1),
+        6: pw.FlexColumnWidth(1.2),
+        7: pw.FlexColumnWidth(0.85),
+        8: pw.FlexColumnWidth(0.95),
+        9: pw.FlexColumnWidth(0.95),
       },
     );
   }
@@ -856,6 +859,7 @@ class _PaymentSummaryPageState extends State<PaymentSummaryPage> {
           headingRowHeight: 42,
           columns: const [
             DataColumn(label: Text('Réservation')),
+            DataColumn(label: Text('Réf. paiement')),
             DataColumn(label: Text('Client')),
             DataColumn(label: Text('Prestations')),
             DataColumn(label: Text('Date séjour')),
@@ -869,6 +873,7 @@ class _PaymentSummaryPageState extends State<PaymentSummaryPage> {
             return DataRow(
               cells: [
                 DataCell(Text(payment.reference)),
+                DataCell(Text(payment.paymentReference)),
                 DataCell(Text(payment.clientName)),
                 DataCell(Text(payment.prestations)),
                 DataCell(Text(payment.stayLabel)),
@@ -1091,6 +1096,7 @@ class _SummaryReservation {
 class _SummaryPayment {
   _SummaryPayment({
     required this.reference,
+    required this.paymentReference,
     required this.clientName,
     required this.rooms,
     required this.prestations,
@@ -1108,6 +1114,7 @@ class _SummaryPayment {
   factory _SummaryPayment.fromJson(Map<String, dynamic> json) {
     return _SummaryPayment(
       reference: json['reference']?.toString() ?? 'N/A',
+      paymentReference: json['reference']?.toString() ?? 'N/A',
       clientName: 'Client',
       rooms: 'N/A',
       prestations: 'N/A',
@@ -1127,6 +1134,7 @@ class _SummaryPayment {
   }
 
   final String reference;
+  final String paymentReference;
   final String clientName;
   final String rooms;
   final String prestations;
@@ -1143,6 +1151,7 @@ class _SummaryPayment {
   _SummaryPayment copyWithReservation(_SummaryReservation reservation) {
     return _SummaryPayment(
       reference: reservation.reference,
+      paymentReference: paymentReference,
       clientName: reservation.clientName,
       rooms: reservation.rooms,
       prestations: reservation.prestations,

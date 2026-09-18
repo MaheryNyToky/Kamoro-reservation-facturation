@@ -9,6 +9,7 @@ $AiStdErrLog = Join-Path $LogDir "ai.err.log"
 $LogFile = Join-Path $LogDir "auto-start.log"
 $AppUrl = "http://127.0.0.1:8080/index.html"
 $DockerConfigDir = Join-Path $env:TEMP "Kamoro-Docker-Config"
+$ForceUpdate = $env:KAMORO_FORCE_UPDATE -eq "1"
 $LauncherMutex = $null
 $OwnsMutex = $false
 
@@ -167,6 +168,47 @@ function Stop-ExistingComposeStack {
     }
 }
 
+function Stop-LaravelService {
+    param([string]$DockerExe)
+
+    Write-Log "Arret cible du service Laravel avant sauvegarde/migration..."
+    $StopProcess = Start-Process -FilePath $DockerExe -ArgumentList @(
+        "compose", "stop", "laravel"
+    ) -WorkingDirectory $ProjectRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $StdOutLog -RedirectStandardError $StdErrLog
+
+    if (-not $StopProcess.WaitForExit(5 * 60 * 1000)) {
+        try { $StopProcess.Kill() } catch { }
+        throw "docker compose stop laravel n'a pas termine dans le delai imparti."
+    }
+
+    if ($StopProcess.ExitCode -ne 0) {
+        throw "docker compose stop laravel a echoue avec le code $($StopProcess.ExitCode)."
+    }
+}
+
+function Backup-Database {
+    $DatabasePath = Join-Path $ProjectRoot "hestiapredict\database\database.sqlite"
+    if (-not (Test-Path -LiteralPath $DatabasePath)) {
+        Write-Log "Aucune base SQLite a sauvegarder ($DatabasePath)."
+        return
+    }
+
+    $BackupDir = Join-Path $ProjectRoot "Sauvegardes"
+    New-Item -ItemType Directory -Force -Path $BackupDir | Out-Null
+    $BackupName = "database-{0}.sqlite" -f (Get-Date -Format "yyyyMMdd-HHmmss")
+    $BackupPath = Join-Path $BackupDir $BackupName
+    Copy-Item -LiteralPath $DatabasePath -Destination $BackupPath -Force
+
+    foreach ($Suffix in @("-wal", "-shm")) {
+        $Sidecar = "$DatabasePath$Suffix"
+        if (Test-Path -LiteralPath $Sidecar) {
+            Copy-Item -LiteralPath $Sidecar -Destination "$BackupPath$Suffix" -Force
+        }
+    }
+
+    Write-Log "Sauvegarde SQLite creee : $BackupPath"
+}
+
 function Stop-PortListeners {
     $Ports = @(8000, 8001, 8080)
     $ProcessIds = @()
@@ -235,11 +277,14 @@ function Test-AppPortOpen {
 }
 
 function Start-OptionalAiEngine {
-    param([string]$DockerExe)
+    param(
+        [string]$DockerExe,
+        [switch]$ForceBuild
+    )
 
     Write-Log "Demarrage optionnel du moteur IA en arriere-plan..."
     try {
-        $AiProcess = Start-Process -FilePath $DockerExe -ArgumentList @(
+        $AiArguments = @(
             "compose",
             "--progress",
             "plain",
@@ -247,9 +292,16 @@ function Start-OptionalAiEngine {
             "ai",
             "up",
             "-d",
-            "--build",
             "ai-engine"
-        ) -WorkingDirectory $ProjectRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $AiStdOutLog -RedirectStandardError $AiStdErrLog
+        )
+        if ($ForceBuild) {
+            $AiArguments = @(
+                "compose", "--progress", "plain", "--profile", "ai",
+                "up", "-d", "--build", "ai-engine"
+            )
+        }
+
+        $AiProcess = Start-Process -FilePath $DockerExe -ArgumentList $AiArguments -WorkingDirectory $ProjectRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $AiStdOutLog -RedirectStandardError $AiStdErrLog
 
         Write-Log "Moteur IA lance en arriere-plan (PID $($AiProcess.Id)). Les prix statiques restent disponibles s'il echoue."
     } catch {
@@ -278,35 +330,97 @@ try {
     $DockerExe = Get-DockerExecutable
     Wait-ForDocker
 
-    Stop-ExistingComposeStack -DockerExe $DockerExe
-    Stop-PortListeners
-
     try {
         $SourceRevision = (& git rev-parse --short HEAD 2>$null | Select-Object -First 1).Trim()
     } catch {
         $SourceRevision = ""
     }
 
-    if (-not $SourceRevision) {
-        $SourceRevision = (Get-Date).ToString("yyyyMMddHHmmss")
+    $RevisionMarker = Join-Path $ProjectRoot ".kamoro-docker-revision"
+    $BuildLaravel = $false
+    $BuildFrontend = $false
+    $BuildAi = $false
+    $LastBuiltRevision = ""
+    if (Test-Path -LiteralPath $RevisionMarker) {
+        $LastBuiltRevision = (Get-Content -LiteralPath $RevisionMarker -Raw).Trim()
     }
+
+    if (-not $SourceRevision) {
+        $SourceRevision = "unknown"
+        $BuildLaravel = $true
+        $BuildFrontend = $true
+        $BuildAi = $true
+        Write-Log "Revision Git introuvable : reconstruction forcee."
+    } else {
+        $ChangedFiles = @()
+        if ($LastBuiltRevision -eq "") {
+            $BuildLaravel = $true
+            $BuildFrontend = $true
+            $BuildAi = $true
+        } elseif ($LastBuiltRevision -ne $SourceRevision) {
+            $ChangedFiles += @(& git diff --name-only "$LastBuiltRevision..$SourceRevision" 2>$null)
+        }
+
+        $ChangedFiles += @(& git status --porcelain --untracked-files=no 2>$null |
+            ForEach-Object { if ($_.Length -gt 3) { $_.Substring(3) } })
+
+        foreach ($ChangedFile in $ChangedFiles) {
+            $Path = $ChangedFile.Trim().Replace('\', '/')
+            if ($Path -eq '.dockerignore' -or $Path -eq 'docker-compose.yml') {
+                $BuildLaravel = $true
+                $BuildFrontend = $true
+                $BuildAi = $true
+            } elseif ($Path -like 'hestiapredict/*' -or $Path -like 'docker/laravel/*') {
+                $BuildLaravel = $true
+            } elseif ($Path -like 'hestia_app/*' -or $Path -like 'docker/frontend/*') {
+                $BuildFrontend = $true
+            } elseif ($Path -like 'hestia-ai/*' -or $Path -like 'docker/ai/*') {
+                $BuildAi = $true
+            }
+        }
+
+        if ($ForceUpdate) {
+            $BuildLaravel = $true
+            $BuildFrontend = $true
+            $BuildAi = $true
+        }
+    }
+
+    $ForceUpdate = $BuildLaravel -or $BuildFrontend -or $BuildAi
 
     $env:KAMORO_SOURCE_REV = $SourceRevision
     Write-Log "Revision source utilisee pour le build Docker: $SourceRevision"
+    Write-Log "Rebuilds planifies : Laravel=$BuildLaravel Frontend=$BuildFrontend IA=$BuildAi"
 
+    if ($BuildLaravel) {
+        Write-Log "Mise a jour Laravel : arret cible avant sauvegarde et reconstruction."
+        Stop-LaravelService -DockerExe $DockerExe
+        Backup-Database
+    } else {
+        Write-Log "Mode demarrage rapide : reutilisation des conteneurs et images existants."
+    }
     Write-Log "Lancement de docker compose..."
-    $ComposeProcess = Start-Process -FilePath $DockerExe -ArgumentList @(
+    $ComposeServices = @()
+    if ($BuildLaravel) { $ComposeServices += "laravel" }
+    if ($BuildFrontend) { $ComposeServices += "frontend" }
+    if ($ComposeServices.Count -eq 0) {
+        $ComposeServices = @("laravel", "frontend")
+    }
+
+    $ComposeArguments = @(
         "compose",
         "--progress",
         "plain",
         "up",
         "-d",
-        "--build",
-        "--force-recreate",
-        "--remove-orphans",
-        "laravel",
-        "frontend"
-    ) -WorkingDirectory $ProjectRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $StdOutLog -RedirectStandardError $StdErrLog
+        "--remove-orphans"
+    )
+    if ($BuildLaravel -or $BuildFrontend) {
+        $ComposeArguments += "--build"
+    }
+    $ComposeArguments += $ComposeServices
+
+    $ComposeProcess = Start-Process -FilePath $DockerExe -ArgumentList $ComposeArguments -WorkingDirectory $ProjectRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $StdOutLog -RedirectStandardError $StdErrLog
 
     if (-not $ComposeProcess.WaitForExit(45 * 60 * 1000)) {
         try {
@@ -345,7 +459,10 @@ try {
         throw "Lancement automatique Kamoro echoue."
     }
 
-    Start-OptionalAiEngine -DockerExe $DockerExe
+    Set-Content -LiteralPath $RevisionMarker -Value $SourceRevision -NoNewline
+    Write-Log "Revision Docker active enregistree : $SourceRevision"
+
+    Start-OptionalAiEngine -DockerExe $DockerExe -ForceBuild:$BuildAi
     Write-Log "Kamoro est lance via Docker."
     Open-AppUrl -Url $AppUrl
 } catch {
