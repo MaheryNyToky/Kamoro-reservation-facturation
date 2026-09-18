@@ -684,13 +684,16 @@ class BookingService
         string $checkOut,
         ?int $excludeReservationId = null,
     ): array {
-        $start = Carbon::parse($checkIn)->startOfDay();
-        $end = Carbon::parse($checkOut)->startOfDay();
+        $startStr = substr($checkIn, 0, 10);
+        $endStr = substr($checkOut, 0, 10);
+        $startTs = strtotime($startStr);
+        $endTs = strtotime($endStr);
 
         $daily = [];
-        foreach (CarbonPeriod::create($start, $end->copy()->subDay()) as $date) {
-            $daily[$date->toDateString()] = [
-                'date' => $date->toDateString(),
+        for ($cur = $startTs; $cur < $endTs; $cur += 86400) {
+            $d = date('Y-m-d', $cur);
+            $daily[$d] = [
+                'date' => $d,
                 'beds_used' => 0,
                 'beds_remaining' => self::MAX_EXTRA_BEDS_PER_NIGHT,
                 'mattresses_used' => 0,
@@ -729,44 +732,45 @@ class BookingService
 
             if ($usesSegmentExtras) {
                 foreach ($reservation->rooms as $room) {
-                    $segmentStart = Carbon::parse($room->pivot->segment_start_date ?? $reservation->check_in_date)->startOfDay();
-                    $segmentEnd = Carbon::parse($room->pivot->segment_end_date ?? $reservation->check_out_date)->startOfDay();
-                    if ($segmentStart->lt($start)) {
-                        $segmentStart = $start->copy();
-                    }
-                    if ($segmentEnd->gt($end)) {
-                        $segmentEnd = $end->copy();
-                    }
+                    $segStart = substr((string) ($room->pivot->segment_start_date ?? $reservation->check_in_date), 0, 10);
+                    $segEnd = substr((string) ($room->pivot->segment_end_date ?? $reservation->check_out_date), 0, 10);
+                    $pStart = max($startStr, $segStart);
+                    $pEnd = min($endStr, $segEnd);
 
-                    foreach (CarbonPeriod::create($segmentStart, $segmentEnd->copy()->subDay()) as $date) {
-                        $key = $date->toDateString();
-                        if (!isset($daily[$key])) {
-                            continue;
+                    if ($pStart < $pEnd) {
+                        $pStartTs = strtotime($pStart);
+                        $pEndTs = strtotime($pEnd);
+                        $extraBeds = (int) ($room->pivot->segment_extra_beds ?? 0);
+                        $extraMatt = (int) ($room->pivot->segment_extra_mattresses ?? 0);
+
+                        for ($cur = $pStartTs; $cur < $pEndTs; $cur += 86400) {
+                            $key = date('Y-m-d', $cur);
+                            if (isset($daily[$key])) {
+                                $daily[$key]['beds_used'] += $extraBeds;
+                                $daily[$key]['mattresses_used'] += $extraMatt;
+                            }
                         }
-
-                        $daily[$key]['beds_used'] += (int) ($room->pivot->segment_extra_beds ?? 0);
-                        $daily[$key]['mattresses_used'] += (int) ($room->pivot->segment_extra_mattresses ?? 0);
                     }
                 }
             } else {
-                $reservationStart = Carbon::parse($reservation->check_in_date)->startOfDay();
-                if ($reservationStart->lt($start)) {
-                    $reservationStart = $start->copy();
-                }
+                $resStart = substr((string) $reservation->check_in_date, 0, 10);
+                $resEnd = substr((string) $reservation->check_out_date, 0, 10);
+                $pStart = max($startStr, $resStart);
+                $pEnd = min($endStr, $resEnd);
 
-                $reservationEnd = Carbon::parse($reservation->check_out_date)->startOfDay();
-                if ($reservationEnd->gt($end)) {
-                    $reservationEnd = $end->copy();
-                }
+                if ($pStart < $pEnd) {
+                    $pStartTs = strtotime($pStart);
+                    $pEndTs = strtotime($pEnd);
+                    $extraBeds = (int) ($reservation->extra_beds ?? 0);
+                    $extraMatt = (int) ($reservation->extra_mattresses ?? 0);
 
-                foreach (CarbonPeriod::create($reservationStart, $reservationEnd->copy()->subDay()) as $date) {
-                    $key = $date->toDateString();
-                    if (!isset($daily[$key])) {
-                        continue;
+                    for ($cur = $pStartTs; $cur < $pEndTs; $cur += 86400) {
+                        $key = date('Y-m-d', $cur);
+                        if (isset($daily[$key])) {
+                            $daily[$key]['beds_used'] += $extraBeds;
+                            $daily[$key]['mattresses_used'] += $extraMatt;
+                        }
                     }
-
-                    $daily[$key]['beds_used'] += (int) ($reservation->extra_beds ?? 0);
-                    $daily[$key]['mattresses_used'] += (int) ($reservation->extra_mattresses ?? 0);
                 }
             }
         }
@@ -1051,12 +1055,13 @@ class BookingService
                 'user',
                 'guest',
                 'organization',
-                'audits',
                 'invoice.items',
                 'invoice.payments',
+                'invoice.childInvoices.payments',
                 'latestAudit',
                 'latestCheckInAudit',
                 'latestModificationAudit',
+                'latestCancelAudit',
             ])
             ->when($date && $date !== 'all', function ($query) use ($date) {
                 $query->where('check_in_date', '<=', $date)
@@ -1089,34 +1094,39 @@ class BookingService
 
     public function activeReservations(string $date): Collection
     {
-        return Reservation::query()
+        $reservations = Reservation::query()
             ->with([
                 'rooms',
                 'user',
                 'guest',
                 'organization',
-                'audits',
                 'invoice.items',
                 'invoice.payments',
+                'invoice.childInvoices.payments',
                 'latestAudit',
                 'latestCheckInAudit',
                 'latestModificationAudit',
+                'latestCancelAudit',
             ])
             ->where('check_in_date', '<=', $date)
             ->where('check_out_date', '>=', $date)
-            ->get()
-            ->map(function (Reservation $reservation) {
-                $formatted = $this->formatReservation($reservation);
+            ->get();
 
-                return [
-                    ...$formatted,
-                    'contact' => $formatted['phone'] !== 'N/A' ? $formatted['phone'] : $formatted['email'],
-                    'visit_count' => $this->visitCountForReservation($reservation),
-                ];
-            });
+        $visitCounts = $this->precomputeVisitCountsForReservations($reservations);
+
+        return $reservations->map(function (Reservation $reservation) use ($visitCounts) {
+            $formatted = $this->formatReservation($reservation);
+            $sig = $this->reservationSignature($reservation);
+
+            return [
+                ...$formatted,
+                'contact' => $formatted['phone'] !== 'N/A' ? $formatted['phone'] : $formatted['email'],
+                'visit_count' => $visitCounts[$sig] ?? 0,
+            ];
+        });
     }
 
-    private function visitCountForReservation(Reservation $reservation): int
+    private function reservationSignature(Reservation $reservation): string
     {
         $signatureParts = [
             Str::lower(Str::ascii(trim((string) ($reservation->customer_phone ?: $reservation->client_phone ?: '')))),
@@ -1124,38 +1134,77 @@ class BookingService
             Str::lower(Str::ascii(trim((string) ($reservation->client_name ?: '')))),
         ];
 
-        $signature = implode('|', array_filter($signatureParts, fn ($part) => $part !== ''));
-        if ($signature === '') {
+        return implode('|', array_filter($signatureParts, fn ($part) => $part !== ''));
+    }
+
+    private function precomputeVisitCountsForReservations(Collection $reservations): array
+    {
+        $phones = $reservations->pluck('customer_phone')
+            ->merge($reservations->pluck('client_phone'))
+            ->filter(fn ($v) => !empty(trim((string) $v)))
+            ->unique()
+            ->values()
+            ->all();
+
+        $emails = $reservations->pluck('customer_email')
+            ->filter(fn ($v) => !empty(trim((string) $v)))
+            ->unique()
+            ->values()
+            ->all();
+
+        $names = $reservations->pluck('client_name')
+            ->filter(fn ($v) => !empty(trim((string) $v)))
+            ->unique()
+            ->values()
+            ->all();
+
+        if (empty($phones) && empty($emails) && empty($names)) {
+            return [];
+        }
+
+        $candidates = Reservation::query()
+            ->where('status', '!=', 'annule')
+            ->where(function ($q) use ($phones, $emails, $names) {
+                if (!empty($phones)) {
+                    $q->whereIn('customer_phone', $phones)->orWhereIn('client_phone', $phones);
+                }
+                if (!empty($emails)) {
+                    $q->orWhereIn('customer_email', $emails);
+                }
+                if (!empty($names)) {
+                    $q->orWhereIn('client_name', $names);
+                }
+            })
+            ->with(['invoice.payments', 'invoice.childInvoices.payments'])
+            ->get(['id', 'status', 'payment_status', 'customer_phone', 'client_phone', 'customer_email', 'client_name']);
+
+        $counts = [];
+        foreach ($candidates as $candidate) {
+            $invoice = $candidate->invoice;
+            $paymentStatus = (string) ($candidate->payment_status ?? '');
+            $invoiceStatus = (string) ($invoice?->status ?? '');
+            $balance = (int) ($invoice?->balance_amount_ariary ?? 0);
+
+            if ($paymentStatus === 'paid' || $invoiceStatus === 'paid' || $balance <= 0) {
+                $sig = $this->reservationSignature($candidate);
+                if ($sig !== '') {
+                    $counts[$sig] = ($counts[$sig] ?? 0) + 1;
+                }
+            }
+        }
+
+        return $counts;
+    }
+
+    private function visitCountForReservation(Reservation $reservation): int
+    {
+        $sig = $this->reservationSignature($reservation);
+        if ($sig === '') {
             return 0;
         }
 
-        $reservations = Reservation::query()
-            ->with(['invoice', 'invoice.payments'])
-            ->get()
-            ->filter(function (Reservation $candidate) {
-                $invoice = $candidate->invoice;
-                $paymentStatus = (string) ($candidate->payment_status ?? '');
-                $invoiceStatus = (string) ($invoice?->status ?? '');
-                $balance = (int) ($invoice?->balance_amount_ariary ?? 0);
-
-                return $candidate->status !== 'annule'
-                    && (
-                        $paymentStatus === 'paid'
-                        || $invoiceStatus === 'paid'
-                        || $balance <= 0
-                    );
-            });
-
-        return $reservations->filter(function (Reservation $candidate) use ($signature) {
-            $candidateParts = [
-                Str::lower(Str::ascii(trim((string) ($candidate->customer_phone ?: $candidate->client_phone ?: '')))),
-                Str::lower(Str::ascii(trim((string) ($candidate->customer_email ?: '')))),
-                Str::lower(Str::ascii(trim((string) ($candidate->client_name ?: '')))),
-            ];
-
-            $candidateSignature = implode('|', array_filter($candidateParts, fn ($part) => $part !== ''));
-            return $candidateSignature === $signature;
-        })->count();
+        $counts = $this->precomputeVisitCountsForReservations(collect([$reservation]));
+        return $counts[$sig] ?? 0;
     }
 
     public function formatReservation(Reservation $reservation): array
@@ -1274,12 +1323,13 @@ class BookingService
                     ->sortByDesc('created_at')
                     ->first()
                 : null);
-        $cancelAudit = $reservation->relationLoaded('audits')
-            ? $reservation->audits
-                ->where('action', 'cancelled')
-                ->sortByDesc('created_at')
-                ->first()
-            : null;
+        $cancelAudit = $reservation->latestCancelAudit
+            ?? ($reservation->relationLoaded('audits')
+                ? $reservation->audits
+                    ->where('action', 'cancelled')
+                    ->sortByDesc('created_at')
+                    ->first()
+                : null);
         $modificationAudit = $reservation->latestModificationAudit
             ?? ($reservation->relationLoaded('audits')
                 ? $reservation->audits

@@ -222,47 +222,37 @@ class _EditReservationPageState extends State<EditReservationPage> {
 
   Future<void> _refreshReservationSnapshot() async {
     try {
-      final response = await _apiClient.get('/api/reservations/all', {
-        'date': 'all',
-      }, const Duration(seconds: 6));
+      final response = await _apiClient.get(
+        '/api/reservations/${_reservation.id}',
+        null,
+        const Duration(seconds: 4),
+      );
 
-      if (response.statusCode != 200) {
-        await _fetchRooms();
-        return;
+      if (response.statusCode == 200) {
+        final decoded = json.decode(response.body);
+        if (decoded is Map) {
+          final fresh = Map<String, dynamic>.from(decoded);
+          if (!mounted) return;
+          setState(() {
+            _reservation = Reservation.fromJson(fresh);
+            _nameController.text = _reservation.clientName;
+            _phoneController.text = _reservation.phone;
+            _emailController.text = _reservation.email;
+            _checkIn = _reservation.checkIn;
+            _checkOut = _reservation.checkOut;
+            _extraBeds = _reservation.extraBeds;
+            _extraMattresses = _reservation.extraMattresses;
+            _selectedRooms
+              ..clear()
+              ..addAll(_initialRoomsFromMap(fresh));
+            _seedInitialRoomIds();
+            _syncSegmentDraftsFromRooms(_selectedRooms);
+          });
+          return;
+        }
       }
-
-      final decoded = json.decode(response.body);
-      if (decoded is! List) {
-        await _fetchRooms();
-        return;
-      }
-
-      final fresh = decoded
-          .whereType<Map>()
-          .map((item) => Map<String, dynamic>.from(item))
-          .firstWhere(
-            (item) => _asInt(item['id']) == _reservation.id,
-            orElse: () => widget.reservation,
-          );
-
-      if (!mounted) return;
-      setState(() {
-        _reservation = Reservation.fromJson(fresh);
-        _nameController.text = _reservation.clientName;
-        _phoneController.text = _reservation.phone;
-        _emailController.text = _reservation.email;
-        _checkIn = _reservation.checkIn;
-        _checkOut = _reservation.checkOut;
-        _extraBeds = _reservation.extraBeds;
-        _extraMattresses = _reservation.extraMattresses;
-        _selectedRooms
-          ..clear()
-          ..addAll(_initialRoomsFromMap(fresh));
-        _seedInitialRoomIds();
-        _syncSegmentDraftsFromRooms(_selectedRooms);
-      });
     } catch (_) {
-      // On garde les données locales si la requête fraîche échoue.
+      // On garde les données locales si la requête spécifique échoue.
     } finally {
       _fetchRooms();
     }

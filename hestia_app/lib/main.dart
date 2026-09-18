@@ -477,11 +477,15 @@ class _StaffDashboardState extends State<StaffDashboard> {
   DateTime _selectedDate = DateTime.now();
   int _pendingGuestsCount = 0;
   int _arrivedGuestsCount = 0;
+  bool _isAiPredictionsLoading = false;
+  bool _isAvailabilityFetching = false;
+  DateTime? _lastAiFetchTime;
 
   @override
   void initState() {
     super.initState();
     _fetchLiveAvailability();
+    _fetchAiPredictions();
     _timer = Timer.periodic(
       const Duration(seconds: 10),
       (_) => _fetchLiveAvailability(isSilent: true),
@@ -501,70 +505,101 @@ class _StaffDashboardState extends State<StaffDashboard> {
     super.dispose();
   }
 
-  Future<void> _fetchLiveAvailability({bool isSilent = false}) async {
-    if (!isSilent && mounted) setState(() => _isLoading = true);
-    if (mounted) {
-      setState(() => _errorMessage = '');
+  Future<void> _fetchAiPredictions({bool force = false}) async {
+    if (_isAiPredictionsLoading) return;
+    final now = DateTime.now();
+    if (!force && _lastAiFetchTime != null && now.difference(_lastAiFetchTime!).inMinutes < 5) {
+      return;
     }
-    String dateStr = _selectedDate.toIso8601String().substring(0, 10);
-
+    _isAiPredictionsLoading = true;
     try {
-      final availResp = await http
-          .get(Uri.parse('$baseUrl/api/live-availability?date=$dateStr'))
+      final aiResp = await http
+          .get(Uri.parse('$baseUrl/api/dashboard/predictions?days=30'))
           .timeout(const Duration(seconds: 5));
       if (!mounted) return;
-      if (availResp.statusCode == 200) {
-        setState(() {
-          _categories = json.decode(availResp.body);
-          if (!isSilent) _isLoading = false;
-        });
-      } else {
-        _useFallbackData('Erreur serveur: ${availResp.statusCode}');
-        if (!isSilent && mounted) setState(() => _isLoading = false);
+      if (aiResp.statusCode == 200) {
+        final aiData = json.decode(aiResp.body);
+        if (aiData['status'] == 'success') {
+          setState(() {
+            _aiPredictions = aiData['results'] ?? {};
+            _lastAiFetchTime = DateTime.now();
+          });
+        }
       }
     } catch (e) {
-      debugPrint("$e");
-      if (!mounted) return;
-      _useFallbackData('Mode Hors-ligne : Serveur injoignable.');
-      if (!isSilent && mounted) setState(() => _isLoading = false);
+      debugPrint("Predictions fetch error: $e");
+    } finally {
+      _isAiPredictionsLoading = false;
+    }
+  }
+
+  Future<void> _fetchLiveAvailability({bool isSilent = false}) async {
+    if (_isAvailabilityFetching) return;
+    _isAvailabilityFetching = true;
+
+    if (!isSilent && mounted) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = '';
+      });
     }
 
-    http
-        .get(
-          Uri.parse(
-            '$baseUrl/api/dashboard/reservation-status-summary?date=$dateStr',
-          ),
-        )
-        .then((summaryResp) {
-          if (!mounted || summaryResp.statusCode != 200) return;
-          final summary = json.decode(summaryResp.body);
-          setState(() {
-            _pendingGuestsCount = summary['pending'] is num
-                ? summary['pending'].toInt()
-                : 0;
-            _arrivedGuestsCount = summary['arrived'] is num
-                ? summary['arrived'].toInt()
-                : 0;
-          });
-        })
-        .catchError((e) {
-          debugPrint("Reservation status summary fetch error: $e");
-        });
+    final String dateStr = _selectedDate.toIso8601String().substring(0, 10);
 
-    http
-        .get(Uri.parse('$baseUrl/api/dashboard/predictions?days=30'))
-        .then((aiResp) {
-          if (!mounted || aiResp.statusCode != 200) return;
-          final aiData = json.decode(aiResp.body);
-          if (aiData['status'] == 'success') {
-            setState(() {
-              _aiPredictions = aiData['results'] ?? {};
-            });
-          }
-        })
-        .catchError((e) {
-          debugPrint("Predictions fetch error: $e");
+    try {
+      final results = await Future.wait([
+        http
+            .get(Uri.parse('$baseUrl/api/live-availability?date=$dateStr'))
+            .timeout(const Duration(seconds: 5)),
+        http
+            .get(
+              Uri.parse(
+                '$baseUrl/api/dashboard/reservation-status-summary?date=$dateStr',
+              ),
+            )
+            .timeout(const Duration(seconds: 5)),
+      ]);
+
+      if (!mounted) return;
+
+      final availResp = results[0];
+      final summaryResp = results[1];
+
+      List<dynamic> nextCategories = _categories;
+      String nextErrorMessage = '';
+      int nextPending = _pendingGuestsCount;
+      int nextArrived = _arrivedGuestsCount;
+
+      if (availResp.statusCode == 200) {
+        nextCategories = json.decode(availResp.body);
+      } else {
+        nextErrorMessage = 'Erreur serveur: ${availResp.statusCode}';
+      }
+
+      if (summaryResp.statusCode == 200) {
+        final summary = json.decode(summaryResp.body);
+        nextPending = summary['pending'] is num ? summary['pending'].toInt() : 0;
+        nextArrived = summary['arrived'] is num ? summary['arrived'].toInt() : 0;
+      }
+
+      if (mounted) {
+        setState(() {
+          _categories = nextCategories;
+          _errorMessage = nextErrorMessage;
+          _pendingGuestsCount = nextPending;
+          _arrivedGuestsCount = nextArrived;
+          if (!isSilent) _isLoading = false;
         });
+      }
+    } catch (e) {
+      debugPrint("Live availability fetch error: $e");
+      if (mounted) {
+        _useFallbackData('Mode Hors-ligne : Serveur injoignable.');
+        if (!isSilent) setState(() => _isLoading = false);
+      }
+    } finally {
+      _isAvailabilityFetching = false;
+    }
   }
 
   void _useFallbackData(String message) {
@@ -643,9 +678,13 @@ class _StaffDashboardState extends State<StaffDashboard> {
         if (d != null) {
           setState(() => _selectedDate = d);
           _fetchLiveAvailability();
+          _fetchAiPredictions(force: true);
         }
       },
-      onRetry: () => _fetchLiveAvailability(),
+      onRetry: () {
+        _fetchLiveAvailability();
+        _fetchAiPredictions(force: true);
+      },
     );
 
     return Scaffold(

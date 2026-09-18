@@ -15,6 +15,7 @@ class SegmentedReservationFlowTest extends TestCase
 
     public function test_segmented_reservation_can_be_created_checked_in_billed_and_updated_for_remaining_nights(): void
     {
+        \Carbon\Carbon::setTestNow('2026-08-01');
         $user = $this->createReceptionUser();
         $room1 = $this->createRoom('801', 110000);
         $room2 = $this->createRoom('802', 110000);

@@ -126,6 +126,13 @@ class Reservation extends Model
             ->latestOfMany();
     }
 
+    public function latestCancelAudit(): HasOne
+    {
+        return $this->hasOne(ReservationAudit::class)
+            ->where('action', 'cancelled')
+            ->latestOfMany();
+    }
+
     public function setClientPhoneAttribute(?string $value): void
     {
         $this->attributes['client_phone'] = PhoneNumber::normalize($value);

@@ -110,10 +110,15 @@ class Invoice extends Model
             : (int) $this->payments()->sum('amount_ariary');
 
         if (($this->invoice_kind ?? 'master') === 'master') {
-            $paid += (int) $this->childInvoices()
-                ->with('payments')
-                ->get()
-                ->sum(fn (self $childInvoice) => (int) $childInvoice->payments->sum('amount_ariary'));
+            $children = $this->relationLoaded('childInvoices')
+                ? $this->childInvoices
+                : $this->childInvoices()->with('payments')->get();
+
+            $paid += (int) $children->sum(function (self $childInvoice) {
+                return $childInvoice->relationLoaded('payments')
+                    ? (int) $childInvoice->payments->sum('amount_ariary')
+                    : (int) $childInvoice->payments()->sum('amount_ariary');
+            });
         }
 
         return $paid;

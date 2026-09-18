@@ -20,6 +20,7 @@ Route::middleware('throttle:120,1')->group(function () {
     Route::get('/available-rooms', [HotelManagementController::class, 'getAvailableRoomsForDates']);
     Route::get('/available-room-suggestions', [HotelManagementController::class, 'getAvailableRoomSuggestions']);
     Route::get('/reservations/all', [HotelManagementController::class, 'getAllReservations']);
+    Route::get('/reservations/{id}', [HotelManagementController::class, 'getReservationById'])->whereNumber('id');
     Route::get('/active-reservations', [HotelManagementController::class, 'getActiveReservations']);
     Route::get('/organization-dossiers', [HotelManagementController::class, 'organizationDossiers']);
     Route::get('/organization-dossiers/{organization}', [HotelManagementController::class, 'organizationDossier']);

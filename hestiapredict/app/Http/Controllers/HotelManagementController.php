@@ -343,6 +343,27 @@ class HotelManagementController extends Controller
         return response()->json($payload);
     }
 
+    public function getReservationById(int $id): JsonResponse
+    {
+        $reservation = Reservation::query()
+            ->with([
+                'rooms',
+                'user',
+                'guest',
+                'organization',
+                'invoice.items',
+                'invoice.payments',
+                'invoice.childInvoices.payments',
+                'latestAudit',
+                'latestCheckInAudit',
+                'latestModificationAudit',
+                'latestCancelAudit',
+            ])
+            ->findOrFail($id);
+
+        return response()->json($this->bookingService->formatReservation($reservation));
+    }
+
     public function getActiveReservations(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -622,36 +643,50 @@ class HotelManagementController extends Controller
                     'user',
                     'guest',
                     'organization',
+                    'invoice.items',
                     'invoice.payments',
+                    'invoice.childInvoices.payments',
                     'latestAudit',
                     'latestCheckInAudit',
                     'latestModificationAudit',
+                    'latestCancelAudit',
                 ]);
 
             if ($mode !== 'all' && $term !== '') {
-                $query->where(function ($query) use ($normalizedTerm) {
-                    $like = '%' . $normalizedTerm . '%';
+                $like = '%' . $normalizedTerm . '%';
 
+                $matchingGuestResIds = \App\Models\Guest::query()
+                    ->whereRaw('LOWER(full_name) LIKE ?', [$like])
+                    ->orWhereRaw('LOWER(first_name) LIKE ?', [$like])
+                    ->orWhereRaw('LOWER(last_name) LIKE ?', [$like])
+                    ->orWhereRaw('LOWER(phone_number) LIKE ?', [$like])
+                    ->orWhereRaw('LOWER(id_number) LIKE ?', [$like])
+                    ->orWhereRaw('LOWER(id_document_number) LIKE ?', [$like])
+                    ->pluck('reservation_id')
+                    ->filter()
+                    ->all();
+
+                $matchingOrgIds = \App\Models\Organization::query()
+                    ->whereRaw('LOWER(name) LIKE ?', [$like])
+                    ->orWhereRaw('LOWER(contact_name) LIKE ?', [$like])
+                    ->orWhereRaw('LOWER(contact_email) LIKE ?', [$like])
+                    ->orWhereRaw('LOWER(email) LIKE ?', [$like])
+                    ->pluck('id')
+                    ->all();
+
+                $query->where(function ($query) use ($like, $matchingGuestResIds, $matchingOrgIds) {
                     $query->whereRaw('LOWER(client_name) LIKE ?', [$like])
                         ->orWhereRaw('LOWER(client_phone) LIKE ?', [$like])
                         ->orWhereRaw('LOWER(customer_phone) LIKE ?', [$like])
-                        ->orWhereRaw('LOWER(booking_reference) LIKE ?', [$like])
-                        ->orWhereHas('guest', function ($guestQuery) use ($like) {
-                            $guestQuery
-                                ->whereRaw('LOWER(full_name) LIKE ?', [$like])
-                                ->orWhereRaw('LOWER(first_name) LIKE ?', [$like])
-                                ->orWhereRaw('LOWER(last_name) LIKE ?', [$like])
-                                ->orWhereRaw('LOWER(phone_number) LIKE ?', [$like])
-                                ->orWhereRaw('LOWER(id_number) LIKE ?', [$like])
-                                ->orWhereRaw('LOWER(id_document_number) LIKE ?', [$like]);
-                        })
-                        ->orWhereHas('organization', function ($organizationQuery) use ($like) {
-                            $organizationQuery
-                                ->whereRaw('LOWER(name) LIKE ?', [$like])
-                                ->orWhereRaw('LOWER(contact_name) LIKE ?', [$like])
-                                ->orWhereRaw('LOWER(contact_email) LIKE ?', [$like])
-                                ->orWhereRaw('LOWER(email) LIKE ?', [$like]);
-                        });
+                        ->orWhereRaw('LOWER(booking_reference) LIKE ?', [$like]);
+
+                    if (!empty($matchingGuestResIds)) {
+                        $query->orWhereIn('id', $matchingGuestResIds);
+                    }
+
+                    if (!empty($matchingOrgIds)) {
+                        $query->orWhereIn('organization_id', $matchingOrgIds);
+                    }
                 });
             }
 
@@ -1066,7 +1101,14 @@ class HotelManagementController extends Controller
         $days = (int) ($validated['days'] ?? 30);
         $startDate = $validated['start_date'] ?? now()->toDateString();
 
-        return response()->json($this->yieldService->predictions($days, $startDate));
+        $cacheVersion = $this->availabilityService->getCacheVersion();
+        $payload = Cache::remember(
+            "dashboard:predictions:$cacheVersion:$startDate:$days",
+            now()->addMinutes(5),
+            fn () => $this->yieldService->predictions($days, $startDate)
+        );
+
+        return response()->json($payload);
     }
 
     public function auditDate(Request $request): JsonResponse

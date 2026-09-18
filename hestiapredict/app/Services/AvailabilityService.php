@@ -315,15 +315,23 @@ class AvailabilityService
             ->where('check_out_date', '>', $start->toDateString())
             ->get()
             ->each(function (Reservation $reservation) use ($start, $end, &$index, &$global) {
-                $periodStart = Carbon::parse($reservation->check_in_date)->max($start);
-                $periodEnd = Carbon::parse($reservation->check_out_date)->min($end);
+                $sDate = substr((string) $reservation->check_in_date, 0, 10);
+                $eDate = substr((string) $reservation->check_out_date, 0, 10);
+                $startStr = $start->toDateString();
+                $endStr = $end->toDateString();
 
-                if ($periodStart->gte($periodEnd)) {
+                $periodStart = $sDate > $startStr ? $sDate : $startStr;
+                $periodEnd = $eDate < $endStr ? $eDate : $endStr;
+
+                if ($periodStart >= $periodEnd) {
                     return;
                 }
 
-                foreach (CarbonPeriod::create($periodStart, $periodEnd->copy()->subDay()) as $date) {
-                    $dateKey = $date->toDateString();
+                $sTs = strtotime($periodStart);
+                $eTs = strtotime($periodEnd);
+
+                for ($cur = $sTs; $cur < $eTs; $cur += 86400) {
+                    $dateKey = date('Y-m-d', $cur);
 
                     foreach ($reservation->rooms as $room) {
                         $identifier = $room->identifier;

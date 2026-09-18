@@ -87,26 +87,31 @@ class YieldService
     {
         $predictions = $this->predictions($days, $startDate);
         $priceIndex = $this->aiPriceIndex($predictions['results'] ?? []);
-        $rows = [];
+        $endDate = date('Y-m-d', strtotime("$startDate +$days days"));
 
+        $reservations = Reservation::query()
+            ->where('check_in_date', '<', $endDate)
+            ->where('check_out_date', '>', $startDate)
+            ->whereIn('status', Reservation::ACTIVE_STATUSES)
+            ->with('rooms')
+            ->get();
+
+        $rows = [];
         for ($i = 0; $i < $days; $i++) {
             $date = date('Y-m-d', strtotime("$startDate +$i days"));
-            $reservations = Reservation::query()
-                ->where('check_in_date', '<=', $date)
-                ->where('check_out_date', '>', $date)
-                ->whereIn('status', Reservation::ACTIVE_STATUSES)
-                ->with('rooms')
-                ->get();
-
             $fixedRevenue = 0;
             $aiRevenue = 0;
             $roomCount = 0;
 
             foreach ($reservations as $reservation) {
-                foreach ($reservation->rooms as $room) {
-                    $roomCount++;
-                    $fixedRevenue += (int) $room->base_price_ariary;
-                    $aiRevenue += (int) ($priceIndex[$date][$room->identifier] ?? $room->base_price_ariary);
+                $cIn = substr((string) $reservation->check_in_date, 0, 10);
+                $cOut = substr((string) $reservation->check_out_date, 0, 10);
+                if ($cIn <= $date && $cOut > $date) {
+                    foreach ($reservation->rooms as $room) {
+                        $roomCount++;
+                        $fixedRevenue += (int) $room->base_price_ariary;
+                        $aiRevenue += (int) ($priceIndex[$date][$room->identifier] ?? $room->base_price_ariary);
+                    }
                 }
             }
 
@@ -135,7 +140,7 @@ class YieldService
 
     private function historyData(): array
     {
-        return DB::table('booking_room')
+        $bookingRooms = DB::table('booking_room')
             ->join('reservations', 'reservations.id', '=', 'booking_room.reservation_id')
             ->join('rooms', 'rooms.id', '=', 'booking_room.room_id')
             ->whereIn('reservations.status', Reservation::ACTIVE_STATUSES)
@@ -147,35 +152,39 @@ class YieldService
                 DB::raw('COALESCE(booking_room.segment_start_date, reservations.check_in_date) as segment_start_date'),
                 DB::raw('COALESCE(booking_room.segment_end_date, reservations.check_out_date) as segment_end_date'),
             ])
-            ->get()
-            ->flatMap(function ($bookingRoom) {
-                $rows = [];
-                $start = Carbon::parse($bookingRoom->segment_start_date)->startOfDay();
-                $end = Carbon::parse($bookingRoom->segment_end_date)->startOfDay();
-                $roomType = trim(($bookingRoom->room_type ?? '') . ' - ' . ($bookingRoom->room_model ?? ''));
+            ->get();
 
-                foreach (CarbonPeriod::create($start, $end->copy()->subDay()) as $date) {
-                    $rows[] = [
-                        'date' => $date->toDateString(),
+        $grouped = [];
+        foreach ($bookingRooms as $bookingRoom) {
+            $sTs = strtotime(substr((string) $bookingRoom->segment_start_date, 0, 10));
+            $eTs = strtotime(substr((string) $bookingRoom->segment_end_date, 0, 10));
+            $roomType = trim(($bookingRoom->room_type ?? '') . ' - ' . ($bookingRoom->room_model ?? ''));
+            $roomId = (int) $bookingRoom->room_id;
+
+            for ($cur = $sTs; $cur < $eTs; $cur += 86400) {
+                $date = date('Y-m-d', $cur);
+                $key = $date . '|' . $roomType;
+                if (!isset($grouped[$key])) {
+                    $grouped[$key] = [
+                        'date' => $date,
                         'room_type' => $roomType,
-                        'room_id' => (int) $bookingRoom->room_id,
+                        'room_ids' => [],
                     ];
                 }
+                $grouped[$key]['room_ids'][$roomId] = true;
+            }
+        }
 
-                return $rows;
-            })
-            ->groupBy(fn (array $item) => $item['date'] . '|' . $item['room_type'])
-            ->map(function (Collection $items) {
-                $first = $items->first();
+        $rows = [];
+        foreach ($grouped as $item) {
+            $rows[] = [
+                'date' => $item['date'],
+                'room_type' => $item['room_type'],
+                'rooms_booked' => count($item['room_ids']),
+            ];
+        }
 
-                return [
-                    'date' => $first['date'],
-                    'room_type' => $first['room_type'],
-                    'rooms_booked' => $items->pluck('room_id')->unique()->count(),
-                ];
-            })
-            ->values()
-            ->all();
+        return $rows;
     }
 
     private function roomsInfo(): Collection
