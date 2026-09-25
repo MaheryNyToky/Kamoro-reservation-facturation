@@ -172,6 +172,12 @@ function Stop-LaravelService {
     param([string]$DockerExe)
 
     Write-Log "Arret cible du service Laravel avant sauvegarde/migration..."
+    $ExistingServices = @(& $DockerExe compose ps --services --status running 2>$null)
+    if ($LASTEXITCODE -ne 0 -or $ExistingServices -notcontains "laravel") {
+        Write-Log "Aucun service Laravel deja demarre. Arret prealable ignore."
+        return
+    }
+
     $StopProcess = Start-Process -FilePath $DockerExe -ArgumentList @(
         "compose", "stop", "laravel"
     ) -WorkingDirectory $ProjectRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $StdOutLog -RedirectStandardError $StdErrLog
