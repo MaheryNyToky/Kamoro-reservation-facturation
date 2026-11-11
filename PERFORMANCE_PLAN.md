@@ -1,125 +1,136 @@
 # Audit de performance — Kamoro
 
-Date de l’audit : 2026-09-19  
-Périmètre : application Flutter (web/native), API Laravel, SQLite, moteur IA HTTP et livraison Docker/Nginx.
+Date : 2026-09-28
+Périmètre : client Flutter Web, API Laravel, SQLite, moteur IA FastAPI et livraison Nginx/Docker.
+Nature : audit initial du code et des artefacts locaux, puis optimisations et mesures sur l’environnement local. Aucune mesure de production n’a été faite.
 
-## Synthèse
+## Optimisations implémentées — 2026-09-28
 
-Les risques les plus importants ne sont pas les widgets Flutter isolés ni l’image du logo. Ils se trouvent dans le chemin dashboard → API : une même actualisation déclenche trois requêtes, dont un calcul IA coûteux, puis cette séquence est répétée toutes les 10 secondes. Côté API, plusieurs endpoints chargent des collections complètes et des relations lourdes ; `activeReservations()` contient en plus un N+1 de type O(nombre de réservations actives × nombre total de réservations).
+- Pagination API optionnelle (`per_page`, `page`) avec taille plafonnée à 100. La liste de réception charge 50 lignes à la fois et demande les suivantes au scroll. Le format tableau historique demeure disponible aux autres clients.
+- Recherche et type de réservation filtrés côté API pour que les résultats restent complets malgré la pagination. La recherche Flutter est temporisée de 350 ms ; l’écran ne refiltre et ne retrie plus la collection entière à chaque build.
+- Le récapitulatif des paiements demande seulement les séjours dont la date de départ est dans la période choisie ; le changement de période relance le chargement et utilise un cache local indexé par période.
+- L’index d’occupation lit les lignes chambre-réservation directement, tient compte des dates de segment et met en cache son résultat par version/date/période. L’historique destiné au moteur IA est également conservé en cache par version cinq minutes.
+- Le résumé IA accumule les revenus pendant le parcours des nuits effectivement occupées, au lieu de parcourir toutes les réservations pour chaque jour demandé.
 
-Le dépôt ne contient pas de base SQLite de production exploitable pour un benchmark, et aucun serveur applicatif n’était lancé pendant l’audit. Les niveaux « confirmé statiquement » ci-dessous sont donc fondés sur le code et les artefacts présents ; les latences, volumes réels et plans SQLite doivent être confirmés avec instrumentation sur un jeu de données représentatif.
+### Mesures locales après changement
 
-## Priorités
+Mesures HTTP sur la base locale de développement, qui contient 1 620 réservations et 2 608 liens chambre-réservation. Elles ne remplacent pas des mesures en production. Le point de comparaison « complet » conserve le contrat non paginé et est mesuré dans le même serveur/build ; il donne une comparaison de volume exploitable, mais aucun chronométrage avant modification n’avait été capturé.
 
-| Priorité | Problème | Impact attendu | Confiance |
-|---|---|---:|---|
-| P0 | Le dashboard appelle `/predictions` à chaque rafraîchissement de 10 s | CPU/DB/réseau/IA, concurrence et latence utilisateur | Élevée |
-| P0 | `activeReservations()` recalculera tout l’historique pour chaque ligne | Explosion du nombre de requêtes et du temps serveur | Élevée |
-| P0 | Les endpoints de réservations renvoient une collection non paginée avec relations lourdes | Temps de réponse, mémoire PHP, taille JSON et parsing Flutter | Élevée |
-| P1 | `aiRevenueSummary()` exécute une requête de réservations par jour | Jusqu’à N requêtes pour N jours, en plus du calcul prédictions | Élevée |
-| P1 | Le rafraîchissement du dashboard provoque plusieurs `setState` et appels concurrents | Rebuilds inutiles, réponses hors ordre, pression réseau | Élevée |
-| P1 | Les filtres de recherche utilisent `LOWER(...) LIKE '%term%'` et `COALESCE(...)` | Index peu ou pas exploitables quand les tables grossissent | Élevée |
-| P1 | Assets web désactivés du cache et build Flutter monolithique | Chargement initial et rechargements très coûteux | Élevée |
-| P2 | Calculs synchrones en mémoire sur périodes, réservations et JSON | Pics CPU et jank sur longues périodes/volumes | Moyenne à élevée |
-| P2 | Cache file/database et invalidation par version non mesurés | Hits moins rapides, accumulation possible de clés obsolètes | Moyenne |
-| P3 | Logo non optimisé et dépendances PDF/printing chargées dans le bundle | Gain limité face à CanvasKit et `main.dart.js` | Élevée |
+| Requête | Temps mesuré | Corps reçu | Résultat |
+|---|---:|---:|---|
+| Historique complet, appel chaud | 27 ms | 3 890 296 octets | 1 620 réservations |
+| Page de 50, appel chaud | 10 ms | 129 019 octets | 50 réservations, total paginé |
+| Récapitulatif, départs du 1 au 30 juin 2026 | 44 ms | 147 441 octets | 40 réservations |
+| Prédictions 30 jours, appel froid | 30 ms | 54 445 octets | HTTP 200, mode fallback, moteur IA indisponible |
+| Prédictions 30 jours, appel chaud | 9 ms | 54 445 octets | Cache Laravel |
 
-## Constats détaillés et preuves
+La page de 50 lignes réduit le payload de 96,7 % par rapport à l’historique complet ; le filtre mensuel du récapitulatif le réduit de 96,2 %. Les appels froids et chauds sont indiqués séparément, et l’environnement local n’avait pas le moteur IA disponible : la latence réseau réelle de prédiction reste à mesurer.
 
-### P0 — prédictions IA déclenchées par le polling
+### Vérification
 
-`StaffDashboard.initState()` appelle `_fetchLiveAvailability()` puis programme un `Timer.periodic` de 10 secondes (`hestia_app/lib/main.dart:481-488`). Chaque exécution appelle :
+- `ReservationListingOptimizationTest`, `YieldServiceTest`, `BookingConflictTest`, `SegmentedReservationFlowTest` : 20 tests passés, 96 assertions.
+- `payment_summary_filter_test.dart` : 4 tests passés.
+- Analyse Dart des deux écrans modifiés : aucune anomalie.
+- Syntaxe PHP vérifiée pour le contrôleur et les trois services modifiés.
 
-1. `/api/live-availability` ;
-2. `/api/dashboard/reservation-status-summary` ;
-3. `/api/dashboard/predictions?days=30` (`main.dart:504-567`).
+## Synthèse et priorités
 
-Le troisième appel ne dépend pas du changement d’occupation immédiat et n’est pas annulé ou dédoublonné. Il exécute `YieldService::predictions()` : lecture de tout l’historique `booking_room`, construction d’un index d’occupation sur 30 jours, puis appel HTTP au moteur IA avec timeout de 3 secondes (`hestiapredict/app/Services/YieldService.php:20-54`). En cas d’échec, le fallback reconstruit encore les résultats en mémoire.
+Les problèmes les mieux étayés touchent les gros volumes transférés et travaillés dans une requête interactive, ainsi que le calcul des prédictions. Le dépôt n’apporte pas de mesures de latence ou de volumétrie représentatives : l’impact est donc classé selon le coût structurel observé et doit être confirmé par instrumentation.
 
-Effet probable : six requêtes dashboard par minute et six appels IA par minute et par session, auxquels s’ajoutent des lectures SQLite et des allocations JSON. Plusieurs exécutions peuvent se chevaucher si une requête dépasse 10 secondes. C’est le bottleneck prioritaire.
+| Rang | Constat actuel | Impact potentiel | Confiance |
+|---|---|---|---|
+| P0 | `/api/reservations/all?date=all` charge et sérialise toute la collection avec relations associées | DB, mémoire PHP, payload, décodage et cache local Flutter croissent avec l’historique | Élevée |
+| P0 | Une prédiction reconstruit l’historique jour par jour puis effectue un appel HTTP IA synchrone | Latence de l’endpoint, CPU/mémoire PHP, attente réseau et risque de timeout | Élevée sur le chemin, inconnue sur fréquence réelle |
+| P1 | L’index d’occupation et les revenus IA matérialisent les réservations en PHP et bouclent sur nuits × chambres | CPU et mémoire croissants avec les séjours et la période | Élevée |
+| P1 | L’écran de réservations trie et filtre la liste complète à chaque build | CPU UI et allocations proportionnels au nombre de réservations | Élevée pour le travail effectué, impact perceptible à mesurer |
+| P1 | Filtrage par recherche dans l’écran principal limité au nom client, après téléchargement des réservations | Mauvaise pertinence fonctionnelle et transfert/traitement superflu | Élevée |
+| P1 | Build web livré : `main.dart.js` 4,0 Mo et répertoire total 42 Mo, dont CanvasKit 37 Mo | Démarrage à froid et transfert selon moteur/chemin sélectionné | Élevée sur tailles, inconnue sur bytes réellement téléchargés |
+| P2 | Recherches SQL avec `LOWER(...) LIKE '%...%'` et dates calculées via `COALESCE(...)` | Scans possibles et index B-tree peu efficaces | Moyenne à élevée, plan SQLite non mesuré |
+| P2 | Cache disque Laravel et cache d’écran SharedPreferences, sans hit rate ni coût de sérialisation mesurés | Travail évité contre I/O disque, JSON et stockage local | Moyenne |
+| P3 | Logo applicatif PNG de 184 Ko | Gain de chargement limité au regard du bundle/runtime | Élevée sur taille, faible impact relatif |
 
-### P0 — N+1 dans les réservations actives
+## Constats et preuves
 
-`BookingService::activeReservations()` charge les réservations actives puis appelle `visitCountForReservation()` pour chaque résultat (`hestiapredict/app/Services/BookingService.php:1090-1117`). Cette méthode exécute à chaque fois :
+### P0 — Liste complète de réservations
 
-```php
-Reservation::query()->with(['invoice', 'invoice.payments'])->get()
-```
+`HotelManagementController::getAllReservations()` (`hestiapredict/app/Http/Controllers/HotelManagementController.php`) appelle `reservationsForDate()`. Pour `date=all`, `BookingService::reservationsForDate()` ne pose aucune borne de date et termine par `get()` (`hestiapredict/app/Services/BookingService.php`). Il précharge chambres, utilisateurs, clients, organisations, factures, articles, paiements, factures enfants et plusieurs audits, puis formate chaque modèle. La réponse complète est mise en cache 30 secondes.
 
-Puis elle filtre tout l’historique en PHP (`BookingService.php:1119-1150`). Pour A réservations actives et N réservations historiques, le coût est au minimum A lectures complètes et A parcours complets, avec répétition des relations invoice/payments. Il faut remplacer ce calcul par un regroupement préchargé ou une agrégation SQL unique avant toute optimisation mineure.
+Le client appelle cet endpoint depuis `_fetchReservations()` et conserve une copie JSON complète dans SharedPreferences. L’écran fait ensuite filtre/recherche/tri sur cette liste entière. Ce chemin est structurellement coûteux dès que l’historique augmente. Les demandes `date=all` doivent être vérifiées dans le parcours d’édition et les autres écrans, et le volume réel des payloads doit être relevé avant de choisir pagination, projection minimale ou endpoint de détail.
 
-### P0 — réponses de réservations trop larges et non paginées
+### P0 — Calcul des prédictions dans le chemin HTTP
 
-`reservationsForDate()` et `activeReservations()` font un `get()` sans pagination (`BookingService.php:1046-1107`). Ils eager-loadent notamment `rooms`, `audits` (tous les audits), `invoice.items`, `invoice.payments`, utilisateur, client et organisation, puis sérialisent chaque réservation via `formatReservation()`.
+`getAiPredictionsAndPricing()` cache le résultat cinq minutes par version/date/période. À l’expiration ou après invalidation, `YieldService::predictions()` (`hestiapredict/app/Services/YieldService.php`) réalise, dans une requête Laravel :
 
-Le client utilise en plus `/api/reservations/all?date=all` pour rafraîchir une seule réservation dans l’écran d’édition (`hestia_app/lib/screens/reservations_list_page.dart:223-265`). Cela transfère et décode tout le dataset au lieu de demander l’ID ciblé. Le même endpoint est utilisé pour la liste principale (`reservations_list_page.dart:1503-1553`). L’impact combine DB, mémoire PHP, taille de réponse, `json.decode` sur l’isolate UI et stockage SharedPreferences.
+1. `historyData()` charge les lignes actives de `booking_room`, les joint à réservations et chambres, puis développe en PHP chaque segment en une entrée par nuit ;
+2. `occupancyIndexForPeriod()` charge réservations et chambres puis remplit un index par nuit et catégorie ;
+3. Guzzle appelle le moteur IA avec timeout de connexion 1 s et timeout total 3 s ;
+4. en cas d’échec, le fallback effectue encore des calculs locaux.
 
-### P1 — requêtes par jour dans le résumé de revenus IA
+Le dashboard appelle les prédictions au démarrage. L’écran de réservation a également une requête `/api/dashboard/predictions?days=30` lors du chargement IA ; le garde local vise cinq minutes, mais il ne supprime pas le travail des sessions simultanées et n’est pas partagé entre clients. Le cache Laravel réduit la fréquence par clé, toutefois les changements de disponibilité incrémentent la version de cache et peuvent rendre une clé froide. La cadence effective dépend donc des modifications et du nombre d’utilisateurs.
 
-`YieldService::aiRevenueSummary()` appelle d’abord `predictions()`, puis lance une requête `Reservation ... ->with('rooms')->get()` dans une boucle de jours (`YieldService.php:86-120`). Le nombre de requêtes croît linéairement avec `days` ; le dashboard prévoit déjà 30 jours. Le calcul peut être alimenté par un seul jeu de réservations chevauchant la période, puis indexé en mémoire ou agrégé par jour côté SQL.
+### P1 — Parcours récurrents et traitements CPU
 
-### P1 — recherches et prédicats qui limitent les index
+`AvailabilityService::occupancyIndexForPeriod()` fait un parcours réservation × nuit × chambre. `YieldService::aiRevenueSummary()` parcourt ensuite, pour chaque jour demandé, toutes les réservations et leurs chambres. Cela ne constitue pas un N+1 SQL actuel (la sélection de réservations est unique avec eager loading), mais un coût CPU en mémoire qui augmente avec la période, les séjours et le nombre de chambres.
 
-Les recherches d’historique appliquent `LOWER(colonne) LIKE '%term%'` sur plusieurs colonnes et `orWhereHas` sur `guest` et `organization` (`HotelManagementController.php:601-700`). Les wildcards en tête et les fonctions sur colonne empêchent généralement un index B-tree classique d’être utilisé efficacement. Les requêtes de disponibilité utilisent `COALESCE(booking_room.segment_start_date, reservations.check_in_date)` et la même expression pour la fin de segment (`AvailabilityService.php:167-179` et `40-60`). Les migrations ont de bons index de base sur statuts/dates et sur `booking_room`, mais ils ne couvrent pas forcément ces prédicats calculés.
+Les réservations segmentées ont une logique différente des dates de réservation globales. `historyData()` emploie les dates de segments via `COALESCE`, tandis que `occupancyIndexForPeriod()` travaille actuellement sur `check_in_date` et `check_out_date` de la réservation et ses chambres ; vérifier l’écart fonctionnel/performance avec des séjours segmentés avant toute refonte.
 
-À confirmer avec `EXPLAIN QUERY PLAN` sur la base réelle avant d’ajouter des index : le bon choix peut être une colonne normalisée, un index SQLite adapté, une recherche préfixe, FTS5 ou une table de projection.
+### P1 — Recherche, tri et rebuilds Flutter
 
-### P1 — rebuilds et concurrence côté Flutter
+Dans `ReservationsListPage.build()` (`hestia_app/lib/screens/reservations_list_page.dart`), chaque rebuild filtre `_reservations`, transforme le nom en minuscules, trie toute la collection par dates et construit le résultat avant le `ListView.builder`. La liste visuelle est paresseuse, mais le filtre et le tri ne le sont pas. L’`onChanged` de la recherche déclenche `setState` pour chaque changement de texte et le filtre local ne teste que `client_name`.
 
-Une exécution du dashboard effectue plusieurs `setState` séparés : disponibilité, erreur, résumé et prédictions. Le timer lance ensuite une nouvelle exécution sans garde `requestInFlight`. Les réponses du résumé et de l’IA sont traitées dans des callbacks indépendants et peuvent arriver dans un ordre différent.
+Dans le dashboard, `Timer.periodic` interroge toutes les 10 secondes deux endpoints parallèles (`live-availability` et `reservation-status-summary`). Le garde `_isAvailabilityFetching` évite le chevauchement côté écran. Une exécution regroupe les changements reçus dans un `setState`; le coût de rebuild réel dépend de l’arbre Flutter et n’est pas mesuré. Les prédictions sont demandées séparément au démarrage et ne font pas partie du timer actuel.
 
-Les écrans principaux sont de très gros `StatefulWidget` (`main.dart` et `reservations_list_page.dart` dépassent chacun plusieurs milliers de lignes) et contiennent des listes, filtres et `SingleChildScrollView`. Cela ne prouve pas un frame drop sans profilage, mais augmente la zone reconstruite à chaque `setState`. Le problème doit être mesuré en mode profile avec Flutter DevTools, pas corrigé au jugé.
+### P1 — Bundle, renderer et ressources
 
-### P1 — chargement initial, bundle et cache web
+Les artefacts disponibles dans `hestia_app/build/web` indiquent : `main.dart.js` 4,0 Mo, répertoire complet 42 Mo, sous-répertoire CanvasKit 37 Mo et logo livré 184 Ko. Le dossier CanvasKit contient plusieurs variantes wasm/JS et fichiers `.symbols`. Ces tailles locales ne sont pas une mesure du téléchargement réel : le renderer sélectionné, le chargement différé, la compression gzip activée dans Nginx et le cache navigateur déterminent les octets transférés.
 
-Artefacts présents dans `hestia_app/build/web` :
+Nginx a une configuration déjà favorable pour le cache : assets js/css/images/fonts/wasm à un an `immutable`, JSON à une heure, et `index.html` sans cache. Gzip est activé. En revanche, Docker construit avec `--pwa-strategy=none`, et `index.html` exécute un script qui désenregistre les service workers existants et efface les caches du navigateur. Cela empêche la réutilisation hors cache HTTP par un ancien service worker ; l’effet exact doit être validé dans le navigateur cible. Ne pas classer le cache statique Nginx comme problème actuel.
 
-- `main.dart.js` : environ 4,0 Mo non compressés ;
-- dossier CanvasKit : environ 37 Mo ;
-- logo applicatif : environ 188 Ko.
+### P2 — Requêtes et index
 
-Le Dockerfile désactive la stratégie PWA (`flutter build web --pwa-strategy=none`). La configuration Nginx met `Cache-Control: no-store, no-cache...` sur la route SPA et sur tous les `.js`, `.css`, images, fonts, WASM et JSON (`docker/frontend/default.conf`). Ainsi, même si les fichiers sont versionnés/immutables dans le build, le navigateur ne peut pas les réutiliser entre sessions. Le cache des assets a probablement un impact supérieur à la compression du logo. Les symboles CanvasKit présents dans l’artefact doivent aussi être vérifiés pour ne pas être livrés inutilement en production.
+Les recherches de clients/organisations/réservations contiennent des expressions `LOWER(colonne) LIKE '%terme%'` (`ClientController`, `OrganizationController`, `HotelManagementController`). Un index B-tree ordinaire est généralement peu utile avec fonction et joker initial. Les disponibilités et l’historique IA filtrent des dates calculées par `COALESCE(booking_room.segment_*, reservations.check_*)`. Les migrations d’index existent, notamment des index récents sur tables d’audit/factures, mais aucun `EXPLAIN QUERY PLAN` n’a été exécuté. Le dépôt n’embarque pas de base de production utilisable comme échantillon.
 
-### P2 — traitement synchrone et coûts mémoire
+### P2 — Stratégie de cache
 
-Plusieurs services parcourent des `CarbonPeriod` imbriquées sur réservations × nuits × chambres : disponibilité, capacité d’extras, index d’occupation et historique IA (`AvailabilityService.php:301-348`, `BookingService.php:673-776`, `YieldService.php:120-205`). Ces calculs sont synchrones dans la requête PHP et matérialisent de grandes collections avec `get()`.
+Docker utilise `CACHE_STORE=file`. Les caches Laravel évitent de recalculer plusieurs réponses, mais sont stockés sur disque. Le client met aussi la liste entière des réservations en SharedPreferences et effectue encode/decode JSON. Aucun hit rate, volume des fichiers, taille JSON ou durée de sérialisation n’est exposé dans les éléments inspectés. Les clés basées sur un compteur de version peuvent laisser les anciennes entrées expirer naturellement plutôt que les supprimer immédiatement ; l’espace occupé n’a pas été mesuré.
 
-Côté Flutter, les réponses complètes sont décodées et filtrées sur l’isolate UI ; l’écran d’édition charge aussi toute la liste pour sélectionner un ID. Les générations/aperçus PDF utilisent également des opérations potentiellement coûteuses dans le chemin interactif. Ce sont des candidats P2, à valider avec traces CPU et tailles de payloads.
+### N+1 et pistes écartées
 
-### P2 — cache
+Le N+1 historique de `activeReservations()` n’est plus confirmé : le code courant appelle une fois `precomputeVisitCountsForReservations()` pour l’ensemble des réservations actives, qui fait une requête groupée des candidats et précharge factures/paiements. `visitCountForReservation()` subsiste mais n’est pas appelé par ce chemin. Ne pas conserver l’ancien constat N+1 comme problème actuel.
 
-Les endpoints principaux utilisent `Cache::remember`, souvent 30 à 120 secondes, avec un compteur de version global (`AvailabilityService.php:15-31`). Docker configure `CACHE_STORE=file`, alors que la configuration Laravel retombe par défaut sur `database`. Le cache file évite certaines requêtes mais reste un accès disque par requête ; le cache database ajoute une requête SQLite par lecture/écriture. La stratégie n’est pas intrinsèquement incorrecte, mais doit être mesurée avec hit rate, taille et contention. L’invalidation par version rend les anciennes clés inaccessibles sans les supprimer, ce qui peut laisser grossir le stockage.
+Le résumé IA par jour, mentionné dans un audit antérieur comme une requête par jour, a lui aussi été corrigé : `aiRevenueSummary()` effectue une seule requête de période avec `with('rooms')`, puis travaille en mémoire. Le coût CPU décrit plus haut reste pertinent.
 
-### P3 — images et dépendances
+Le cache des assets Nginx est maintenant long et immuable ; la compression gzip est activée. L’image principale pèse 184 Ko : optimisable, mais sans priorité par rapport aux payloads métiers ou au runtime web. Aucune preuve de jank précise ou de dépendance PDF dominante dans le bundle n’a été collectée.
 
-Le logo de 188 Ko est le principal bitmap applicatif identifié, sans images de contenu lourdes. Il mérite une conversion WebP/PNG optimisée, mais ce n’est pas le premier levier. Les packages Flutter `pdf`, `printing`, `path_provider` et `share_plus` sont tous déclarés dans l’application ; l’effet bundle exact doit être isolé avec un build release et une analyse de taille. Ne pas retirer une dépendance uniquement sur son nom : mesurer d’abord.
+## Ce qui reste inconnu
 
-## Ce qui n’est pas démontré
+- p50/p95 et latence par endpoint, taux d’erreur, concurrence et TTFB ;
+- nombre de réservations, chambres-réservation, audits et paiements en production ;
+- taille et temps de sérialisation des réponses, surtout `date=all` ;
+- plans SQLite et index effectivement choisis ;
+- proportion de cache hit et effet d’invalidation ;
+- temps jusqu’au premier écran utilisable, renderer réellement choisi, octets transférés froid/chaud ;
+- coût de parsing JSON et temps de frame/rebuild sur matériel cible.
 
-- Aucun chiffre de p50/p95, débit, taille JSON ou nombre de lignes n’a été inventé : la base de données de production n’est pas présente dans le dépôt et aucun serveur n’était lancé.
-- Aucun problème de rendu précis (jank, nombre de frames, raster time) n’est confirmé sans profilage DevTools.
-- Les index manquants ne doivent pas être déduits uniquement des migrations : il faut les plans SQLite sur les requêtes réelles et leurs cardinalités.
+Aucune de ces valeurs n’est supposée ou inventée dans cet audit.
 
-## Plan de mesure avant modification
+## Plan de mesure avant toute correction
 
-1. Créer un jeu de données représentatif : réservations historiques, audits, paiements, chambres, organisations et séjours longs. Conserver un jeu petit et un jeu de charge.
-2. Ajouter temporairement une instrumentation Laravel : durée totale, nombre de requêtes DB, temps DB cumulé, taille de réponse et endpoint. Activer `DB::listen` uniquement en environnement de profiling.
-3. Mesurer séparément : ouverture dashboard, polling à 10 s, liste « all », liste d’une date, `active-reservations`, disponibilité, recherche client, prédictions IA et résumé de revenus.
-4. Exécuter `EXPLAIN QUERY PLAN` sur les requêtes de dates, segments et recherches ; relever les scans complets et les tris temporaires.
-5. En Flutter profile/web release, relever TTFB, téléchargement décompressé, parse JSON, premier frame utile, raster time et rebuilds avec DevTools. Comparer avec cache froid et cache chaud.
-6. Construire une matrice de budgets : dashboard initial, rafraîchissement silencieux, liste paginée, recherche et édition d’une réservation. Les seuils exacts seront fixés à partir des usages métier et du matériel cible.
+1. Instrumenter temporairement Laravel en environnement de profiling : endpoint, durée totale, nombre de requêtes, temps DB cumulé, mémoire max et taille de réponse. Garder une trace distincte des appels réseau IA. Ne pas activer le logging SQL détaillé en production.
+2. Sur une copie représentative de la base, relever les cardinalités et lancer `EXPLAIN QUERY PLAN` sur les listes, recherches, disponibilités segmentées, `historyData()` et résumé de statuts.
+3. Comparer `reservations/all` pour une date, `date=all`, un ID seul, et les filtres de statut : p50/p95, lignes lues, nombre de relations, bytes JSON et mémoire PHP.
+4. Mesurer `/dashboard/predictions` avec cache chaud/froid, moteur IA disponible/indisponible, période 30 et 365 jours, et plusieurs requêtes simultanées. Séparer temps DB/calcul local/HTTP IA.
+5. Sur le web release de production, mesurer cache froid puis chaud : premier rendu utile, ressources réellement chargées, transfert compressé, parse/compile JS, renderer, coût de chargement WASM. Enregistrer un profil DevTools Flutter pour la liste longue pendant recherche et scrolling.
+6. Établir des budgets p50/p95 avec l’équipe et le matériel cible avant de sélectionner les changements.
 
-## Ordre recommandé des corrections
+## Ordre recommandé après mesures
 
-1. Séparer disponibilité/statuts et prédictions : supprimer le déclenchement IA du polling, ajouter un cache/dédoublonnage et un rafraîchissement explicite ou beaucoup plus lent pour l’IA.
-2. Supprimer le N+1 de `visitCountForReservation()` par agrégation unique et réutilisation du résultat.
-3. Introduire des endpoints ciblés et paginés : réservation par ID, liste avec projection minimale, audits/details à la demande.
-4. Remplacer les requêtes par jour du résumé IA par une lecture de période et une agrégation unique.
-5. Revoir les recherches et les dates après `EXPLAIN QUERY PLAN`, puis ajouter seulement les index/projections justifiés.
-6. Réduire les rebuilds/concurrences Flutter avec un contrôleur de chargement, une requête groupée si elle est réellement bénéfique et des sous-widgets ciblés.
-7. Activer la compression HTTP et un cache long pour assets fingerprintés ; conserver une politique courte pour `index.html`. Mesurer ensuite l’intérêt de CanvasKit/renderer et du poids des dépendances.
-8. Optimiser les boucles de périodes et déplacer hors requête les traitements lourds qui ne sont pas nécessaires à la réponse interactive.
+1. Réduire le chemin des réservations : pagination/filtrage serveur et endpoint ciblé pour les détails, après vérification des usages qui exigent un historique complet.
+2. Isoler et mutualiser les prédictions : cache/dédoublonnage partagé, invalidation moins large et recalcul asynchrone si l’expérience métier l’autorise ; ne pas diminuer la fraîcheur sans validation métier.
+3. Réduire le calcul d’occupation et du résumé à partir des profils : agrégation SQL ou index compact, en préservant les segments de chambre.
+4. Éviter le filtre/tri global à chaque build Flutter : debounce de recherche et dérivation des résultats uniquement quand les données/filtres changent ; valider par profilage avant refactorisation des widgets.
+5. Décider des index/recherche après plans SQLite ; tester aussi le coût d’écriture et les requêtes de chevauchement des dates.
+6. Mesurer le chargement du renderer et des ressources avant d’ajuster CanvasKit, WASM ou service worker. Le cache HTTP et gzip sont déjà configurés.
+7. Ne traiter image et dépendances qu’après comparaison du transfert réellement observé.
 
-## Critères de validation
-
-Une correction ne sera considérée comme validée qu’avec comparaison avant/après sur le même dataset : nombre de requêtes, temps DB, p50/p95 HTTP, taille de réponse, mémoire PHP, temps de parsing Flutter, nombre de rebuilds et temps de premier rendu. Toute modification d’index ou de cache devra aussi être vérifiée sur les écritures de réservation et l’invalidation, afin de ne pas échanger une latence de lecture contre une incohérence métier.
+Chaque correction devra être comparée sur le même jeu de données avec nombre de requêtes, p50/p95, temps DB/IA, mémoire, payload, cold/warm load et mesures UI. Aucun changement de code applicatif n’a été réalisé dans le cadre de cet audit.

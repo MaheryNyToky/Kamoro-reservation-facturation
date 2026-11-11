@@ -2,24 +2,25 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Reservation;
+use App\Http\Resources\RoomResource;
+use App\Models\Guest;
 use App\Models\Invoice;
 use App\Models\Organization;
-use App\Http\Resources\RoomResource;
+use App\Models\Reservation;
 use App\Models\Room;
 use App\Models\User;
-use App\Support\PhoneNumber;
 use App\Services\AuthService;
 use App\Services\AvailabilityService;
 use App\Services\BookingService;
 use App\Services\YieldService;
+use App\Support\PhoneNumber;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
@@ -30,8 +31,7 @@ class HotelManagementController extends Controller
         private readonly BookingService $bookingService,
         private readonly YieldService $yieldService,
         private readonly AuthService $authService,
-    ) {
-    }
+    ) {}
 
     public function getLiveAvailability(Request $request): JsonResponse
     {
@@ -39,6 +39,7 @@ class HotelManagementController extends Controller
             'date' => 'nullable|date',
         ]);
         $date = $validated['date'] ?? now()->toDateString();
+
         return response()->json($this->availabilityService->liveSummary($date));
     }
 
@@ -162,7 +163,7 @@ class HotelManagementController extends Controller
 
         $checkIn = Carbon::parse($validated['check_in'])->startOfDay();
         $actorRole = (string) ($validated['actor_role'] ?? Auth::user()?->role ?? '');
-        if ($checkIn->lt(now()->startOfDay()) && !in_array($actorRole, ['admin', 'superadmin'], true)) {
+        if ($checkIn->lt(now()->startOfDay()) && ! in_array($actorRole, ['admin', 'superadmin'], true)) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Seul un administrateur peut créer une réservation dans le passé.',
@@ -205,17 +206,17 @@ class HotelManagementController extends Controller
 
         $reservation = Reservation::query()
             ->with('invoice')
-            ->when(!empty($validated['id']), fn ($query) => $query->where('id', $validated['id']))
-            ->when(empty($validated['id']) && !empty($validated['reference']), fn ($query) => $query->where('booking_reference', $validated['reference']))
+            ->when(! empty($validated['id']), fn ($query) => $query->where('id', $validated['id']))
+            ->when(empty($validated['id']) && ! empty($validated['reference']), fn ($query) => $query->where('booking_reference', $validated['reference']))
             ->first();
 
-        if (!$reservation) {
+        if (! $reservation) {
             return response()->json(['status' => 'error', 'message' => 'Réservation non trouvée'], 404);
         }
 
         if (
             $validated['status'] === 'annule'
-            && !in_array($validated['cancelled_by_role'] ?? null, ['admin', 'superadmin'], true)
+            && ! in_array($validated['cancelled_by_role'] ?? null, ['admin', 'superadmin'], true)
             && ($reservation->status === 'arrive' || $this->reservationHasAdvancePayment($reservation))
         ) {
             return response()->json([
@@ -226,7 +227,7 @@ class HotelManagementController extends Controller
 
         $reservation = $this->bookingService->updateStatus($validated);
 
-        if (!$reservation) {
+        if (! $reservation) {
             return response()->json(['status' => 'error', 'message' => 'Réservation non trouvée'], 404);
         }
 
@@ -240,7 +241,7 @@ class HotelManagementController extends Controller
         $reservation->loadMissing('invoice');
         $invoice = $reservation->invoice;
 
-        if (!$invoice) {
+        if (! $invoice) {
             return false;
         }
 
@@ -272,7 +273,7 @@ class HotelManagementController extends Controller
         ]);
 
         $reservation = Reservation::query()->find($id);
-        if (!$reservation) {
+        if (! $reservation) {
             return response()->json(['status' => 'error', 'message' => 'Réservation non trouvée'], 404);
         }
 
@@ -309,7 +310,7 @@ class HotelManagementController extends Controller
 
         $reservation = $this->bookingService->updateReservation($id, $validated);
 
-        if (!$reservation) {
+        if (! $reservation) {
             return response()->json(['status' => 'error', 'message' => 'Réservation non trouvée'], 404);
         }
 
@@ -330,14 +331,54 @@ class HotelManagementController extends Controller
                 ['in:all'],
             )],
             'status' => 'nullable|string|in:all,pending,unpaid,paid',
+            'q' => 'nullable|string|max:120',
+            'booking_type' => 'nullable|string|in:all,organization,individual',
+            'check_out_from' => 'nullable|date',
+            'check_out_to' => 'nullable|date|after_or_equal:check_out_from',
+            'per_page' => 'nullable|integer|min:1|max:100',
+            'page' => 'nullable|integer|min:1',
         ]);
 
         $date = $validated['date'] ?? null;
         $status = $validated['status'] ?? 'all';
+        $search = trim((string) ($validated['q'] ?? ''));
+        $bookingType = $validated['booking_type'] ?? 'all';
+        $checkOutFrom = $validated['check_out_from'] ?? null;
+        $checkOutTo = $validated['check_out_to'] ?? null;
+        $perPage = isset($validated['per_page']) ? (int) $validated['per_page'] : null;
+        $page = (int) ($validated['page'] ?? 1);
         $cacheVersion = $this->availabilityService->getCacheVersion();
-        $cacheKey = 'dashboard:reservations-for-date:' . $cacheVersion . ':' . ($date ?? 'all') . ':' . $status;
-        $payload = Cache::remember($cacheKey, now()->addSeconds(30), function () use ($date, $status) {
-            return $this->bookingService->reservationsForDate($date, $status)->values()->all();
+        $cacheKey = 'dashboard:reservations-for-date:'.$cacheVersion.':'.($date ?? 'all').':'.$status.':'.$bookingType.':'.sha1($search).':'.($checkOutFrom ?? '-').':'.($checkOutTo ?? '-').':'.($perPage ?? 'all').':'.$page;
+        $payload = Cache::remember($cacheKey, now()->addSeconds(30), function () use ($date, $status, $search, $bookingType, $checkOutFrom, $checkOutTo, $perPage, $page) {
+            $query = $this->bookingService->reservationsForDateQuery($date, $status, $checkOutFrom, $checkOutTo);
+            if ($search !== '') {
+                $like = '%'.mb_strtolower($search).'%';
+                $query->where(function ($query) use ($like) {
+                    $query->whereRaw('LOWER(client_name) LIKE ?', [$like])
+                        ->orWhereRaw('LOWER(client_phone) LIKE ?', [$like])
+                        ->orWhereRaw('LOWER(customer_phone) LIKE ?', [$like])
+                        ->orWhereRaw('LOWER(booking_reference) LIKE ?', [$like]);
+                });
+            }
+            if ($bookingType !== 'all') {
+                $query->where('booking_type', $bookingType);
+            }
+            if ($perPage === null) {
+                return $query->get()->map(fn (Reservation $reservation) => $this->bookingService->formatReservation($reservation))->values()->all();
+            }
+
+            $paginator = $query->paginate($perPage, ['*'], 'page', $page);
+
+            return [
+                'data' => $paginator->getCollection()
+                    ->map(fn (Reservation $reservation) => $this->bookingService->formatReservation($reservation))
+                    ->values()
+                    ->all(),
+                'current_page' => $paginator->currentPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+                'last_page' => $paginator->lastPage(),
+            ];
         });
 
         return response()->json($payload);
@@ -429,7 +470,7 @@ class HotelManagementController extends Controller
         }
 
         if ($normalizedTerm !== '') {
-            $like = '%' . $normalizedTerm . '%';
+            $like = '%'.$normalizedTerm.'%';
             $query->where(function ($query) use ($like) {
                 $query
                     ->whereRaw('LOWER(client_name) LIKE ?', [$like])
@@ -505,7 +546,7 @@ class HotelManagementController extends Controller
                 $balance = max(0, (int) $invoice->total_amount_ariary - $paid);
 
                 return [
-                    'id' => 'standalone-' . $invoice->id,
+                    'id' => 'standalone-'.$invoice->id,
                     'guest_id' => null,
                     'organization_id' => $invoice->organization_id,
                     'reference' => $invoice->invoice_number,
@@ -550,30 +591,30 @@ class HotelManagementController extends Controller
                 ->groupBy(function (array $item) use ($bookingType): string {
                     if ($bookingType === 'organization') {
                         return $item['organization_id']
-                            ? 'organization:' . $item['organization_id']
-                            : 'organization-name:' . Str::lower(Str::ascii((string) ($item['organization_name'] ?? $item['client_name'])));
+                            ? 'organization:'.$item['organization_id']
+                            : 'organization-name:'.Str::lower(Str::ascii((string) ($item['organization_name'] ?? $item['client_name'])));
                     }
 
                     $phone = trim((string) ($item['guest']['phone_number'] ?? $item['phone'] ?? ''));
                     if ($phone !== '' && $phone !== 'N/A') {
                         $normalizedPhone = PhoneNumber::normalize($phone);
                         if ($normalizedPhone !== null) {
-                            return 'phone:' . $normalizedPhone;
+                            return 'phone:'.$normalizedPhone;
                         }
                     }
 
                     if ($item['guest_id']) {
-                        return 'guest:' . $item['guest_id'];
+                        return 'guest:'.$item['guest_id'];
                     }
 
-                    return 'client-name:' . Str::lower(Str::ascii((string) $item['client_name']));
+                    return 'client-name:'.Str::lower(Str::ascii((string) $item['client_name']));
                 })
                 ->map(function ($group) use ($bookingType): array {
                     $first = $group->first();
                     $detailSource = $group->first(function (array $item): bool {
-                        return !empty($item['guest'])
+                        return ! empty($item['guest'])
                             || ($item['email'] ?? 'N/A') !== 'N/A'
-                            || !empty($item['organization']);
+                            || ! empty($item['organization']);
                     }) ?? $first;
 
                     return [
@@ -635,7 +676,7 @@ class HotelManagementController extends Controller
         $cacheSuffix = $mode === 'all'
             ? 'all'
             : ($normalizedTerm !== '' ? $normalizedTerm : 'empty');
-        $cacheKey = 'dashboard:client-history:' . $this->availabilityService->getCacheVersion() . ':' . $cacheSuffix;
+        $cacheKey = 'dashboard:client-history:'.$this->availabilityService->getCacheVersion().':'.$cacheSuffix;
         $reservations = Cache::remember($cacheKey, now()->addMinutes(1), function () use ($normalizedTerm, $today, $term, $mode) {
             $query = Reservation::query()
                 ->with([
@@ -653,9 +694,9 @@ class HotelManagementController extends Controller
                 ]);
 
             if ($mode !== 'all' && $term !== '') {
-                $like = '%' . $normalizedTerm . '%';
+                $like = '%'.$normalizedTerm.'%';
 
-                $matchingGuestResIds = \App\Models\Guest::query()
+                $matchingGuestResIds = Guest::query()
                     ->whereRaw('LOWER(full_name) LIKE ?', [$like])
                     ->orWhereRaw('LOWER(first_name) LIKE ?', [$like])
                     ->orWhereRaw('LOWER(last_name) LIKE ?', [$like])
@@ -666,7 +707,7 @@ class HotelManagementController extends Controller
                     ->filter()
                     ->all();
 
-                $matchingOrgIds = \App\Models\Organization::query()
+                $matchingOrgIds = Organization::query()
                     ->whereRaw('LOWER(name) LIKE ?', [$like])
                     ->orWhereRaw('LOWER(contact_name) LIKE ?', [$like])
                     ->orWhereRaw('LOWER(contact_email) LIKE ?', [$like])
@@ -680,11 +721,11 @@ class HotelManagementController extends Controller
                         ->orWhereRaw('LOWER(customer_phone) LIKE ?', [$like])
                         ->orWhereRaw('LOWER(booking_reference) LIKE ?', [$like]);
 
-                    if (!empty($matchingGuestResIds)) {
+                    if (! empty($matchingGuestResIds)) {
                         $query->orWhereIn('id', $matchingGuestResIds);
                     }
 
-                    if (!empty($matchingOrgIds)) {
+                    if (! empty($matchingOrgIds)) {
                         $query->orWhereIn('organization_id', $matchingOrgIds);
                     }
                 });
@@ -766,7 +807,7 @@ class HotelManagementController extends Controller
         ]);
 
         $term = trim((string) ($validated['q'] ?? ''));
-        $cacheKey = 'dashboard:organization-dossiers:' . $this->availabilityService->getCacheVersion() . ':' . ($term !== '' ? Str::lower(Str::ascii($term)) : 'all');
+        $cacheKey = 'dashboard:organization-dossiers:'.$this->availabilityService->getCacheVersion().':'.($term !== '' ? Str::lower(Str::ascii($term)) : 'all');
         $payload = Cache::remember($cacheKey, now()->addMinutes(2), function () use ($term) {
             return $this->organizationDossierSummaries($term)->values()->all();
         });
@@ -787,7 +828,7 @@ class HotelManagementController extends Controller
         $scope = $validated['scope'] ?? 'all';
         $month = $validated['month'] ?? now()->format('Y-m');
         $payload = Cache::remember(
-            'dashboard:organization-dossier:' . $this->availabilityService->getCacheVersion() . ':' . $organization->id . ':' . $scope . ':' . $month,
+            'dashboard:organization-dossier:'.$this->availabilityService->getCacheVersion().':'.$organization->id.':'.$scope.':'.$month,
             now()->addMinutes(2),
             function () use ($organization, $scope, $month) {
                 return $this->organizationDossierPayload($organization, $scope, $month);
@@ -809,7 +850,8 @@ class HotelManagementController extends Controller
         ];
 
         $signature = implode('|', array_filter($parts, fn ($part) => $part !== ''));
-        return $signature !== '' ? $signature : 'unknown:' . (string) ($reservation['reference'] ?? '');
+
+        return $signature !== '' ? $signature : 'unknown:'.(string) ($reservation['reference'] ?? '');
     }
 
     private function organizationDossierSummaries(string $term = ''): Collection
@@ -827,7 +869,7 @@ class HotelManagementController extends Controller
             ]);
 
         if ($term !== '') {
-            $like = '%' . Str::lower(Str::ascii($term)) . '%';
+            $like = '%'.Str::lower(Str::ascii($term)).'%';
             $query->where(function ($builder) use ($like): void {
                 $builder
                     ->whereRaw('LOWER(name) LIKE ?', [$like])
@@ -923,6 +965,7 @@ class HotelManagementController extends Controller
             })
             ->map(function (Collection $monthReservations, string $monthKey): array {
                 $formatted = $monthReservations->map(fn (Reservation $reservation) => $this->bookingService->formatReservation($reservation))->values();
+
                 return [
                     'key' => $monthKey,
                     'label' => $this->monthLabel($monthKey),
@@ -971,7 +1014,7 @@ class HotelManagementController extends Controller
         ]);
 
         $actorRole = $this->resolveActorRole($request);
-        if (!in_array($actorRole, ['admin', 'superadmin'], true)) {
+        if (! in_array($actorRole, ['admin', 'superadmin'], true)) {
             return response()->json(['status' => 'error', 'message' => 'Accès refusé.'], 403);
         }
 
@@ -1007,7 +1050,7 @@ class HotelManagementController extends Controller
         ]);
 
         $actorRole = $this->resolveActorRole($request);
-        if (!in_array($actorRole, ['admin', 'superadmin'], true)) {
+        if (! in_array($actorRole, ['admin', 'superadmin'], true)) {
             return response()->json(['status' => 'error', 'message' => 'Accès refusé.'], 403);
         }
 
@@ -1025,7 +1068,7 @@ class HotelManagementController extends Controller
             'role' => $validated['role'],
         ]);
 
-        if (!empty($validated['password'])) {
+        if (! empty($validated['password'])) {
             $user->password = $validated['password'];
         }
 
@@ -1037,7 +1080,7 @@ class HotelManagementController extends Controller
     public function deleteUser(Request $request, int $id): JsonResponse
     {
         $actorRole = $this->resolveActorRole($request);
-        if (!in_array($actorRole, ['admin', 'superadmin'], true)) {
+        if (! in_array($actorRole, ['admin', 'superadmin'], true)) {
             return response()->json(['status' => 'error', 'message' => 'Accès refusé.'], 403);
         }
 
@@ -1060,7 +1103,7 @@ class HotelManagementController extends Controller
 
         $user = $this->authService->attempt($validated['email'], $validated['password']);
 
-        if (!$user) {
+        if (! $user) {
             return response()->json(['status' => 'error', 'message' => 'Identifiants incorrects'], 401);
         }
 
@@ -1155,7 +1198,7 @@ class HotelManagementController extends Controller
 
         if ($rate >= 95) {
             $hotelEmail = config('mail.from.address', 'manager@kamorohotel.com');
-            Mail::raw("URGENT - Kamoro Hotel : Taux d'occupation critique de " . round($rate, 1) . "% prévu pour demain ({$tomorrow}). Fermez immédiatement les vannes Booking.com pour bloquer les réservations.", function ($message) use ($hotelEmail) {
+            Mail::raw("URGENT - Kamoro Hotel : Taux d'occupation critique de ".round($rate, 1)."% prévu pour demain ({$tomorrow}). Fermez immédiatement les vannes Booking.com pour bloquer les réservations.", function ($message) use ($hotelEmail) {
                 $message->to($hotelEmail)->subject('ALERTE CRITIQUE : Seuil d\'occupation hôtelière à 95% !');
             });
         }

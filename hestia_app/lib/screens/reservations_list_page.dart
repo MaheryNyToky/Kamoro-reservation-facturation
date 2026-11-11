@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -1277,6 +1278,13 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
   String _bookingTypeFilter = 'all';
   String _searchQuery = '';
   final Set<int> _groupSelectionIds = {};
+  static const int _reservationsPageSize = 50;
+  final ScrollController _reservationsScrollController = ScrollController();
+  bool _isLoadingMore = false;
+  int _currentPage = 0;
+  int _lastPage = 1;
+  int _totalReservations = 0;
+  Timer? _searchDebounce;
 
   @override
   void initState() {
@@ -1284,7 +1292,46 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
     _selectedDate = _normalizeSelectedDate(
       widget.initialDate ?? DateTime.now(),
     );
+    _reservationsScrollController.addListener(
+      _loadNextReservationsPageIfNeeded,
+    );
     _fetchReservations();
+  }
+
+  @override
+  void dispose() {
+    _reservationsScrollController
+      ..removeListener(_loadNextReservationsPageIfNeeded)
+      ..dispose();
+    _searchDebounce?.cancel();
+    super.dispose();
+  }
+
+  void _onSearchChanged(String value) {
+    setState(() => _searchQuery = value);
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(
+      const Duration(milliseconds: 350),
+      () => _fetchReservations(),
+    );
+  }
+
+  void _setBookingTypeFilter(String value) {
+    setState(() => _bookingTypeFilter = value);
+    _fetchReservations();
+  }
+
+  void _loadNextReservationsPageIfNeeded() {
+    if (!_reservationsScrollController.hasClients ||
+        _isLoadingMore ||
+        _isLoading) {
+      return;
+    }
+    if (_currentPage >= _lastPage ||
+        _reservationsScrollController.position.extentAfter > 500) {
+      return;
+    }
+    _fetchReservations(loadMore: true);
   }
 
   bool get _isAdmin => widget.role != 'receptionist';
@@ -1484,15 +1531,24 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
     return 'Occupant : ${occupants.join(' | ')}';
   }
 
-  DateTime _reservationSortDate(Map<String, dynamic> reservation) {
-    final createdAt = (reservation['created_at'] ?? '').toString();
-    return DateTime.tryParse(createdAt) ??
-        DateTime.fromMillisecondsSinceEpoch(0);
-  }
-
-  Future<void> _fetchReservations() async {
+  Future<void> _fetchReservations({bool loadMore = false}) async {
+    if (loadMore && (_isLoadingMore || _currentPage >= _lastPage)) {
+      return;
+    }
+    final requestedPage = loadMore ? _currentPage + 1 : 1;
+    if (!loadMore && _reservationsScrollController.hasClients) {
+      _reservationsScrollController.jumpTo(0);
+    }
     if (mounted) {
-      setState(() => _isLoading = true);
+      setState(() {
+        if (loadMore) {
+          _isLoadingMore = true;
+        } else {
+          _isLoading = true;
+          _currentPage = 0;
+          _reservations = [];
+        }
+      });
     }
     final dateParam = _selectedDate.toIso8601String().substring(0, 10);
     final statusParam = _statusFilter;
@@ -1502,44 +1558,67 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
       final response = await http
           .get(
             Uri.parse('$baseUrl/api/reservations/all').replace(
-              queryParameters: {'date': dateParam, 'status': statusParam},
+              queryParameters: {
+                'date': dateParam,
+                'status': statusParam,
+                'q': _searchQuery.trim(),
+                'booking_type': _bookingTypeFilter,
+                'per_page': '$_reservationsPageSize',
+                'page': '$requestedPage',
+              },
             ),
           )
           .timeout(const Duration(seconds: 5));
       if (response.statusCode == 200) {
-        List<dynamic> data = json.decode(response.body);
+        final decoded = json.decode(response.body);
+        final page = decoded is Map ? decoded : const <String, dynamic>{};
+        final data = page['data'] is List
+            ? page['data'] as List<dynamic>
+            : <dynamic>[];
         if (!mounted) return;
         setState(() {
-          _reservations = data;
+          _reservations = loadMore ? [..._reservations, ...data] : data;
+          _currentPage =
+              (page['current_page'] as num?)?.toInt() ?? requestedPage;
+          _lastPage = (page['last_page'] as num?)?.toInt() ?? requestedPage;
+          _totalReservations = (page['total'] as num?)?.toInt() ?? data.length;
         });
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString(cacheKey, json.encode(data));
       }
     } catch (e) {
-      final prefs = await SharedPreferences.getInstance();
-      final cached = prefs.getString(cacheKey);
-      if (!mounted) return;
-      if (cached != null) {
-        final data = json.decode(cached) as List<dynamic>;
-        setState(() {
-          _reservations = data;
-        });
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Mode dégradé: dernières réservations locales affichées.',
+      if (loadMore) {
+        debugPrint("Error loading reservations page: $e");
+      } else if (_searchQuery.trim().isEmpty && _bookingTypeFilter == 'all') {
+        final prefs = await SharedPreferences.getInstance();
+        final cached = prefs.getString(cacheKey);
+        if (!mounted) return;
+        if (cached != null) {
+          final data = json.decode(cached) as List<dynamic>;
+          setState(() {
+            _reservations = data;
+            _currentPage = 1;
+            _lastPage = 1;
+            _totalReservations = data.length;
+          });
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Mode dégradé: dernières réservations locales affichées.',
+                ),
+                backgroundColor: Colors.orange,
               ),
-              backgroundColor: Colors.orange,
-            ),
-          );
+            );
+          }
+        } else {
+          debugPrint("Error fetching reservations: $e");
         }
-      } else {
-        debugPrint("Error fetching reservations: $e");
       }
     }
     if (mounted) {
-      setState(() => _isLoading = false);
+      setState(() {
+        _isLoading = false;
+        _isLoadingMore = false;
+      });
     }
   }
 
@@ -2111,7 +2190,9 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
     );
 
     if (selection == null) return;
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
 
     await Navigator.push(
       context,
@@ -2129,58 +2210,8 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
 
   @override
   Widget build(BuildContext context) {
-    final query = _searchQuery.trim().toLowerCase();
     final selectedDateKey = _selectedDate.toIso8601String().substring(0, 10);
-    final displayedReservations =
-        _reservations.where((reservation) {
-          final clientName = (reservation['client_name'] ?? '')
-              .toString()
-              .toLowerCase();
-          final matchesSearch = query.isEmpty || clientName.contains(query);
-          final status = (reservation['status'] ?? '').toString();
-          final paymentStatus = (reservation['payment_status'] ?? 'unbilled')
-              .toString();
-          final bookingType = (reservation['booking_type'] ?? '').toString();
-          final matchesStatus = switch (_statusFilter) {
-            'pending' => status == 'en_attente',
-            'unpaid' =>
-              status == 'arrive' &&
-                  (paymentStatus == 'unpaid' ||
-                      paymentStatus == 'partial' ||
-                      paymentStatus == 'unbilled'),
-            'paid' => paymentStatus == 'paid',
-            _ => true,
-          };
-          final matchesType = switch (_bookingTypeFilter) {
-            'organization' => bookingType == 'organization',
-            'individual' => bookingType != 'organization',
-            _ => true,
-          };
-          return matchesSearch && matchesStatus && matchesType;
-        }).toList()..sort((a, b) {
-          final checkInCompare = (a['check_in'] ?? '').toString().compareTo(
-            (b['check_in'] ?? '').toString(),
-          );
-          if (checkInCompare != 0) return checkInCompare;
-
-          final createdCompare = _reservationSortDate(
-            a,
-          ).compareTo(_reservationSortDate(b));
-          if (createdCompare != 0) return createdCompare;
-
-          final typeCompare = (a['booking_type'] ?? '').toString().compareTo(
-            (b['booking_type'] ?? '').toString(),
-          );
-          if (typeCompare != 0) return typeCompare;
-
-          final nameCompare = (a['client_name'] ?? '')
-              .toString()
-              .toLowerCase()
-              .compareTo((b['client_name'] ?? '').toString().toLowerCase());
-          if (nameCompare != 0) return nameCompare;
-
-          return _asInt(a['id']).compareTo(_asInt(b['id']));
-        });
+    final displayedReservations = _reservations;
 
     return Scaffold(
       appBar: AppBar(
@@ -2242,7 +2273,7 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
               children: [
                 _ReservationSearchBar(
                   initialValue: _searchQuery,
-                  onChanged: (value) => setState(() => _searchQuery = value),
+                  onChanged: _onSearchChanged,
                 ),
                 const SizedBox(height: 12),
                 _ReservationStatusSelector(
@@ -2262,23 +2293,17 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                     ChoiceChip(
                       label: const Text('Tous'),
                       selected: _bookingTypeFilter == 'all',
-                      onSelected: (_) {
-                        setState(() => _bookingTypeFilter = 'all');
-                      },
+                      onSelected: (_) => _setBookingTypeFilter('all'),
                     ),
                     ChoiceChip(
                       label: const Text('Organisme'),
                       selected: _bookingTypeFilter == 'organization',
-                      onSelected: (_) {
-                        setState(() => _bookingTypeFilter = 'organization');
-                      },
+                      onSelected: (_) => _setBookingTypeFilter('organization'),
                     ),
                     ChoiceChip(
                       label: const Text('Particulier'),
                       selected: _bookingTypeFilter == 'individual',
-                      onSelected: (_) {
-                        setState(() => _bookingTypeFilter = 'individual');
-                      },
+                      onSelected: (_) => _setBookingTypeFilter('individual'),
                     ),
                   ],
                 ),
@@ -2329,8 +2354,23 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                 : displayedReservations.isEmpty
                 ? const Center(child: Text("Aucune réservation trouvée."))
                 : ListView.builder(
-                    itemCount: displayedReservations.length,
+                    controller: _reservationsScrollController,
+                    itemCount:
+                        displayedReservations.length +
+                        (_isLoadingMore || _currentPage < _lastPage ? 1 : 0),
                     itemBuilder: (context, index) {
+                      if (index >= displayedReservations.length) {
+                        return Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Center(
+                            child: _isLoadingMore
+                                ? const CircularProgressIndicator()
+                                : Text(
+                                    'Affichage de ${_reservations.length} sur $_totalReservations réservations',
+                                  ),
+                          ),
+                        );
+                      }
                       final res = Map<String, dynamic>.from(
                         displayedReservations[index] as Map,
                       );

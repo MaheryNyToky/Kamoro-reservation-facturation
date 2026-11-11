@@ -2,20 +2,18 @@
 
 namespace App\Services;
 
-use App\Models\Reservation;
 use App\Models\Invoice;
+use App\Models\Reservation;
 use App\Models\Room;
 use Carbon\Carbon;
-use Carbon\CarbonPeriod;
 use GuzzleHttp\Client;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class YieldService
 {
-    public function __construct(private readonly AvailabilityService $availabilityService)
-    {
-    }
+    public function __construct(private readonly AvailabilityService $availabilityService) {}
 
     public function predictions(int $days, string $startDate): array
     {
@@ -31,7 +29,7 @@ class YieldService
             $response = (new Client([
                 'connect_timeout' => 1.0,
                 'timeout' => 3.0,
-            ]))->post(config('services.ai_engine.url') . '/predict', [
+            ]))->post(config('services.ai_engine.url').'/predict', [
                 'json' => [
                     'base_prices' => $basePrices,
                     'days_to_predict' => $days,
@@ -96,33 +94,38 @@ class YieldService
             ->with('rooms')
             ->get();
 
-        $rows = [];
+        $daily = [];
         for ($i = 0; $i < $days; $i++) {
             $date = date('Y-m-d', strtotime("$startDate +$i days"));
-            $fixedRevenue = 0;
-            $aiRevenue = 0;
-            $roomCount = 0;
+            $daily[$date] = ['room_count' => 0, 'fixed_revenue_ariary' => 0, 'ai_revenue_ariary' => 0];
+        }
 
-            foreach ($reservations as $reservation) {
-                $cIn = substr((string) $reservation->check_in_date, 0, 10);
-                $cOut = substr((string) $reservation->check_out_date, 0, 10);
-                if ($cIn <= $date && $cOut > $date) {
-                    foreach ($reservation->rooms as $room) {
-                        $roomCount++;
-                        $fixedRevenue += (int) $room->base_price_ariary;
-                        $aiRevenue += (int) ($priceIndex[$date][$room->identifier] ?? $room->base_price_ariary);
-                    }
-                }
+        $periodEnd = date('Y-m-d', strtotime("$startDate +$days days"));
+        foreach ($reservations as $reservation) {
+            $stayStart = max(substr((string) $reservation->check_in_date, 0, 10), $startDate);
+            $stayEnd = min(substr((string) $reservation->check_out_date, 0, 10), $periodEnd);
+            if ($stayStart >= $stayEnd) {
+                continue;
             }
 
-            $rows[] = [
-                'date' => $date,
-                'room_count' => $roomCount,
-                'fixed_revenue_ariary' => $fixedRevenue,
-                'ai_revenue_ariary' => $aiRevenue,
-                'delta_ariary' => $aiRevenue - $fixedRevenue,
-            ];
+            foreach ($reservation->rooms as $room) {
+                for ($cur = strtotime($stayStart); $cur < strtotime($stayEnd); $cur += 86400) {
+                    $date = date('Y-m-d', $cur);
+                    $fixedPrice = (int) $room->base_price_ariary;
+                    $daily[$date]['room_count']++;
+                    $daily[$date]['fixed_revenue_ariary'] += $fixedPrice;
+                    $daily[$date]['ai_revenue_ariary'] += (int) ($priceIndex[$date][$room->identifier] ?? $fixedPrice);
+                }
+            }
         }
+
+        $rows = array_map(function (string $date, array $totals): array {
+            return [
+                'date' => $date,
+                ...$totals,
+                'delta_ariary' => $totals['ai_revenue_ariary'] - $totals['fixed_revenue_ariary'],
+            ];
+        }, array_keys($daily), array_values($daily));
 
         return [
             'status' => 'success',
@@ -139,6 +142,17 @@ class YieldService
     }
 
     private function historyData(): array
+    {
+        $cacheVersion = $this->availabilityService->getCacheVersion();
+
+        return Cache::remember(
+            "yield:history-data:$cacheVersion",
+            now()->addMinutes(5),
+            fn () => $this->loadHistoryData(),
+        );
+    }
+
+    private function loadHistoryData(): array
     {
         $bookingRooms = DB::table('booking_room')
             ->join('reservations', 'reservations.id', '=', 'booking_room.reservation_id')
@@ -158,13 +172,13 @@ class YieldService
         foreach ($bookingRooms as $bookingRoom) {
             $sTs = strtotime(substr((string) $bookingRoom->segment_start_date, 0, 10));
             $eTs = strtotime(substr((string) $bookingRoom->segment_end_date, 0, 10));
-            $roomType = trim(($bookingRoom->room_type ?? '') . ' - ' . ($bookingRoom->room_model ?? ''));
+            $roomType = trim(($bookingRoom->room_type ?? '').' - '.($bookingRoom->room_model ?? ''));
             $roomId = (int) $bookingRoom->room_id;
 
             for ($cur = $sTs; $cur < $eTs; $cur += 86400) {
                 $date = date('Y-m-d', $cur);
-                $key = $date . '|' . $roomType;
-                if (!isset($grouped[$key])) {
+                $key = $date.'|'.$roomType;
+                if (! isset($grouped[$key])) {
                     $grouped[$key] = [
                         'date' => $date,
                         'room_type' => $roomType,
@@ -211,11 +225,10 @@ class YieldService
         int $days,
         string $startDate,
         ?array $occupancyIndex = null,
-    ): array
-    {
+    ): array {
         $occupancyIndex ??= $this->availabilityService->occupancyIndexForPeriod($startDate, $days);
 
-        if (!isset($data['results'])) {
+        if (! isset($data['results'])) {
             return $data;
         }
 
@@ -226,7 +239,7 @@ class YieldService
             }
 
             foreach ($predictions as $prediction) {
-                if ($prediction['date'] === $startDate && !empty($prediction['base_price'])) {
+                if ($prediction['date'] === $startDate && ! empty($prediction['base_price'])) {
                     $maxMultiplier = max($maxMultiplier, $prediction['suggested_price_ariary'] / $prediction['base_price']);
                 }
             }
@@ -238,7 +251,7 @@ class YieldService
             foreach ($predictions as &$prediction) {
                 $adjustedPrice = $basePrice;
 
-                if (!$isFixedPrice) {
+                if (! $isFixedPrice) {
                     $realGlobalOccupancy = $occupancyIndex['global'][$prediction['date']] ?? 0;
                     $realMultiplier = $this->realTimeMultiplier($realGlobalOccupancy);
                     $finalMultiplier = min(1.15, max($realMultiplier, $maxMultiplier));
@@ -324,7 +337,7 @@ class YieldService
         foreach ($results as $category => $predictions) {
             foreach ($predictions as $prediction) {
                 $date = $prediction['date'] ?? null;
-                if (!$date) {
+                if (! $date) {
                     continue;
                 }
 
@@ -351,9 +364,9 @@ class YieldService
             $globalOccupancy >= 19 => 1.09,
             $globalOccupancy >= 15 => 1.075,
             $globalOccupancy >= 11 => 1.06,
-            $globalOccupancy >= 7  => 1.045,
-            $globalOccupancy >= 4  => 1.03,
-            $globalOccupancy >= 2  => 1.015,
+            $globalOccupancy >= 7 => 1.045,
+            $globalOccupancy >= 4 => 1.03,
+            $globalOccupancy >= 2 => 1.015,
             default => 1.0,
         };
     }

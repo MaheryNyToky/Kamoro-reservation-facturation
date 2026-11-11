@@ -41,8 +41,6 @@ services:
     build:
       context: .
       dockerfile: docker/frontend/Dockerfile
-      args:
-        KAMORO_SOURCE_REV: ${KAMORO_SOURCE_REV:-local}
     ports:
       - "8080:80"
     depends_on:

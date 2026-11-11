@@ -5,7 +5,6 @@ namespace App\Services;
 use App\Models\Reservation;
 use App\Models\Room;
 use Carbon\Carbon;
-use Carbon\CarbonPeriod;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -50,8 +49,7 @@ class AvailabilityService
         string $checkOut,
         array $statuses = Reservation::ACTIVE_STATUSES,
         ?int $excludeReservationId = null,
-    ): Collection
-    {
+    ): Collection {
         return Room::query()
             ->whereExists(function ($query) use ($checkIn, $checkOut, $statuses, $excludeReservationId) {
                 $query->selectRaw('1')
@@ -79,7 +77,7 @@ class AvailabilityService
                     ->orderBy('type')
                     ->orderBy('model')
                     ->get()
-                    ->groupBy(fn (Room $room) => $room->type . ' (' . $room->model . ')')
+                    ->groupBy(fn (Room $room) => $room->type.' ('.$room->model.')')
                     ->sortBy(fn (Collection $rooms) => $this->roomCategorySortKey($rooms->first()))
                     ->map(function (Collection $rooms) use ($occupiedRoomIds) {
                         $first = $rooms->first();
@@ -241,8 +239,8 @@ class AvailabilityService
                     'is_fully_available' => count($freeSegments) === 1
                         && ($freeSegments[0]['segment_start_date'] ?? null) === $periodStart->toDateString()
                         && ($freeSegments[0]['segment_end_date'] ?? null) === $periodEnd->toDateString(),
-                    'has_partial_availability' => !empty($freeSegments)
-                        && !(
+                    'has_partial_availability' => ! empty($freeSegments)
+                        && ! (
                             count($freeSegments) === 1
                             && ($freeSegments[0]['segment_start_date'] ?? null) === $periodStart->toDateString()
                             && ($freeSegments[0]['segment_end_date'] ?? null) === $periodEnd->toDateString()
@@ -276,11 +274,11 @@ class AvailabilityService
 
     private function roomCategorySortKey(?Room $room): array
     {
-        if (!$room) {
+        if (! $room) {
             return [99, '', ''];
         }
 
-        $label = mb_strtolower(trim($room->type . ' ' . $room->model));
+        $label = mb_strtolower(trim($room->type.' '.$room->model));
         $order = 99;
 
         if (str_contains($label, 'double')) {
@@ -303,43 +301,53 @@ class AvailabilityService
         int $days,
         array $statuses = Reservation::ACTIVE_STATUSES,
     ): array {
+        $cacheVersion = $this->cacheVersion();
+        $cacheKey = 'yield:occupancy-index:'.$cacheVersion.':'.$startDate.':'.$days.':'.implode(',', $statuses);
+
+        return Cache::remember($cacheKey, now()->addMinutes(5), function () use ($startDate, $days, $statuses) {
+            return $this->buildOccupancyIndex($startDate, $days, $statuses);
+        });
+    }
+
+    private function buildOccupancyIndex(string $startDate, int $days, array $statuses): array
+    {
         $start = Carbon::parse($startDate)->startOfDay();
         $end = $start->copy()->addDays(max(1, $days));
         $index = [];
         $global = [];
 
-        Reservation::query()
-            ->with('rooms')
-            ->whereIn('status', $statuses)
-            ->where('check_in_date', '<', $end->toDateString())
-            ->where('check_out_date', '>', $start->toDateString())
-            ->get()
-            ->each(function (Reservation $reservation) use ($start, $end, &$index, &$global) {
-                $sDate = substr((string) $reservation->check_in_date, 0, 10);
-                $eDate = substr((string) $reservation->check_out_date, 0, 10);
-                $startStr = $start->toDateString();
-                $endStr = $end->toDateString();
+        $startDateString = $start->toDateString();
+        $endDateString = $end->toDateString();
+        $bookingRooms = DB::table('booking_room')
+            ->join('reservations', 'reservations.id', '=', 'booking_room.reservation_id')
+            ->join('rooms', 'rooms.id', '=', 'booking_room.room_id')
+            ->whereIn('reservations.status', $statuses)
+            ->whereRaw('COALESCE(booking_room.segment_start_date, reservations.check_in_date) < ?', [$endDateString])
+            ->whereRaw('COALESCE(booking_room.segment_end_date, reservations.check_out_date) > ?', [$startDateString])
+            ->select([
+                'rooms.type as room_type',
+                'rooms.model as room_model',
+                DB::raw('COALESCE(booking_room.segment_start_date, reservations.check_in_date) as segment_start_date'),
+                DB::raw('COALESCE(booking_room.segment_end_date, reservations.check_out_date) as segment_end_date'),
+            ])
+            ->get();
 
-                $periodStart = $sDate > $startStr ? $sDate : $startStr;
-                $periodEnd = $eDate < $endStr ? $eDate : $endStr;
+        foreach ($bookingRooms as $bookingRoom) {
+            $segmentStart = substr((string) $bookingRoom->segment_start_date, 0, 10);
+            $segmentEnd = substr((string) $bookingRoom->segment_end_date, 0, 10);
+            $periodStart = max($segmentStart, $startDateString);
+            $periodEnd = min($segmentEnd, $endDateString);
+            if ($periodStart >= $periodEnd) {
+                continue;
+            }
 
-                if ($periodStart >= $periodEnd) {
-                    return;
-                }
-
-                $sTs = strtotime($periodStart);
-                $eTs = strtotime($periodEnd);
-
-                for ($cur = $sTs; $cur < $eTs; $cur += 86400) {
-                    $dateKey = date('Y-m-d', $cur);
-
-                    foreach ($reservation->rooms as $room) {
-                        $identifier = $room->identifier;
-                        $index[$dateKey][$identifier] = ($index[$dateKey][$identifier] ?? 0) + 1;
-                        $global[$dateKey] = ($global[$dateKey] ?? 0) + 1;
-                    }
-                }
-            });
+            for ($cur = strtotime($periodStart); $cur < strtotime($periodEnd); $cur += 86400) {
+                $dateKey = date('Y-m-d', $cur);
+                $identifier = $bookingRoom->room_type.' - '.$bookingRoom->room_model;
+                $index[$dateKey][$identifier] = ($index[$dateKey][$identifier] ?? 0) + 1;
+                $global[$dateKey] = ($global[$dateKey] ?? 0) + 1;
+            }
+        }
 
         return [
             'by_category' => $index,

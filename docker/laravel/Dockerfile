@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 FROM php:8.4-cli
 
 WORKDIR /app
@@ -25,16 +26,18 @@ RUN curl --retry 5 --retry-all-errors --connect-timeout 30 -fsSL \
     && rm /tmp/composer-setup.php
 
 COPY hestiapredict/composer.json hestiapredict/composer.lock ./
-RUN composer install --no-dev --no-interaction --prefer-source --optimize-autoloader --no-scripts
+RUN --mount=type=cache,target=/tmp/composer-cache,sharing=locked \
+    COMPOSER_CACHE_DIR=/tmp/composer-cache composer install \
+        --no-dev --no-interaction --prefer-dist --optimize-autoloader --no-scripts
 
+COPY --exclude=database/*.sqlite --exclude=database/*.sqlite-* --exclude=database/backups/** --exclude=storage/** hestiapredict/ ./
 COPY *.png ./
-COPY hestiapredict/ ./
 RUN set -eux; \
     logo="$(find . -maxdepth 1 -type f -name 'Capture*.png' | head -n 1)"; \
     if [ -z "$logo" ]; then logo="$(find . -maxdepth 1 -type f -name '*.png' ! -name 'Signature .png' ! -name 'Signature.png' | head -n 1)"; fi; \
     test -n "$logo"; \
     cp "$logo" public/logo.png
-RUN composer dump-autoload --optimize \
+RUN composer dump-autoload --no-dev --optimize \
     && mkdir -p storage/logs storage/framework/cache storage/framework/sessions storage/framework/views bootstrap/cache \
     && chmod -R 775 storage bootstrap/cache
 

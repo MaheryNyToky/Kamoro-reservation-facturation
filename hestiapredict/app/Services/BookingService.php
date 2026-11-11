@@ -2,15 +2,14 @@
 
 namespace App\Services;
 
+use App\Models\Organization;
+use App\Models\Payment;
 use App\Models\Reservation;
 use App\Models\ReservationAudit;
-use App\Models\Payment;
-use App\Models\Organization;
 use App\Models\Room;
 use App\Models\User;
 use App\Support\PhoneNumber;
 use Carbon\Carbon;
-use Carbon\CarbonPeriod;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -20,19 +19,20 @@ use Illuminate\Validation\ValidationException;
 class BookingService
 {
     private const BOOKING_ROOM_PRICE_ARIARY = 162500;
+
     private const MAX_EXTRA_BEDS_PER_NIGHT = 6;
+
     private const MAX_EXTRA_MATTRESSES_PER_NIGHT = 6;
 
     public function __construct(
         private readonly AvailabilityService $availabilityService,
-    ) {
-    }
+    ) {}
 
     public function createBooking(array $data): array
     {
         return DB::transaction(function () use ($data) {
             $userId = null;
-            if (!empty($data['receptionist_name'])) {
+            if (! empty($data['receptionist_name'])) {
                 $userId = User::query()
                     ->where('name', $data['receptionist_name'])
                     ->value('id');
@@ -128,7 +128,7 @@ class BookingService
 
         if ($conflictingRoomNumbers->isNotEmpty()) {
             throw ValidationException::withMessages([
-                'room_ids' => 'Chambre(s) déjà occupée(s) : ' . $conflictingRoomNumbers->implode(', '),
+                'room_ids' => 'Chambre(s) déjà occupée(s) : '.$conflictingRoomNumbers->implode(', '),
             ]);
         }
 
@@ -145,7 +145,7 @@ class BookingService
 
             if ($invalidBookingRoomNumbers->isNotEmpty()) {
                 throw ValidationException::withMessages([
-                    'room_ids' => 'Booking est limité aux chambres doubles supérieures : ' . $invalidBookingRoomNumbers->implode(', '),
+                    'room_ids' => 'Booking est limité aux chambres doubles supérieures : '.$invalidBookingRoomNumbers->implode(', '),
                 ]);
             }
         }
@@ -167,7 +167,7 @@ class BookingService
             'customer_phone' => $customerPhone,
             'customer_email' => $data['customer_email'] ?? null,
             'organization_id' => $organization?->id,
-            'booking_reference' => 'RES-' . strtoupper(bin2hex(random_bytes(3))),
+            'booking_reference' => 'RES-'.strtoupper(bin2hex(random_bytes(3))),
             'booking_type' => $organization ? 'organization' : 'individual',
             'billing_mode' => $billingMode,
             'source' => $source,
@@ -247,11 +247,11 @@ class BookingService
     {
         $reservation = Reservation::query()
             ->with(['invoice'])
-            ->when(!empty($data['id']), fn ($query) => $query->where('id', $data['id']))
-            ->when(empty($data['id']) && !empty($data['reference']), fn ($query) => $query->where('booking_reference', $data['reference']))
+            ->when(! empty($data['id']), fn ($query) => $query->where('id', $data['id']))
+            ->when(empty($data['id']) && ! empty($data['reference']), fn ($query) => $query->where('booking_reference', $data['reference']))
             ->first();
 
-        if (!$reservation) {
+        if (! $reservation) {
             return null;
         }
 
@@ -265,7 +265,7 @@ class BookingService
 
         if (
             $status === 'annule'
-            && !in_array($data['cancelled_by_role'] ?? null, ['admin', 'superadmin'], true)
+            && ! in_array($data['cancelled_by_role'] ?? null, ['admin', 'superadmin'], true)
             && ($reservation->status === 'arrive' || $this->reservationHasAdvancePayment($reservation))
         ) {
             throw ValidationException::withMessages([
@@ -309,7 +309,7 @@ class BookingService
         $reservation->loadMissing('invoice');
         $invoice = $reservation->invoice;
 
-        if (!$invoice) {
+        if (! $invoice) {
             return false;
         }
 
@@ -324,7 +324,7 @@ class BookingService
             ->with('rooms')
             ->find($id);
 
-        if (!$reservation) {
+        if (! $reservation) {
             return null;
         }
 
@@ -353,7 +353,7 @@ class BookingService
             ]);
         }
 
-        if ($isFinished && !$isRetroactiveAdminExtension) {
+        if ($isFinished && ! $isRetroactiveAdminExtension) {
             throw ValidationException::withMessages([
                 'reservation' => $isAdmin && $isCheckedIn
                     ? 'Après la fin du séjour, seule une prolongation corrective de la date de départ est autorisée.'
@@ -461,18 +461,18 @@ class BookingService
             }
             if (
                 Carbon::parse($checkOut)->lt(Carbon::parse($currentCheckOut))
-                && !$isAdminStayShortening
+                && ! $isAdminStayShortening
             ) {
                 $blockedChanges[] = 'check_out';
             }
 
-            if (!empty($blockedChanges)) {
+            if (! empty($blockedChanges)) {
                 throw ValidationException::withMessages([
                     'reservation' => 'Après check-in, seules les chambres, les suppléments et une prolongation de séjour peuvent être modifiés.',
                 ]);
             }
 
-            if (!$isRetroactiveAdminExtension && !$isAdminStayShortening) {
+            if (! $isRetroactiveAdminExtension && ! $isAdminStayShortening) {
                 $roomSegments = $this->retainConsumedRoomSegments($reservation, $roomSegments);
             }
         }
@@ -485,7 +485,7 @@ class BookingService
 
         if ($conflictingRoomNumbers->isNotEmpty()) {
             throw ValidationException::withMessages([
-                'room_ids' => 'Chambre(s) déjà occupée(s) : ' . $conflictingRoomNumbers->implode(', '),
+                'room_ids' => 'Chambre(s) déjà occupée(s) : '.$conflictingRoomNumbers->implode(', '),
             ]);
         }
 
@@ -502,7 +502,7 @@ class BookingService
 
             if ($invalidBookingRoomNumbers->isNotEmpty()) {
                 throw ValidationException::withMessages([
-                    'room_ids' => 'Booking est limité aux chambres doubles supérieures : ' . $invalidBookingRoomNumbers->implode(', '),
+                    'room_ids' => 'Booking est limité aux chambres doubles supérieures : '.$invalidBookingRoomNumbers->implode(', '),
                 ]);
             }
         }
@@ -521,7 +521,7 @@ class BookingService
             $reservation->id,
         );
 
-        return DB::transaction(function () use ($reservation, $data, $roomIds, $isCheckedIn, $isRetroactiveAdminExtension, $isAdminStayShortening, $roomSegments, $hasCustomSegments, $checkOut) {
+        return DB::transaction(function () use ($reservation, $data, $isCheckedIn, $isRetroactiveAdminExtension, $isAdminStayShortening, $roomSegments, $hasCustomSegments, $checkOut) {
             $customerPhone = PhoneNumber::normalize($data['customer_phone'] ?? null);
             $previousPivots = $reservation->rooms
                 ->mapWithKeys(fn (Room $room) => [$room->id => $this->pivotSnapshot($room)]);
@@ -548,7 +548,7 @@ class BookingService
                     : (int) ($data['extra_mattresses'] ?? 0),
             ];
 
-            if (!$isCheckedIn) {
+            if (! $isCheckedIn) {
                 $updateData = array_merge($updateData, [
                     'client_name' => $data['client_name'],
                     'client_phone' => $customerPhone ?? '000000000',
@@ -567,7 +567,7 @@ class BookingService
                 $updateData['extra_mattresses']
             );
 
-            if (!$isCheckedIn) {
+            if (! $isCheckedIn) {
                 $registerChange('client_name', $reservation->client_name, $data['client_name']);
                 $registerChange(
                     'customer_phone',
@@ -606,7 +606,7 @@ class BookingService
                 $this->syncRoomSegments($reservation, $roomSegments, $previousPivots);
             }
 
-            if (!empty($changeSet)) {
+            if (! empty($changeSet)) {
                 ReservationAudit::create([
                     'reservation_id' => $reservation->id,
                     'action' => 'modified',
@@ -1028,7 +1028,7 @@ class BookingService
         foreach ($segments as $segment) {
             $roomId = (int) $segment['room_id'];
             $room = $rooms->get($roomId);
-            if (!$room instanceof Room) {
+            if (! $room instanceof Room) {
                 continue;
             }
 
@@ -1047,8 +1047,23 @@ class BookingService
         }
     }
 
-    public function reservationsForDate(?string $date, string $statusFilter = 'all'): Collection
-    {
+    public function reservationsForDate(
+        ?string $date,
+        string $statusFilter = 'all',
+        ?string $checkOutFrom = null,
+        ?string $checkOutTo = null,
+    ): Collection {
+        return $this->reservationsForDateQuery($date, $statusFilter, $checkOutFrom, $checkOutTo)
+            ->get()
+            ->map(fn (Reservation $reservation) => $this->formatReservation($reservation));
+    }
+
+    public function reservationsForDateQuery(
+        ?string $date,
+        string $statusFilter = 'all',
+        ?string $checkOutFrom = null,
+        ?string $checkOutTo = null,
+    ) {
         return Reservation::query()
             ->with([
                 'rooms',
@@ -1067,6 +1082,8 @@ class BookingService
                 $query->where('check_in_date', '<=', $date)
                     ->where('check_out_date', '>=', $date);
             })
+            ->when($checkOutFrom, fn ($query) => $query->where('check_out_date', '>=', $checkOutFrom))
+            ->when($checkOutTo, fn ($query) => $query->where('check_out_date', '<=', $checkOutTo))
             ->when($statusFilter === 'pending', fn ($query) => $query->where('status', 'en_attente'))
             ->when($statusFilter === 'unpaid', function ($query) {
                 $query->where('status', 'arrive')
@@ -1087,9 +1104,7 @@ class BookingService
             ->orderBy('check_in_date')
             ->orderBy('created_at')
             ->orderBy('client_name')
-            ->orderBy('id')
-            ->get()
-            ->map(fn (Reservation $reservation) => $this->formatReservation($reservation));
+            ->orderBy('id');
     }
 
     public function activeReservations(string $date): Collection
@@ -1141,19 +1156,19 @@ class BookingService
     {
         $phones = $reservations->pluck('customer_phone')
             ->merge($reservations->pluck('client_phone'))
-            ->filter(fn ($v) => !empty(trim((string) $v)))
+            ->filter(fn ($v) => ! empty(trim((string) $v)))
             ->unique()
             ->values()
             ->all();
 
         $emails = $reservations->pluck('customer_email')
-            ->filter(fn ($v) => !empty(trim((string) $v)))
+            ->filter(fn ($v) => ! empty(trim((string) $v)))
             ->unique()
             ->values()
             ->all();
 
         $names = $reservations->pluck('client_name')
-            ->filter(fn ($v) => !empty(trim((string) $v)))
+            ->filter(fn ($v) => ! empty(trim((string) $v)))
             ->unique()
             ->values()
             ->all();
@@ -1165,13 +1180,13 @@ class BookingService
         $candidates = Reservation::query()
             ->where('status', '!=', 'annule')
             ->where(function ($q) use ($phones, $emails, $names) {
-                if (!empty($phones)) {
+                if (! empty($phones)) {
                     $q->whereIn('customer_phone', $phones)->orWhereIn('client_phone', $phones);
                 }
-                if (!empty($emails)) {
+                if (! empty($emails)) {
                     $q->orWhereIn('customer_email', $emails);
                 }
-                if (!empty($names)) {
+                if (! empty($names)) {
                     $q->orWhereIn('client_name', $names);
                 }
             })
@@ -1204,6 +1219,7 @@ class BookingService
         }
 
         $counts = $this->precomputeVisitCountsForReservations(collect([$reservation]));
+
         return $counts[$sig] ?? 0;
     }
 
@@ -1212,8 +1228,8 @@ class BookingService
         $reservation->loadMissing(['invoice.items']);
         $rooms = $reservation->rooms;
         $groupedRooms = $rooms
-            ->groupBy(fn (Room $room) => $room->type . ' ' . $room->model)
-            ->map(fn (Collection $group) => $group->count() . 'x ' . $group->first()->type . ' (' . $group->first()->model . ')')
+            ->groupBy(fn (Room $room) => $room->type.' '.$room->model)
+            ->map(fn (Collection $group) => $group->count().'x '.$group->first()->type.' ('.$group->first()->model.')')
             ->values()
             ->implode(', ');
         $roomNumbers = $rooms
@@ -1471,7 +1487,8 @@ class BookingService
                     }
 
                     $quantity = max(1, (int) $item->quantity);
-                    return $quantity > 1 ? $description . ' x' . $quantity : $description;
+
+                    return $quantity > 1 ? $description.' x'.$quantity : $description;
                 })
                 ->filter()
                 ->values()
@@ -1479,11 +1496,11 @@ class BookingService
             : [];
 
         $parts = [];
-        if (!empty($roomLabels)) {
-            $parts[] = 'Chambres ' . implode(', ', $roomLabels);
+        if (! empty($roomLabels)) {
+            $parts[] = 'Chambres '.implode(', ', $roomLabels);
         }
-        if (!empty($extraLabels)) {
-            $parts[] = 'Extras ' . implode(', ', $extraLabels);
+        if (! empty($extraLabels)) {
+            $parts[] = 'Extras '.implode(', ', $extraLabels);
         }
 
         return $parts !== [] ? implode(' | ', $parts) : 'N/A';

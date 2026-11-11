@@ -122,9 +122,17 @@ class _PaymentSummaryPageState extends State<PaymentSummaryPage> {
       });
     }
 
-    const cacheKey = 'payment_summary:reservations_all';
+    final cacheKey = 'payment_summary:reservations:$_dateKey';
     try {
-      final query = const {'date': 'all', 'status': 'all'};
+      final query = {
+        'date': 'all',
+        'status': 'all',
+        'check_out_from': _normalizedStartDate.toIso8601String().substring(
+          0,
+          10,
+        ),
+        'check_out_to': _normalizedEndDate.toIso8601String().substring(0, 10),
+      };
       http.Response? response;
       Object? lastError;
 
@@ -685,6 +693,7 @@ class _PaymentSummaryPageState extends State<PaymentSummaryPage> {
                                   _selectedMethod = 'Tous';
                                   _selectedProcessor = 'Tous';
                                 });
+                                _fetchReservations();
                               }
                             },
                             icon: const Icon(Icons.calendar_today_outlined),
